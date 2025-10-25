@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TaskSpec v0.1",
+  "type": "object",
+  "required": ["target", "grid", "sections"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "properties": {
+        "specVersion": { "type": "string" },
+        "id": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["fileId", "pageName"],
+      "properties": {
+        "fileId": { "type": "string" },
+        "pageName": { "type": "string" },
+        "frameName": { "type": "string" },
+        "frameSize": {
+          "type": "object",
+          "properties": { "w": { "type": "integer" }, "h": { "type": "integer" } }
+        }
+      }
+    },
+    "grid": {
+      "type": "object",
+      "required": ["container", "columns", "gap"],
+      "properties": {
+        "container": { "type": "integer" },
+        "columns": { "type": "integer" },
+        "gap": { "type": "integer" },
+        "margins": { "type": "integer" }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "properties": {
+        "fontFamily": { "type": "string" },
+        "fontScale": { "type": "array", "items": { "type": "integer" } },
+        "colors": { "type": "object", "additionalProperties": { "type": "string" } },
+        "variables": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": { "type": "string", "enum": ["hero", "features", "cta", "footer", "custom"] },
+          "name": { "type": "string" },
+          "layout": { "type": "string" },
+          "padding": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 2,
+            "maxItems": 4
+          },
+          "spacing": { "type": "integer" },
+          "content": { "type": "object" },
+          "constraints": { "type": "object" }
+        }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "properties": {
+        "maxSpacingDeviation": { "type": "integer", "default": 2 },
+        "checkAutoLayout": { "type": "boolean", "default": true },
+        "checkVariables": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}
