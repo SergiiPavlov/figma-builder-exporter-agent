@@ -72,12 +72,15 @@ function buildSections(root, spec) {
     s.resize(innerWidth, 10);
     root.appendChild(s);
 
+    // >>> изменено: для grid-* используем section.spacing (если есть), иначе grid.gap
     if (section.layout && String(section.layout).indexOf("grid-")===0){
       var n = parseInt(String(section.layout).split("-")[1] || "3", 10);
-      s.layoutMode = "HORIZONTAL";
-      s.itemSpacing = gap;
 
-      var available = innerWidth - gap * (n - 1);
+      var gapForSection = (typeof section.spacing === "number") ? section.spacing : gap;
+      s.layoutMode = "HORIZONTAL";
+      s.itemSpacing = gapForSection;
+
+      var available = innerWidth - gapForSection * (n - 1);
       var colW = Math.max(10, Math.floor(available / n));
 
       for (var j=0;j<n;j++){
