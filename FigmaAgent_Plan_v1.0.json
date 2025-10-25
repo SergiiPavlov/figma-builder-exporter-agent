@@ -1,0 +1,683 @@
+{
+  "meta": {
+    "name": "Figma Builder+Exporter Agent (TaskSpec → Figma Plugin → ExportSpec)",
+    "version": "1.0",
+    "created_at": "2025-10-25",
+    "timezone": "Europe/Kyiv",
+    "language": "ru",
+    "owner": "Серж (проект)",
+    "editor_note": "Этот файл — источник правды. Сохраняем в Git. Любые изменения — через bump версии и changelog."
+  },
+  "principles": [
+    "Бесплатно или почти бесплатно: опираться на Figma Plugin API/REST, локальный агент/LLM.",
+    "Plugin-first: редактирование/построение только плагином (не кликами по пикселям).",
+    "Deterministic-by-default: все параметры (padding/spacing/layoutMode/constraints/variables) в явном виде.",
+    "No VLM: без скриншотов и зрительных токенов в MVP.",
+    "Reproducibility: входной TaskSpec однозначно воспроизводит результат в Figma.",
+    "Auditability: логи шагов и экспортируемые артефакты (ExportSpec.json)."
+  ],
+  "architecture": {
+    "components": [
+      {
+        "id": "gpt_director",
+        "name": "Custom GPT «Figma Director»",
+        "role": "Формирует TaskSpec, вызывает Actions, получает ExportSpec, ведёт диалог с пользователем."
+      },
+      {
+        "id": "relay",
+        "name": "Локальный Relay",
+        "role": "Очередь задач и результатов. Принимает TaskSpec от GPT, отдаёт их плагину; собирает ExportSpec от плагина."
+      },
+      {
+        "id": "figma_plugin",
+        "name": "Figma Plugin «Builder+Exporter»",
+        "role": "Строит страницы по TaskSpec, включает Auto Layout, применяет стили/переменные; экспортирует ExportSpec."
+      },
+      {
+        "id": "figma_rest",
+        "name": "Figma REST (опционально)",
+        "role": "Чтение превью/метаданных/версий при необходимости. Редактирование — только через плагин."
+      }
+    ],
+    "data_flows": [
+      "User → GPT: естественная задача → GPT формирует TaskSpec",
+      "GPT → Relay: POST /tasks (TaskSpec)",
+      "Plugin → Relay: GET /tasks/pull → выполняет → POST /results (ExportSpec)",
+      "GPT → Relay: GET /tasks/{id}/result → получает ExportSpec",
+      "ExportSpec → верстка/генерация кода (вне MVP)"
+    ]
+  },
+  "task_spec_schema_v0_1": {
+    "type": "object",
+    "required": [
+      "target",
+      "grid",
+      "sections"
+    ],
+    "properties": {
+      "meta": {
+        "type": "object",
+        "properties": {
+          "specVersion": {
+            "type": "string",
+            "example": "0.1"
+          },
+          "id": {
+            "type": "string",
+            "description": "Человеко-понятный ID задачи"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "target": {
+        "type": "object",
+        "required": [
+          "fileId",
+          "pageName"
+        ],
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "pageName": {
+            "type": "string"
+          },
+          "frameName": {
+            "type": "string",
+            "description": "Имя корневого фрейма страницы, например 'Landing/Home'"
+          },
+          "frameSize": {
+            "type": "object",
+            "properties": {
+              "w": {
+                "type": "integer"
+              },
+              "h": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "grid": {
+        "type": "object",
+        "required": [
+          "container",
+          "columns",
+          "gap"
+        ],
+        "properties": {
+          "container": {
+            "type": "integer",
+            "example": 1200
+          },
+          "columns": {
+            "type": "integer",
+            "example": 12
+          },
+          "gap": {
+            "type": "integer",
+            "example": 24
+          },
+          "margins": {
+            "type": "integer",
+            "example": 24
+          }
+        }
+      },
+      "tokens": {
+        "type": "object",
+        "properties": {
+          "fontFamily": {
+            "type": "string",
+            "example": "Inter"
+          },
+          "fontScale": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "example": [
+              12,
+              14,
+              16,
+              18,
+              24,
+              32,
+              48,
+              64
+            ]
+          },
+          "colors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "primary": "#6C5CE7",
+              "text": "#111827"
+            }
+          },
+          "variables": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "sections": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "hero",
+                "features",
+                "cta",
+                "footer",
+                "custom"
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "layout": {
+              "type": "string",
+              "example": "grid-3|grid-4|stack"
+            },
+            "padding": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 2,
+              "maxItems": 4,
+              "example": [
+                64,
+                24
+              ]
+            },
+            "spacing": {
+              "type": "integer",
+              "example": 32
+            },
+            "content": {
+              "type": "object",
+              "description": "Свободная структура для текста/изображений/иконок/кнопок"
+            },
+            "constraints": {
+              "type": "object",
+              "description": "Особые правила/ограничения для секции"
+            }
+          }
+        }
+      },
+      "acceptance": {
+        "type": "object",
+        "properties": {
+          "maxSpacingDeviation": {
+            "type": "integer",
+            "default": 2
+          },
+          "checkAutoLayout": {
+            "type": "boolean",
+            "default": true
+          },
+          "checkVariables": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    },
+    "example": {
+      "meta": {
+        "specVersion": "0.1",
+        "id": "landing-v1"
+      },
+      "target": {
+        "fileId": "FIGMA_FILE_ID",
+        "pageName": "Landing",
+        "frameName": "Home",
+        "frameSize": {
+          "w": 1440,
+          "h": 1024
+        }
+      },
+      "grid": {
+        "container": 1200,
+        "columns": 12,
+        "gap": 24,
+        "margins": 24
+      },
+      "tokens": {
+        "fontFamily": "Inter",
+        "colors": {
+          "primary": "#6C5CE7",
+          "text": "#111827"
+        }
+      },
+      "sections": [
+        {
+          "type": "hero",
+          "name": "Hero",
+          "padding": [
+            64,
+            24
+          ],
+          "spacing": 24,
+          "layout": "stack",
+          "content": {
+            "title": "Заголовок",
+            "subtitle": "Подзаголовок",
+            "cta": "Купить"
+          }
+        },
+        {
+          "type": "features",
+          "name": "Преимущества",
+          "layout": "grid-3",
+          "spacing": 32,
+          "content": {
+            "items": [
+              {
+                "title": "Быстро"
+              },
+              {
+                "title": "Дёшево"
+              },
+              {
+                "title": "Точно"
+              }
+            ]
+          }
+        },
+        {
+          "type": "cta",
+          "name": "Призыв",
+          "padding": [
+            48,
+            24
+          ],
+          "content": {
+            "text": "Начать сейчас",
+            "button": "Попробовать"
+          }
+        },
+        {
+          "type": "footer",
+          "name": "Подвал",
+          "padding": [
+            48,
+            24
+          ]
+        }
+      ],
+      "acceptance": {
+        "maxSpacingDeviation": 2,
+        "checkAutoLayout": true
+      }
+    }
+  },
+  "export_spec_schema_v0_1": {
+    "type": "object",
+    "required": [
+      "target",
+      "nodes"
+    ],
+    "properties": {
+      "target": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "pageName": {
+            "type": "string"
+          },
+          "frameId": {
+            "type": "string"
+          },
+          "frameName": {
+            "type": "string"
+          }
+        }
+      },
+      "nodes": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "example": "FRAME|TEXT|RECTANGLE|COMPONENT|INSTANCE"
+            },
+            "absBounds": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "w": {
+                  "type": "number"
+                },
+                "h": {
+                  "type": "number"
+                }
+              }
+            },
+            "autoLayout": {
+              "type": "object",
+              "properties": {
+                "layoutMode": {
+                  "type": "string"
+                },
+                "itemSpacing": {
+                  "type": "number"
+                },
+                "padding": {
+                  "type": "object",
+                  "properties": {
+                    "t": {
+                      "type": "number"
+                    },
+                    "r": {
+                      "type": "number"
+                    },
+                    "b": {
+                      "type": "number"
+                    },
+                    "l": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            },
+            "styles": {
+              "type": "object",
+              "properties": {
+                "fill": {
+                  "type": "string"
+                },
+                "stroke": {
+                  "type": "string"
+                },
+                "fontFamily": {
+                  "type": "string"
+                },
+                "fontSize": {
+                  "type": "number"
+                },
+                "lineHeight": {
+                  "type": "string"
+                }
+              }
+            },
+            "variables": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "constraints": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "section": {
+              "type": "string",
+              "description": "Соответствующая секция TaskSpec (если применимо)"
+            }
+          }
+        }
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "deviations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  },
+  "relay_api_contract": {
+    "base": "http://localhost:8787",
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/health",
+        "req": {},
+        "res": {
+          "ok": true,
+          "version": "1.0"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/tasks",
+        "req": {
+          "taskSpec": "TaskSpec JSON"
+        },
+        "res": {
+          "taskId": "string",
+          "status": "queued"
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/tasks/pull",
+        "req": {
+          "pluginId": "string"
+        },
+        "res": {
+          "taskId": "string|null",
+          "taskSpec": "TaskSpec|null"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/results",
+        "req": {
+          "taskId": "string",
+          "exportSpec": "ExportSpec JSON",
+          "logs": [
+            "..."
+          ]
+        },
+        "res": {
+          "ok": true
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/tasks/{id}/result",
+        "req": {},
+        "res": {
+          "status": "pending|done|error",
+          "exportSpec": "ExportSpec|null",
+          "logs": [
+            "..."
+          ],
+          "error": "string|null"
+        }
+      }
+    ]
+  },
+  "gpt_actions_contract": {
+    "actions": [
+      {
+        "name": "postTask",
+        "operationId": "postTask",
+        "method": "POST",
+        "path": "/tasks",
+        "desc": "Отправить TaskSpec в очередь Relay"
+      },
+      {
+        "name": "getTaskResult",
+        "operationId": "getTaskResult",
+        "method": "GET",
+        "path": "/tasks/{id}/result",
+        "desc": "Получить ExportSpec и логи"
+      },
+      {
+        "name": "health",
+        "operationId": "health",
+        "method": "GET",
+        "path": "/health",
+        "desc": "Проверка доступности Relay"
+      }
+    ],
+    "director_prompt_outline": [
+      "Ты — Figma Director. Твоя задача: собирать корректный TaskSpec под правилами ниже и отправлять его через postTask.",
+      "Перед отправкой верифицируй: заполнены target.fileId, pageName, frameName, grid.container/columns/gap, хотя бы 3 секции.",
+      "После отправки периодически опрашивай getTaskResult до статуса done, затем выводи краткий отчёт и прикладывай ExportSpec как файл.",
+      "Никогда не придумывай фиктивный fileId — проси пользователя вставить реальный ID или укажи TODO."
+    ]
+  },
+  "plugin_requirements_mvp": {
+    "ui": [
+      "Поле для TaskSpec (textarea)",
+      "Кнопка Validate",
+      "Кнопка Build",
+      "Кнопка Export"
+    ],
+    "build_logic": [
+      "Создать/найти страницу pageName",
+      "Создать корневой фрейм frameName с заданным размером (если указан)",
+      "Включить Auto Layout (layoutMode='VERTICAL' по умолчанию), padding/itemSpacing из секции/глобальных настроек",
+      "Создать секции по порядку; для grid-3/grid-4 — создавать фреймы-колонки с равной шириной и gap",
+      "Применить стили/переменные из tokens при наличии"
+    ],
+    "export_logic": [
+      "Обойти дерево от корневого фрейма",
+      "Собрать absBounds, autoLayout, padding, itemSpacing, styles, variables, constraints",
+      "Сформировать summary: deviatons (|delta| > maxSpacingDeviation), warnings"
+    ],
+    "relay_integration": [
+      "Периодический pull задач (каждые 5–10 сек)",
+      "После Build → Export → POST /results (ExportSpec + логи)"
+    ]
+  },
+  "logging": {
+    "format": "JSONL",
+    "entry_example": {
+      "ts": "2025-10-25T12:00:00+03:00",
+      "actor": "plugin|gpt|relay",
+      "action": "create_frame|set_autolayout|apply_tokens|export|error",
+      "details": {
+        "node": "Hero",
+        "padding": [
+          64,
+          24
+        ],
+        "itemSpacing": 24
+      },
+      "status": "ok|warn|error"
+    }
+  },
+  "milestones": [
+    {
+      "id": "M1",
+      "name": "MVP плагина (ручной режим)",
+      "from": "2025-10-27",
+      "to": "2025-11-02",
+      "acceptance": [
+        "Построение Landing v1 из TaskSpec v0.1",
+        "ExportSpec.json содержит padding/itemSpacing/layoutMode/constraints",
+        "Отклонения spacing ≤ 2 px"
+      ]
+    },
+    {
+      "id": "M2",
+      "name": "Связка GPT Actions ↔ Relay ↔ Плагин",
+      "from": "2025-11-03",
+      "to": "2025-11-09",
+      "acceptance": [
+        "postTask отправляет TaskSpec, плагин тянет и исполняет",
+        "getTaskResult возвращает ExportSpec и логи",
+        "Журнал шагов в JSONL"
+      ]
+    },
+    {
+      "id": "M3",
+      "name": "Итерации и валидация",
+      "from": "2025-11-10",
+      "to": "2025-11-16",
+      "acceptance": [
+        "TaskSpec v0.2 с токенами/переменными",
+        "Валидатор допусков в плагине",
+        "Режим Review с кратким diff изменений"
+      ]
+    }
+  ],
+  "acceptance_tests": [
+    "AT-01: Создать страницу из примера TaskSpec → все секции построены, auto-layout включен в корневых контейнерах",
+    "AT-02: Изменить padding Hero на 80/32 → rebuild → ExportSpec фиксирует новые значения",
+    "AT-03: Валидатор ловит расхождение spacing > 2 px и пишет warning в summary",
+    "AT-04: Через GPT Action отправлен TaskSpec, плагин без ручного вмешательства строит и публикует результат в Relay",
+    "AT-05: Экспорт содержит шрифты/цвета/переменные при их объявлении в tokens"
+  ],
+  "risks": [
+    {
+      "id": "R1",
+      "name": "Ограничения REST rate-limit",
+      "mitigation": "Кеш, батчи, чтение только нужных веток дерева"
+    },
+    {
+      "id": "R2",
+      "name": "Сложные авто-лейауты в старых файлах",
+      "mitigation": "Строгое построение через плагин; эвристики; валидатор допусков"
+    },
+    {
+      "id": "R3",
+      "name": "Срыв синхронизации GPT ↔ плагин",
+      "mitigation": "Idempotency: taskId, повторные попытки, статусы queued/running/done/error"
+    }
+  ],
+  "cost_model": {
+    "llm": "0 — работаем внутри ChatGPT (Custom GPT) без внешних API; зрительных токенов нет",
+    "figma": "API/Plugin бесплатны; оплачивается только ваш тариф Figma",
+    "relay": "Локально/самостоятельный хостинг; 0$"
+  },
+  "glossary": {
+    "TaskSpec": "Входная спецификация, по которой плагин строит страницу.",
+    "ExportSpec": "Структурированный снимок макета (для верстки/аналитики).",
+    "Relay": "Локальный брокер задач/результатов между GPT и плагином."
+  },
+  "changelog": [
+    {
+      "version": "1.0",
+      "date": "2025-10-25",
+      "notes": "Базовый план, схемы TaskSpec/ExportSpec, контракты Relay/GPT Actions, план на 3 недели."
+    }
+  ]
+}
