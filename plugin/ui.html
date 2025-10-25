@@ -13,13 +13,14 @@
 </head>
 <body>
   <h3>Figma Builder+Exporter (M1)</h3>
-  <p>Вставьте <b>TaskSpec (JSON)</b> ниже и нажмите <b>Validate</b>.</p>
+  <p>Вставьте <b>TaskSpec (JSON)</b> ниже и нажмите <b>Validate</b>. Перед Build/Export замените <code>REPLACE_WITH_FILE_ID</code> на свой fileId.</p>
   <textarea id="spec"></textarea>
   <div class="row">
     <button id="btn-validate">Validate</button>
     <button id="btn-build">Build</button>
     <button id="btn-export">Export</button>
-    <button id="btn-close" style="margin-left:auto;">Close</button>
+    <a id="download" style="margin-left:auto; display:none;" download="ExportSpec.json">Download ExportSpec.json</a>
+    <button id="btn-close">Close</button>
   </div>
   <pre id="log"></pre>
 
@@ -30,7 +31,7 @@
       el.scrollTop = el.scrollHeight;
     };
 
-    // Пример — автозаполним textarea валидным TaskSpec (можно править)
+    // Пример TaskSpec
     const sample = {
       "meta": { "specVersion": "0.1", "id": "landing-v1" },
       "target": { "fileId": "REPLACE_WITH_FILE_ID", "pageName": "Landing", "frameName": "Home", "frameSize": { "w": 1440, "h": 1024 } },
@@ -61,8 +62,16 @@
       if (!msg) return;
       if (msg.type === 'validate:ok') log('✅ Validate OK');
       else if (msg.type === 'validate:error') log('❌ ' + msg.error);
-      else if (msg.type === 'build:todo') log('ℹ️ ' + msg.note);
-      else if (msg.type === 'export:ok') log(msg.exportSpec);
+      else if (msg.type === 'build:ok') log('���️ Build OK: sections=' + msg.sections);
+      else if (msg.type === 'export:ok') {
+        log(msg.exportSpec);
+        const blob = new Blob([JSON.stringify(msg.exportSpec, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.getElementById('download');
+        a.href = url;
+        a.download = msg.filename || 'ExportSpec.json';
+        a.style.display = 'inline-block';
+      }
       else if (msg.type === 'error') log('��� ' + msg.error);
       else log(msg);
     };
