@@ -27,11 +27,11 @@
   <script>
     const log = (m) => {
       const el = document.getElementById('log');
-      el.textContent += (typeof m === 'string' ? m : JSON.stringify(m, null, 2)) + "\\n";
+      el.textContent += (typeof m === 'string' ? m : JSON.stringify(m, null, 2)) + "
+";
       el.scrollTop = el.scrollHeight;
     };
 
-    // –ü—Ä–∏–º–µ—Ä TaskSpec
     const sample = {
       "meta": { "specVersion": "0.1", "id": "landing-v1" },
       "target": { "fileId": "REPLACE_WITH_FILE_ID", "pageName": "Landing", "frameName": "Home", "frameSize": { "w": 1440, "h": 1024 } },
@@ -53,16 +53,16 @@
     };
 
     document.getElementById('btn-validate').onclick = () => post('validate');
-    document.getElementById('btn-build').onclick = () => post('build');
-    document.getElementById('btn-export').onclick = () => post('export');
-    document.getElementById('btn-close').onclick = () => post('close');
+    document.getElementById('btn-build').onclick    = () => post('build');
+    document.getElementById('btn-export').onclick   = () => post('export');
+    document.getElementById('btn-close').onclick    = () => post('close');
 
     onmessage = (e) => {
       const msg = e.data.pluginMessage;
       if (!msg) return;
-      if (msg.type === 'validate:ok') log('‚úÖ Validate OK');
-      else if (msg.type === 'validate:error') log('‚ùå ' + msg.error);
-      else if (msg.type === 'build:ok') log('ÌøóÔ∏è Build OK: sections=' + msg.sections);
+      if (msg.type === 'validate:ok') log('Validate OK');
+      else if (msg.type === 'validate:error') log('ERROR: ' + msg.error);
+      else if (msg.type === 'build:ok') log('Build OK: sections=' + msg.sections);
       else if (msg.type === 'export:ok') {
         log(msg.exportSpec);
         const blob = new Blob([JSON.stringify(msg.exportSpec, null, 2)], { type: 'application/json' });
@@ -72,7 +72,7 @@
         a.download = msg.filename || 'ExportSpec.json';
         a.style.display = 'inline-block';
       }
-      else if (msg.type === 'error') log('Ì≤• ' + msg.error);
+      else if (msg.type === 'error') log('ERROR: ' + msg.error);
       else log(msg);
     };
   </script>
