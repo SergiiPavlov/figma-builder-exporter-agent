@@ -1,0 +1,65 @@
+openapi: 3.0.1
+info:
+  title: Figma Relay (Local)
+  version: '0.1'
+servers:
+  - url: http://localhost:3000
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Health check
+      responses:
+        '200':
+          description: ok
+  /tasks:
+    post:
+      operationId: postTask
+      summary: Create a build task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                taskSpec:
+                  type: object
+      responses:
+        '200':
+          description: Created
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      summary: Get task status/result
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ok
+  /tasks/{id}/result:
+    post:
+      operationId: postTaskResult
+      summary: Post exported result (ExportSpec) for a task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                result:
+                  type: object
+      responses:
+        '200':
+          description: Ok
