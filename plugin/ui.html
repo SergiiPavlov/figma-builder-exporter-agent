@@ -1,80 +1,147 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
-<head>
-  <meta charset="utf-8"/>
-  <title>Builder+Exporter (M1)</title>
-  <style>
-    body { font: 12px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial; margin: 12px; }
-    textarea { width: 100%; height: 320px; font-family: ui-monospace,Consolas,Menlo,monospace; }
-    .row { display:flex; gap:8px; margin:8px 0; }
-    button { padding:6px 10px; cursor:pointer; }
-    #log { background:#0f172a; color:#e2e8f0; padding:8px; height:180px; overflow:auto; }
-  </style>
-</head>
-<body>
-  <h3>Figma Builder+Exporter (M1)</h3>
-  <p>Вставьте <b>TaskSpec (JSON)</b> ниже и нажмите <b>Validate</b>. Перед Build/Export замените <code>REPLACE_WITH_FILE_ID</code> на свой fileId.</p>
-  <textarea id="spec"></textarea>
-  <div class="row">
-    <button id="btn-validate">Validate</button>
-    <button id="btn-build">Build</button>
-    <button id="btn-export">Export</button>
-    <a id="download" style="margin-left:auto; display:none;" download="ExportSpec.json">Download ExportSpec.json</a>
-    <button id="btn-close">Close</button>
-  </div>
-  <pre id="log"></pre>
-
-  <script>
-    const log = (m) => {
-      const el = document.getElementById('log');
-      el.textContent += (typeof m === 'string' ? m : JSON.stringify(m, null, 2)) + "
-";
-      el.scrollTop = el.scrollHeight;
-    };
-
-    const sample = {
-      "meta": { "specVersion": "0.1", "id": "landing-v1" },
-      "target": { "fileId": "REPLACE_WITH_FILE_ID", "pageName": "Landing", "frameName": "Home", "frameSize": { "w": 1440, "h": 1024 } },
-      "grid": { "container": 1200, "columns": 12, "gap": 24, "margins": 24 },
-      "tokens": { "fontFamily": "Inter", "colors": { "primary": "#6C5CE7", "text": "#111827" } },
-      "sections": [
-        { "type": "hero", "name": "Hero", "padding": [64,24], "spacing": 24, "layout": "stack", "content": { "title": "Заголовок", "subtitle": "Подзаголовок", "cta": "Купить" } },
-        { "type": "features", "name": "Преимущества", "layout": "grid-3", "spacing": 32, "content": { "items": [ { "title": "Быстро" }, { "title": "Дёшево" }, { "title": "Точно" } ] } },
-        { "type": "cta", "name": "Призыв", "padding": [48,24], "content": { "text": "Начать сейчас", "button": "Попробовать" } },
-        { "type": "footer", "name": "Подвал", "padding": [48,24] }
-      ],
-      "acceptance": { "maxSpacingDeviation": 2, "checkAutoLayout": true }
-    };
-    document.getElementById('spec').value = JSON.stringify(sample, null, 2);
-
-    const post = (type) => {
-      const val = document.getElementById('spec').value;
-      parent.postMessage({ pluginMessage: { type, taskSpec: val } }, '*');
-    };
-
-    document.getElementById('btn-validate').onclick = () => post('validate');
-    document.getElementById('btn-build').onclick    = () => post('build');
-    document.getElementById('btn-export').onclick   = () => post('export');
-    document.getElementById('btn-close').onclick    = () => post('close');
-
-    onmessage = (e) => {
-      const msg = e.data.pluginMessage;
-      if (!msg) return;
-      if (msg.type === 'validate:ok') log('Validate OK');
-      else if (msg.type === 'validate:error') log('ERROR: ' + msg.error);
-      else if (msg.type === 'build:ok') log('Build OK: sections=' + msg.sections);
-      else if (msg.type === 'export:ok') {
-        log(msg.exportSpec);
-        const blob = new Blob([JSON.stringify(msg.exportSpec, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.getElementById('download');
-        a.href = url;
-        a.download = msg.filename || 'ExportSpec.json';
-        a.style.display = 'inline-block';
+  <head>
+    <meta charset="utf-8" />
+    <title>Builder+Exporter (M1)</title>
+    <style>
+      body {
+        font: 12px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, Roboto,
+          Helvetica, Arial;
+        margin: 12px;
       }
-      else if (msg.type === 'error') log('ERROR: ' + msg.error);
-      else log(msg);
-    };
-  </script>
-</body>
+      textarea {
+        width: 100%;
+        height: 320px;
+        font-family: ui-monospace, Consolas, Menlo, monospace;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        margin: 8px 0;
+      }
+      button {
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      #log {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 8px;
+        height: 180px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>Figma Builder+Exporter (M1)</h3>
+    <p>
+      Вставьте <b>TaskSpec (JSON)</b> ниже и нажмите <b>Validate</b>. Перед
+      Build/Export замените <code>REPLACE_WITH_FILE_ID</code> на свой fileId.
+    </p>
+    <textarea id="spec"></textarea>
+    <div class="row">
+      <button id="btn-validate">Validate</button>
+      <button id="btn-build">Build</button>
+      <button id="btn-export">Export</button>
+      <a
+        id="download"
+        style="margin-left: auto; display: none"
+        download="ExportSpec.json"
+        >Download ExportSpec.json</a
+      >
+      <button id="btn-close">Close</button>
+    </div>
+    <pre id="log"></pre>
+
+    <script>
+      const log = (m) => {
+        const el = document.getElementById("log");
+
+        el.textContent +=
+          (typeof m === "string" ? m : JSON.stringify(m, null, 2)) + "\n";
+        el.scrollTop = el.scrollHeight;
+      };
+      const sample = {
+        meta: { specVersion: "0.1", id: "landing-v1" },
+        target: {
+          fileId: "REPLACE_WITH_FILE_ID",
+          pageName: "Landing",
+          frameName: "Home",
+          frameSize: { w: 1440, h: 1024 },
+        },
+        grid: { container: 1200, columns: 12, gap: 24, margins: 24 },
+        tokens: {
+          fontFamily: "Inter",
+          colors: { primary: "#6C5CE7", text: "#111827" },
+        },
+        sections: [
+          {
+            type: "hero",
+            name: "Hero",
+            padding: [64, 24],
+            spacing: 24,
+            layout: "stack",
+            content: {
+              title: "Заголовок",
+              subtitle: "Подзаголовок",
+              cta: "Купить",
+            },
+          },
+          {
+            type: "features",
+            name: "Преимущества",
+            layout: "grid-3",
+            spacing: 32,
+            content: {
+              items: [
+                { title: "Быстро" },
+                { title: "Дёшево" },
+                { title: "Точно" },
+              ],
+            },
+          },
+          {
+            type: "cta",
+            name: "Призыв",
+            padding: [48, 24],
+            content: { text: "Начать сейчас", button: "Попробовать" },
+          },
+          { type: "footer", name: "Подвал", padding: [48, 24] },
+        ],
+        acceptance: { maxSpacingDeviation: 2, checkAutoLayout: true },
+      };
+      document.getElementById("spec").value = JSON.stringify(sample, null, 2);
+
+      const post = (type) => {
+        const val = document.getElementById("spec").value;
+        parent.postMessage({ pluginMessage: { type, taskSpec: val } }, "*");
+      };
+
+      document.getElementById("btn-validate").onclick = () => post("validate");
+      document.getElementById("btn-build").onclick = () => post("build");
+      document.getElementById("btn-export").onclick = () => post("export");
+      document.getElementById("btn-close").onclick = () => post("close");
+
+      onmessage = (e) => {
+        const msg = e.data.pluginMessage;
+        if (!msg) return;
+        if (msg.type === "validate:ok") log("Validate OK");
+        else if (msg.type === "validate:error") log("ERROR: " + msg.error);
+        else if (msg.type === "build:ok")
+          log("Build OK: sections=" + msg.sections);
+        else if (msg.type === "export:ok") {
+          log(msg.exportSpec);
+          const blob = new Blob([JSON.stringify(msg.exportSpec, null, 2)], {
+            type: "application/json",
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.getElementById("download");
+          a.href = url;
+          a.download = msg.filename || "ExportSpec.json";
+          a.style.display = "inline-block";
+        } else if (msg.type === "error") log("ERROR: " + msg.error);
+        else log(msg);
+      };
+    </script>
+  </body>
 </html>
