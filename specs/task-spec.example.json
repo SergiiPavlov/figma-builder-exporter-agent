@@ -1,0 +1,39 @@
+{
+  "meta": { "specVersion": "0.1", "id": "landing-v1" },
+  "target": {
+    "fileId": "FIGMA_FILE_ID_ЗАМЕНИТЕ",
+    "pageName": "Landing",
+    "frameName": "Home",
+    "frameSize": { "w": 1440, "h": 1024 }
+  },
+  "grid": { "container": 1200, "columns": 12, "gap": 24, "margins": 24 },
+  "tokens": {
+    "fontFamily": "Inter",
+    "colors": { "primary": "#6C5CE7", "text": "#111827" }
+  },
+  "sections": [
+    {
+      "type": "hero",
+      "name": "Hero",
+      "padding": [64, 24],
+      "spacing": 24,
+      "layout": "stack",
+      "content": { "title": "Заголовок", "subtitle": "Подзаголовок", "cta": "Купить" }
+    },
+    {
+      "type": "features",
+      "name": "Преимущества",
+      "layout": "grid-3",
+      "spacing": 32,
+      "content": { "items": [ { "title": "Быстро" }, { "title": "Дёшево" }, { "title": "Точно" } ] }
+    },
+    {
+      "type": "cta",
+      "name": "Призыв",
+      "padding": [48, 24],
+      "content": { "text": "Начать сейчас", "button": "Попробовать" }
+    },
+    { "type": "footer", "name": "Подвал", "padding": [48, 24] }
+  ],
+  "acceptance": { "maxSpacingDeviation": 2, "checkAutoLayout": true }
+}

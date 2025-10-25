@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExportSpec v0.1",
+  "type": "object",
+  "required": ["target", "nodes"],
+  "properties": {
+    "target": {
+      "type": "object",
+      "properties": {
+        "fileId": { "type": "string" },
+        "pageName": { "type": "string" },
+        "frameId": { "type": "string" },
+        "frameName": { "type": "string" }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "absBounds": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "w": { "type": "number" },
+              "h": { "type": "number" }
+            }
+          },
+          "autoLayout": {
+            "type": "object",
+            "properties": {
+              "layoutMode": { "type": "string" },
+              "itemSpacing": { "type": "number" },
+              "padding": {
+                "type": "object",
+                "properties": {
+                  "t": { "type": "number" },
+                  "r": { "type": "number" },
+                  "b": { "type": "number" },
+                  "l": { "type": "number" }
+                }
+              }
+            }
+          },
+          "styles": {
+            "type": "object",
+            "properties": {
+              "fill": { "type": "string" },
+              "stroke": { "type": "string" },
+              "fontFamily": { "type": "string" },
+              "fontSize": { "type": "number" },
+              "lineHeight": { "type": "string" }
+            }
+          },
+          "variables": { "type": "object", "additionalProperties": { "type": "string" } },
+          "constraints": { "type": "object", "additionalProperties": { "type": "string" } },
+          "section": { "type": "string" }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "deviations": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  }
+}
