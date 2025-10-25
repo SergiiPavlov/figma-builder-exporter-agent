@@ -23,7 +23,6 @@ function parsePadding(pad) {
   if (pad.length===3){ return { t:pad[0], r:pad[1], b:pad[2], l:pad[1] }; }
   return { t:pad[0], r:pad[1], b:pad[2], l:pad[3] };
 }
-
 function val(x, d){ return (x===undefined || x===null) ? d : x; }
 
 function createRootFrame(spec, page) {
@@ -94,13 +93,12 @@ function buildSections(root, spec) {
   }
 }
 
-// ---------- Export v1 ----------
+// -------- Export helpers --------
 function absBounds(n){
   var t = n.absoluteTransform; // [[a,b,tx],[c,d,ty]]
   var x = t[0][2], y = t[1][2];
   return { x:x, y:y, w:n.width, h:n.height };
 }
-
 function firstSolid(paints){
   try{
     if (!Array.isArray(paints)) return undefined;
@@ -114,7 +112,6 @@ function firstSolid(paints){
     return "rgba("+r+", "+g+", "+b+", "+a+")";
   }catch(e){ return undefined; }
 }
-
 function extractAutoLayout(frame){
   if (!("layoutMode" in frame)) return undefined;
   return {
@@ -128,7 +125,6 @@ function extractAutoLayout(frame){
     }
   };
 }
-
 function extractStyles(n){
   var s = {};
   if ("fills" in n)   s.fill   = firstSolid(n.fills);
@@ -147,22 +143,6 @@ function extractStyles(n){
   return s;
 }
 
-function collectFromRoot(root){
-  var out = [];
-  // сам root
-  out.push({
-    id: root.id, name: root.name, type: root.type,
-    absBounds: absBounds(root),
-    autoLayout: extractAutoLayout(root)
-  });
-  // дети root — это секции
-  for (var i=0;i<(root.children||[]).length;i++){
-    var sec = root.children[i];
-    pushRecursive(sec, out, sec.name);
-  }
-  return out;
-}
-
 function pushRecursive(node, acc, sectionName){
   var base = {
     id: node.id, name: node.name, type: node.type,
@@ -178,18 +158,67 @@ function pushRecursive(node, acc, sectionName){
     }
   }
 }
-
+function collectFromRoot(root){
+  var out = [];
+  out.push({ id: root.id, name: root.name, type: root.type, absBounds: absBounds(root), autoLayout: extractAutoLayout(root) });
+  for (var i=0;i<(root.children||[]).length;i++){ var sec=root.children[i]; pushRecursive(sec, out, sec.name); }
+  return out;
+}
 function exportSpecFrom(root, spec){
   return {
-    target: {
-      fileId: spec.target.fileId,
-      pageName: spec.target.pageName,
-      frameId: root.id,
-      frameName: root.name
-    },
+    target: { fileId: spec.target.fileId, pageName: spec.target.pageName, frameId: root.id, frameName: root.name },
     nodes: collectFromRoot(root),
     summary: { warnings: [], deviations: [] }
   };
+}
+
+// -------- Validator (deviations & warnings) --------
+function findSectionSpec(spec, name){
+  var secs = spec.sections || [];
+  for (var i=0;i<secs.length;i++){
+    var s = secs[i];
+    if ((s.name && s.name===name) || (s.type && s.type===name)) return s;
+  }
+  return null;
+}
+function addDev(list, nodeId, field, expected, actual, section){
+  var delta = actual - expected;
+  list.push({ nodeId: nodeId, field: field, expected: expected, actual: actual, delta: delta, section: section });
+}
+function validateDeviations(root, spec, exportSpec){
+  var tol = (spec.acceptance && typeof spec.acceptance.maxSpacingDeviation==="number") ? spec.acceptance.maxSpacingDeviation : 2;
+  var kids = root.children || [];
+  for (var i=0;i<kids.length;i++){
+    var k = kids[i];
+    var sSpec = findSectionSpec(spec, k.name);
+    if (!sSpec) continue;
+
+    // spacing
+    if (typeof sSpec.spacing === "number"){
+      var actualSpacing = k.itemSpacing != null ? k.itemSpacing : 0;
+      if (Math.abs(actualSpacing - sSpec.spacing) > tol){
+        addDev(exportSpec.summary.deviations, k.id, "itemSpacing", sSpec.spacing, actualSpacing, k.name);
+      }
+    }
+    // padding
+    var expP = parsePadding(sSpec.padding || []);
+    var actP = {
+      t: k.paddingTop    != null ? k.paddingTop    : 0,
+      r: k.paddingRight  != null ? k.paddingRight  : 0,
+      b: k.paddingBottom != null ? k.paddingBottom : 0,
+      l: k.paddingLeft   != null ? k.paddingLeft   : 0
+    };
+    if (Math.abs(actP.t-expP.t) > tol) addDev(exportSpec.summary.deviations, k.id, "paddingTop",    expP.t, actP.t, k.name);
+    if (Math.abs(actP.r-expP.r) > tol) addDev(exportSpec.summary.deviations, k.id, "paddingRight",  expP.r, actP.r, k.name);
+    if (Math.abs(actP.b-expP.b) > tol) addDev(exportSpec.summary.deviations, k.id, "paddingBottom", expP.b, actP.b, k.name);
+    if (Math.abs(actP.l-expP.l) > tol) addDev(exportSpec.summary.deviations, k.id, "paddingLeft",   expP.l, actP.l, k.name);
+
+    // простое предупреждение по layout
+    var expectedMode = (sSpec.layout && String(sSpec.layout).indexOf("grid-")===0) ? "HORIZONTAL" : "VERTICAL";
+    if (k.layoutMode && k.layoutMode !== expectedMode){
+      exportSpec.summary.warnings.push("Секция '"+k.name+"' layoutMode="+k.layoutMode+" ожидается "+expectedMode);
+    }
+  }
 }
 
 // ---------- UI messages ----------
@@ -205,16 +234,10 @@ figma.ui.onmessage = function (msg) {
       var spec = JSON.parse(msg.taskSpec);
       var err = checkTaskSpec(spec);
       if (err){ figma.ui.postMessage({ type: "validate:error", error: err }); return; }
-
       var page = findOrCreatePage(spec.target.pageName);
       figma.currentPage = page;
-
       var root = createRootFrame(spec, page);
-
-      // очистка прежних детей
-      var kids = [].concat(root.children || []);
-      for (var i=0;i<kids.length;i++){ kids[i].remove(); }
-
+      var kids = [].concat(root.children || []); for (var i=0;i<kids.length;i++){ kids[i].remove(); }
       buildSections(root, spec);
       figma.viewport.scrollAndZoomIntoView([root]);
       figma.ui.postMessage({ type: "build:ok", rootId: root.id, sections: (spec.sections||[]).length });
@@ -224,16 +247,14 @@ figma.ui.onmessage = function (msg) {
       var spec = JSON.parse(msg.taskSpec);
       var err = checkTaskSpec(spec);
       if (err){ figma.ui.postMessage({ type: "validate:error", error: err }); return; }
-
-      var page = null;
-      var pages = figma.root.children;
+      var page=null, pages=figma.root.children;
       for (var i=0;i<pages.length;i++){ if(pages[i].type==="PAGE" && pages[i].name===spec.target.pageName){ page=pages[i]; break; } }
       if (!page){ figma.ui.postMessage({ type:"error", error:"Страница '"+spec.target.pageName+"' не найдена" }); return; }
-
       var root = page.findOne(function(n){ return n.type==="FRAME" && n.name === (spec.target.frameName || "Root"); });
       if (!root){ figma.ui.postMessage({ type:"error", error:"Фрейм '"+(spec.target.frameName||"Root")+"' не найден" }); return; }
 
       var exp = exportSpecFrom(root, spec);
+      validateDeviations(root, spec, exp);
       figma.ui.postMessage({ type:"export:ok", exportSpec: exp, filename: "ExportSpec.json" });
     }
     else if (msg.type === "close"){
