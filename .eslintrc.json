@@ -1,0 +1,33 @@
+{
+  "root": true,
+  "env": {
+    "node": true,
+    "es2022": true,
+    "jest": true
+  },
+  "extends": ["eslint:recommended"],
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "script"
+  },
+  "rules": {
+    "no-empty": ["error", { "allowEmptyCatch": true }]
+  },
+  "ignorePatterns": [
+    "relay/node_modules/",
+    "plugin/vendor/",
+    "schemas/**/*.json"
+  ],
+  "overrides": [
+    {
+      "files": ["plugin/**/*.js"],
+      "env": {
+        "browser": true
+      },
+      "globals": {
+        "figma": "readonly",
+        "__html__": "readonly"
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "figma-builder-exporter-agent",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "lint": "eslint \"relay/**/*.js\" \"plugin/**/*.js\"",
+    "format": "prettier -w ."
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.2"
+  }
+}
