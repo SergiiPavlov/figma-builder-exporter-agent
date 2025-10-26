@@ -150,6 +150,20 @@
             2
           );
           rlog(`Fetched OK (id=${data.id})`);
+          if (lastTaskId) {
+            try {
+              await fetch(`${RELAY_URL}/tasks/${lastTaskId}/log`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: "Plugin: fetched task into textarea" }),
+              });
+            } catch (logErr) {
+              rlog(
+                "Log append error: " +
+                  (logErr && logErr.message ? logErr.message : logErr)
+              );
+            }
+          }
         } catch (e) {
           rlog("Fetch error: " + (e && e.message ? e.message : e));
         }
@@ -189,6 +203,18 @@
               body: JSON.stringify({ result: msg.exportSpec }),
             });
             rlog(`Result posted for task ${lastTaskId}`);
+            try {
+              await fetch(`${RELAY_URL}/tasks/${lastTaskId}/log`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: "Plugin: result posted (export:ok)" }),
+              });
+            } catch (logErr) {
+              rlog(
+                "Log append error: " +
+                  (logErr && logErr.message ? logErr.message : logErr)
+              );
+            }
           } catch (e) {
             rlog("Post result error: " + (e && e.message ? e.message : e));
           }
