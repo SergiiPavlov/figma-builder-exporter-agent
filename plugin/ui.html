@@ -19,15 +19,27 @@
     <button id="btn-validate">Validate</button>
     <button id="btn-build">Build</button>
     <button id="btn-export">Export</button>
+    <button id="btn-fetch">Fetch</button>
     <a id="download" style="margin-left:auto; display:none;" download="ExportSpec.json">Download ExportSpec.json</a>
     <button id="btn-close">Close</button>
   </div>
+  <pre id="relay-log" style="max-height:120px;overflow:auto;"></pre>
   <pre id="log"></pre>
 
   <script>
     const log = (m) => {
       const el = document.getElementById('log');
-      el.textContent += (typeof m === 'string' ? m : JSON.stringify(m, null, 2)) + "\\n";
+      el.textContent += (typeof m === 'string' ? m : JSON.stringify(m, null, 2)) + "\n";
+      el.scrollTop = el.scrollHeight;
+    };
+
+    const RELAY_URL = 'http://localhost:3000';
+    let lastTaskId = null;
+
+    const rlog = (m) => {
+      const el = document.getElementById('relay-log');
+      if (!el) return;
+      el.textContent += (typeof m === 'string' ? m : JSON.stringify(m, null, 2)) + "\n";
       el.scrollTop = el.scrollHeight;
     };
 
@@ -56,13 +68,30 @@
     document.getElementById('btn-build').onclick = () => post('build');
     document.getElementById('btn-export').onclick = () => post('export');
     document.getElementById('btn-close').onclick = () => post('close');
+    document.getElementById('btn-fetch').onclick = async () => {
+      try {
+        const res = await fetch(`${RELAY_URL}/tasks/latest?status=pending`);
+        if (!res.ok) {
+          rlog(`Fetch failed: ${res.status}`);
+          return;
+        }
+        const data = await res.json();
+        lastTaskId = data.id;
+        document.getElementById('spec').value = JSON.stringify(data.taskSpec, null, 2);
+        rlog(`Fetched OK (id=${data.id})`);
+      } catch (e) {
+        rlog('Fetch error: ' + (e && e.message ? e.message : e));
+      }
+    };
 
-    onmessage = (e) => {
+    const prevOnMessage = onmessage;
+    onmessage = async (e) => {
+      if (prevOnMessage) prevOnMessage(e);
       const msg = e.data.pluginMessage;
       if (!msg) return;
-      if (msg.type === 'validate:ok') log('‚úÖ Validate OK');
-      else if (msg.type === 'validate:error') log('‚ùå ' + msg.error);
-      else if (msg.type === 'build:ok') log('ÌøóÔ∏è Build OK: sections=' + msg.sections);
+      if (msg.type === 'validate:ok') log('[ok] Validate OK');
+      else if (msg.type === 'validate:error') log('[err] ' + msg.error);
+      else if (msg.type === 'build:ok') log('[build] sections=' + msg.sections);
       else if (msg.type === 'export:ok') {
         log(msg.exportSpec);
         const blob = new Blob([JSON.stringify(msg.exportSpec, null, 2)], { type: 'application/json' });
@@ -72,8 +101,21 @@
         a.download = msg.filename || 'ExportSpec.json';
         a.style.display = 'inline-block';
       }
-      else if (msg.type === 'error') log('Ì≤• ' + msg.error);
+      else if (msg.type === 'error') log('[error] ' + msg.error);
       else log(msg);
+
+      if (msg && msg.type === 'export:ok' && lastTaskId) {
+        try {
+          await fetch(`${RELAY_URL}/tasks/${lastTaskId}/result`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ result: msg.exportSpec })
+          });
+          rlog(`Result posted for task ${lastTaskId}`);
+        } catch (e) {
+          rlog('Post result error: ' + (e && e.message ? e.message : e));
+        }
+      }
     };
   </script>
 </body>

@@ -1,0 +1,124 @@
+openapi: 3.0.1
+info:
+  title: Figma Builder Exporter Relay
+  version: 0.2.0
+servers:
+  - url: http://localhost:3000
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      responses:
+        '200':
+          description: Server health
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  uptime:
+                    type: number
+  /tasks:
+    post:
+      operationId: createTask
+      summary: Create task from TaskSpec
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [taskSpec]
+              properties:
+                taskSpec:
+                  type: object
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status, createdAt]
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                  createdAt:
+                    type: number
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      summary: Get task by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Task payload
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Task not found
+  /tasks/{id}/result:
+    post:
+      operationId: postTaskResult
+      summary: Submit task result
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Result stored
+        '404':
+          description: Task not found
+  /tasks/latest:
+    get:
+      operationId: getLatestTask
+      summary: Get most recent task by status
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum: [pending, done]
+            default: pending
+      responses:
+        '200':
+          description: Latest task by createdAt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status, createdAt, taskSpec]
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, done]
+                  createdAt:
+                    type: number
+                  taskSpec:
+                    type: object
+        '404':
+          description: No tasks for given status
