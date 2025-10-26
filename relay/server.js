@@ -1,9 +1,11 @@
 /* Minimal Relay server for M2
  * Endpoints:
- *  POST /tasks        -> { taskSpec } => { taskId }
- *  GET  /tasks/:id    -> { status, taskSpec?, result? }
+ *  POST /tasks            -> { taskSpec } => { taskId }
+ *  GET  /tasks/:id        -> { status, taskSpec?, result? }
  *  POST /tasks/:id/result -> { exportSpec } => { ok:true }
- *  GET  /health       -> { ok:true }
+ *  GET  /tasks/:id/result -> { status, exportSpec, logs, error }
+ *  POST /tasks/:id/log    -> { message } => { ok:true }
+ *  GET  /health           -> { ok:true }
  */
 const express = require('express');
 const cors = require('cors');
@@ -26,6 +28,10 @@ function appendJSONL(file, obj) {
   fs.appendFileSync(file, JSON.stringify(obj) + '\n', 'utf8');
 }
 
+function writeOne(task) {
+  appendJSONL(TASKS_FILE, task);
+}
+
 function readAll() {
   const txt = fs.readFileSync(TASKS_FILE, 'utf8');
   const lines = txt ? txt.split('\n').filter(Boolean) : [];
@@ -45,8 +51,15 @@ app.post('/tasks', (req, res) => {
   const { taskSpec } = req.body || {};
   if (!taskSpec) return res.status(400).json({ error: 'taskSpec required' });
   const id = uuidv4();
-  const rec = { id, status: 'pending', taskSpec, createdAt: Date.now() };
-  appendJSONL(TASKS_FILE, rec);
+  const rec = {
+    id,
+    status: 'pending',
+    taskSpec,
+    createdAt: Date.now(),
+    logs: [],
+    error: null,
+  };
+  writeOne(rec);
   res.json({ taskId: id });
 });
 
@@ -65,8 +78,41 @@ app.post('/tasks/:id/result', (req, res) => {
   if (!rec) return res.status(404).json({ error: 'not found' });
   const result = req.body && req.body.result;
   if (!result) return res.status(400).json({ error: 'result required' });
-  const updated = { ...rec, status: 'done', result, finishedAt: Date.now() };
-  appendJSONL(TASKS_FILE, updated);
+  const updated = {
+    ...rec,
+    status: 'done',
+    result,
+    finishedAt: Date.now(),
+    error: null,
+  };
+  writeOne(updated);
+  res.json({ ok: true });
+});
+
+app.get('/tasks/:id/result', (req, res) => {
+  const byId = readAll();
+  const t = byId.get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  res.json({
+    status: t.status,
+    exportSpec: t.result ?? null,
+    logs: Array.isArray(t.logs) ? t.logs : [],
+    error: t.error ?? null,
+  });
+});
+
+app.post('/tasks/:id/log', (req, res) => {
+  const { message } = req.body || {};
+  if (typeof message !== 'string' || !message.trim()) {
+    return res.status(400).json({ error: 'message required' });
+  }
+  const byId = readAll();
+  const t = byId.get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const logs = Array.isArray(t.logs) ? [...t.logs] : [];
+  logs.push(message);
+  const updated = { ...t, logs };
+  writeOne(updated);
   res.json({ ok: true });
 });
 

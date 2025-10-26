@@ -42,6 +42,43 @@ paths:
         '200':
           description: Ok
   /tasks/{id}/result:
+    get:
+      operationId: getTaskResult
+      summary: Get task result (ExportSpec), status and logs
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Result envelope
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - exportSpec
+                  - logs
+                  - error
+                properties:
+                  status:
+                    type: string
+                    enum: [pending, done, error]
+                  exportSpec:
+                    type: object
+                    nullable: true
+                  logs:
+                    type: array
+                    items:
+                      type: string
+                  error:
+                    type: string
+                    nullable: true
+        '404':
+          description: Not found
     post:
       operationId: postTaskResult
       summary: Post exported result (ExportSpec) for a task
@@ -63,6 +100,32 @@ paths:
       responses:
         '200':
           description: Ok
+  /tasks/{id}/log:
+    post:
+      operationId: appendTaskLog
+      summary: Append a log message to the task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+      responses:
+        '200':
+          description: Ok
+        '404':
+          description: Not found
   /tasks/latest:
     get:
       operationId: getLatestTask
