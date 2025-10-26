@@ -43,6 +43,7 @@
       <button id="btn-validate">Validate</button>
       <button id="btn-build">Build</button>
       <button id="btn-export">Export</button>
+      <button id="btn-fetch">Fetch</button>
       <a
         id="download"
         style="margin-left: auto; display: none"
@@ -51,12 +52,27 @@
       >
       <button id="btn-close">Close</button>
     </div>
+    <pre
+      id="relay-log"
+      style="background: #f1f5f9; color: #0f172a; padding: 8px; max-height: 120px; overflow: auto"
+    ></pre>
     <pre id="log"></pre>
 
     <script>
+      const RELAY_URL = "http://localhost:3000";
+      let lastTaskId = null;
+
       const log = (m) => {
         const el = document.getElementById("log");
 
+        el.textContent +=
+          (typeof m === "string" ? m : JSON.stringify(m, null, 2)) + "\n";
+        el.scrollTop = el.scrollHeight;
+      };
+
+      const rlog = (m) => {
+        const el = document.getElementById("relay-log");
+        if (!el) return;
         el.textContent +=
           (typeof m === "string" ? m : JSON.stringify(m, null, 2)) + "\n";
         el.scrollTop = el.scrollHeight;
@@ -120,6 +136,24 @@
       document.getElementById("btn-validate").onclick = () => post("validate");
       document.getElementById("btn-build").onclick = () => post("build");
       document.getElementById("btn-export").onclick = () => post("export");
+      document.getElementById("btn-fetch").onclick = async () => {
+        try {
+          const res = await fetch(`${RELAY_URL}/tasks/latest?status=pending`);
+          if (!res.ok) {
+            return rlog(`Fetch failed: ${res.status}`);
+          }
+          const data = await res.json();
+          lastTaskId = data.id;
+          document.getElementById("spec").value = JSON.stringify(
+            data.taskSpec,
+            null,
+            2
+          );
+          rlog(`Fetched OK (id=${data.id})`);
+        } catch (e) {
+          rlog("Fetch error: " + (e && e.message ? e.message : e));
+        }
+      };
       document.getElementById("btn-close").onclick = () => post("close");
 
       onmessage = (e) => {
@@ -141,6 +175,24 @@
           a.style.display = "inline-block";
         } else if (msg.type === "error") log("ERROR: " + msg.error);
         else log(msg);
+      };
+
+      const prevOnMessage = onmessage;
+      onmessage = async (e) => {
+        if (prevOnMessage) prevOnMessage(e);
+        const msg = e.data && e.data.pluginMessage;
+        if (msg?.type === "export:ok" && lastTaskId) {
+          try {
+            await fetch(`${RELAY_URL}/tasks/${lastTaskId}/result`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ result: msg.exportSpec }),
+            });
+            rlog(`Result posted for task ${lastTaskId}`);
+          } catch (e) {
+            rlog("Post result error: " + (e && e.message ? e.message : e));
+          }
+        }
       };
     </script>
   </body>
