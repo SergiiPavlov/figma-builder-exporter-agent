@@ -25,6 +25,102 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 
+const clientsByTask = new Map();
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const KEEPALIVE_INTERVAL_MS = 30 * 1000;
+
+function normalizeLogs(logs) {
+  if (!Array.isArray(logs)) return [];
+  return logs.map((entry) => {
+    if (entry && typeof entry === 'object' && 'message' in entry) {
+      return entry;
+    }
+    return { message: String(entry), ts: null };
+  });
+}
+
+function registerClient(taskId, req, res) {
+  let set = clientsByTask.get(taskId);
+  if (!set) {
+    set = new Set();
+    clientsByTask.set(taskId, set);
+  }
+  const client = {
+    res,
+    taskId,
+    closed: false,
+    inactivityTimer: null,
+    keepAliveTimer: null,
+    cleanup: () => {},
+  };
+
+  const cleanup = () => {
+    if (client.closed) return;
+    client.closed = true;
+    clearTimeout(client.inactivityTimer);
+    clearInterval(client.keepAliveTimer);
+    set.delete(client);
+    if (set.size === 0) {
+      clientsByTask.delete(taskId);
+    }
+    try {
+      res.end();
+    } catch (_) {}
+  };
+
+  client.resetInactivity = () => {
+    clearTimeout(client.inactivityTimer);
+    client.inactivityTimer = setTimeout(() => {
+      cleanup();
+    }, INACTIVITY_TIMEOUT_MS);
+  };
+
+  client.send = (event, payload) => {
+    if (client.closed) return;
+    try {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      client.resetInactivity();
+    } catch (_) {
+      cleanup();
+    }
+  };
+
+  client.keepAliveTimer = setInterval(() => {
+    if (client.closed) return;
+    try {
+      res.write(`: keep-alive ${Date.now()}\n\n`);
+    } catch (_) {
+      cleanup();
+    }
+  }, KEEPALIVE_INTERVAL_MS);
+
+  client.resetInactivity();
+  client.cleanup = cleanup;
+  req.on('close', cleanup);
+  req.on('error', cleanup);
+  set.add(client);
+  return client;
+}
+
+function broadcastTaskEvent(taskId, event, payload, { closeAfterMs } = {}) {
+  const set = clientsByTask.get(taskId);
+  if (!set || set.size === 0) return;
+  for (const client of Array.from(set)) {
+    client.send(event, payload);
+    if (typeof closeAfterMs === 'number' && closeAfterMs >= 0) {
+      setTimeout(() => {
+        client.cleanup();
+      }, closeAfterMs);
+    }
+  }
+}
+
+function readOne(id) {
+  const byId = readAll();
+  return byId.get(id);
+}
+
 const ajv = new Ajv({ allErrors: true, strict: false });
 const taskSchema = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', 'schemas', 'taskSpec.schema.json'), 'utf8')
@@ -102,16 +198,17 @@ app.post('/tasks', (req, res) => {
 
 app.get('/tasks/:id', (req, res) => {
   const id = req.params.id;
-  const byId = readAll();
-  const rec = byId.get(id);
+  const rec = readOne(id);
   if (!rec) return res.status(404).json({ error: 'not found' });
-  res.json(rec);
+  res.json({
+    ...rec,
+    logs: normalizeLogs(rec.logs).map((l) => l.message),
+  });
 });
 
 app.post('/tasks/:id/result', (req, res) => {
   const id = req.params.id;
-  const byId = readAll();
-  const rec = byId.get(id);
+  const rec = readOne(id);
   if (!rec) return res.status(404).json({ error: 'not found' });
   const result = req.body && req.body.result;
   if (!result) return res.status(400).json({ error: 'result required' });
@@ -123,17 +220,20 @@ app.post('/tasks/:id/result', (req, res) => {
     error: null,
   };
   writeOne(updated);
+  broadcastTaskEvent(id, 'result', {
+    status: 'done',
+    exportSpec: result,
+  }, { closeAfterMs: 3000 });
   res.json({ ok: true });
 });
 
 app.get('/tasks/:id/result', (req, res) => {
-  const byId = readAll();
-  const t = byId.get(req.params.id);
+  const t = readOne(req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
   res.json({
     status: t.status,
     exportSpec: t.result ?? null,
-    logs: Array.isArray(t.logs) ? t.logs : [],
+    logs: normalizeLogs(t.logs).map((l) => l.message),
     error: t.error ?? null,
   });
 });
@@ -143,14 +243,49 @@ app.post('/tasks/:id/log', (req, res) => {
   if (typeof message !== 'string' || !message.trim()) {
     return res.status(400).json({ error: 'message required' });
   }
-  const byId = readAll();
-  const t = byId.get(req.params.id);
+  const t = readOne(req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
-  const logs = Array.isArray(t.logs) ? [...t.logs] : [];
-  logs.push(message);
+  const logs = normalizeLogs(t.logs);
+  const entry = {
+    message: message.trim(),
+    ts: new Date().toISOString(),
+  };
+  logs.push(entry);
   const updated = { ...t, logs };
   writeOne(updated);
+  broadcastTaskEvent(req.params.id, 'log', entry);
   res.json({ ok: true });
+});
+
+app.get('/tasks/:id/watch', (req, res) => {
+  const id = req.params.id;
+  const task = readOne(id);
+  if (!task) {
+    return res.status(404).json({ error: 'not found' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
+  if (req.socket) {
+    req.socket.setKeepAlive(true);
+    req.socket.setNoDelay(true);
+    req.socket.setTimeout(0);
+  }
+
+  const client = registerClient(id, req, res);
+  try {
+    client.send('status', {
+      status: task.status || 'pending',
+      logs: normalizeLogs(task.logs),
+      exportSpec: task.result ?? null,
+    });
+  } catch (_) {
+    client.cleanup();
+  }
 });
 
 // GET /tasks/latest?status=pending|done (default: pending)

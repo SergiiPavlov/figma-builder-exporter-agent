@@ -30,6 +30,63 @@
         height: 180px;
         overflow: auto;
       }
+      #status-panel {
+        margin-top: 12px;
+        border: 1px solid #cbd5f5;
+        background: #f8fafc;
+        border-radius: 6px;
+        padding: 8px;
+      }
+      #status-panel .status-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        margin-bottom: 6px;
+      }
+      #status-text {
+        font-weight: 600;
+      }
+      #status-connection {
+        margin-left: auto;
+        font-size: 10px;
+        text-transform: uppercase;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: #e2e8f0;
+        color: #334155;
+      }
+      #status-connection[data-state='connecting'] {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      #status-connection[data-state='connected'] {
+        background: #bbf7d0;
+        color: #166534;
+      }
+      #status-connection[data-state='error'] {
+        background: #fecaca;
+        color: #b91c1c;
+      }
+      #status-panel[data-state='pending'] #status-text {
+        color: #c2410c;
+      }
+      #status-panel[data-state='done'] #status-text {
+        color: #15803d;
+      }
+      #status-panel[data-state='error'] #status-text {
+        color: #dc2626;
+      }
+      #status-log {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 8px;
+        max-height: 180px;
+        overflow: auto;
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
     </style>
   </head>
   <body>
@@ -56,11 +113,23 @@
       id="relay-log"
       style="background: #f1f5f9; color: #0f172a; padding: 8px; max-height: 120px; overflow: auto"
     ></pre>
+    <div id="status-panel" data-state="idle">
+      <div class="status-header">
+        <span>Status:</span>
+        <span id="status-text">idle</span>
+        <span id="status-connection" data-state="closed">disconnected</span>
+      </div>
+      <pre id="status-log"></pre>
+    </div>
     <pre id="log"></pre>
 
     <script>
       const RELAY_URL = "http://localhost:3000";
       let lastTaskId = null;
+      let statusSource = null;
+      let currentWatchTaskId = null;
+      let statusLogs = [];
+      const STATUS_LOG_LIMIT = 200;
 
       const log = (m) => {
         const el = document.getElementById("log");
@@ -77,6 +146,151 @@
           (typeof m === "string" ? m : JSON.stringify(m, null, 2)) + "\n";
         el.scrollTop = el.scrollHeight;
       };
+      const statusPanelEl = document.getElementById("status-panel");
+      const statusTextEl = document.getElementById("status-text");
+      const statusLogEl = document.getElementById("status-log");
+      const statusConnectionEl = document.getElementById("status-connection");
+
+      const formatStatusLogEntry = (entry) => {
+        if (!entry) return "";
+        if (typeof entry === "string") return entry;
+        const msg = entry.message || "";
+        if (entry.ts) {
+          return `[${entry.ts}] ${msg}`;
+        }
+        return msg;
+      };
+
+      const renderStatusLogs = () => {
+        if (!statusLogEl) return;
+        statusLogEl.textContent = statusLogs.join("\n");
+        statusLogEl.scrollTop = statusLogEl.scrollHeight;
+      };
+
+      const setStatusState = (state) => {
+        if (!statusPanelEl || !statusTextEl) return;
+        const normalized = typeof state === "string" && state ? state : "unknown";
+        statusPanelEl.dataset.state = normalized.toLowerCase();
+        statusTextEl.textContent = normalized;
+      };
+
+      const setStatusLogs = (entries) => {
+        statusLogs = [];
+        if (Array.isArray(entries)) {
+          for (const entry of entries) {
+            const line = formatStatusLogEntry(entry);
+            if (line) statusLogs.push(line);
+          }
+        }
+        if (statusLogs.length > STATUS_LOG_LIMIT) {
+          statusLogs = statusLogs.slice(-STATUS_LOG_LIMIT);
+        }
+        renderStatusLogs();
+      };
+
+      const appendStatusLogEntry = (entry) => {
+        const line = formatStatusLogEntry(entry);
+        if (!line) return;
+        statusLogs.push(line);
+        if (statusLogs.length > STATUS_LOG_LIMIT) {
+          statusLogs = statusLogs.slice(-STATUS_LOG_LIMIT);
+        }
+        renderStatusLogs();
+      };
+
+      const setConnectionState = (state, label) => {
+        if (!statusConnectionEl) return;
+        const value = state || "closed";
+        statusConnectionEl.dataset.state = value;
+        statusConnectionEl.textContent = label || value;
+      };
+
+      const closeStatusSource = () => {
+        if (statusSource) {
+          statusSource.close();
+          statusSource = null;
+        }
+        currentWatchTaskId = null;
+        setConnectionState("closed", "disconnected");
+      };
+
+      const openTaskWatch = (taskId) => {
+        if (!taskId) return;
+        if (taskId === currentWatchTaskId && statusSource) return;
+        closeStatusSource();
+        currentWatchTaskId = taskId;
+        setStatusLogs([]);
+        setStatusState("pending");
+        setConnectionState("connecting", "connecting...");
+        try {
+          const source = new EventSource(`${RELAY_URL}/tasks/${taskId}/watch`);
+          statusSource = source;
+          source.onopen = () => {
+            setConnectionState("connected", "connected");
+          };
+          source.addEventListener("status", (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              setStatusState(data && data.status ? data.status : "pending");
+              setStatusLogs(data && data.logs ? data.logs : []);
+            } catch (err) {
+              rlog(
+                "Failed to parse status event: " +
+                  (err && err.message ? err.message : err)
+              );
+            }
+          });
+          source.addEventListener("log", (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              appendStatusLogEntry(data);
+            } catch (err) {
+              rlog(
+                "Failed to parse log event: " +
+                  (err && err.message ? err.message : err)
+              );
+            }
+          });
+          source.addEventListener("result", (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              setStatusState(data && data.status ? data.status : "done");
+              setTimeout(() => {
+                if (statusSource === source) {
+                  closeStatusSource();
+                }
+              }, 3000);
+            } catch (err) {
+              rlog(
+                "Failed to parse result event: " +
+                  (err && err.message ? err.message : err)
+              );
+            }
+          });
+          source.onerror = () => {
+            if (source.readyState === EventSource.CLOSED) {
+              setConnectionState("closed", "disconnected");
+            } else {
+              setConnectionState("error", "error (retrying)");
+            }
+            rlog(`SSE connection error for task ${taskId}`);
+          };
+        } catch (err) {
+          setConnectionState("error", "error");
+          rlog(
+            "Failed to open SSE subscription: " +
+              (err && err.message ? err.message : err)
+          );
+        }
+      };
+
+      window.addEventListener("beforeunload", () => {
+        closeStatusSource();
+      });
+
+      setStatusLogs([]);
+      setStatusState("idle");
+      setConnectionState("closed", "disconnected");
       const sample = {
         meta: { specVersion: "0.1", id: "landing-v1" },
         target: {
@@ -194,6 +408,7 @@
             2
           );
           rlog(`Fetched OK (id=${data.id})`);
+          openTaskWatch(lastTaskId);
           if (lastTaskId) {
             try {
               await fetch(`${RELAY_URL}/tasks/${lastTaskId}/log`, {
@@ -212,7 +427,10 @@
           rlog("Fetch error: " + (e && e.message ? e.message : e));
         }
       };
-      document.getElementById("btn-close").onclick = () => post("close");
+      document.getElementById("btn-close").onclick = () => {
+        closeStatusSource();
+        post("close");
+      };
 
       onmessage = async (e) => {
         const msg = e.data && e.data.pluginMessage;

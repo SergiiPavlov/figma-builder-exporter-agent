@@ -198,6 +198,28 @@ paths:
       responses:
         '200':
           description: Ok
+  /tasks/{id}/watch:
+    get:
+      operationId: watchTaskSSE
+      summary: Subscribe to task status via Server-Sent Events
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: text/event-stream with task events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE stream. Events:
+                  - event: status  data: {"status","logs","exportSpec"}
+                  - event: log     data: {"message","ts"}
+                  - event: result  data: {"status","exportSpec"}
         '404':
           description: Not found
   /tasks/latest:
