@@ -11,6 +11,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const Ajv = require('ajv');
 const { v4: uuidv4 } = require('uuid');
 
 const PORT = process.env.PORT || 3000;
@@ -23,6 +24,16 @@ if (!fs.existsSync(TASKS_FILE)) fs.writeFileSync(TASKS_FILE, '', 'utf8');
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
+
+const ajv = new Ajv({ allErrors: true, strict: false });
+const taskSchema = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', 'schemas', 'taskSpec.schema.json'), 'utf8')
+);
+const exportSchema = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', 'schemas', 'exportSpec.schema.json'), 'utf8')
+);
+const validateTask = ajv.compile(taskSchema);
+const validateExport = ajv.compile(exportSchema);
 
 function appendJSONL(file, obj) {
   fs.appendFileSync(file, JSON.stringify(obj) + '\n', 'utf8');
@@ -46,6 +57,32 @@ function readAll() {
 }
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+app.post('/validate/taskSpec', (req, res) => {
+  const taskSpec = req.body && req.body.taskSpec;
+  const valid = validateTask(taskSpec);
+  if (valid) return res.json({ valid: true, errors: [] });
+  res.json({
+    valid: false,
+    errors: (validateTask.errors || []).map((e) => ({
+      instancePath: e.instancePath,
+      message: e.message,
+    })),
+  });
+});
+
+app.post('/validate/exportSpec', (req, res) => {
+  const exportSpec = req.body && req.body.exportSpec;
+  const valid = validateExport(exportSpec);
+  if (valid) return res.json({ valid: true, errors: [] });
+  res.json({
+    valid: false,
+    errors: (validateExport.errors || []).map((e) => ({
+      instancePath: e.instancePath,
+      message: e.message,
+    })),
+  });
+});
 
 app.post('/tasks', (req, res) => {
   const { taskSpec } = req.body || {};
