@@ -191,22 +191,33 @@ paths:
             application/json:
               schema:
                 type: object
+  /tasks/{id}/package.zip:
+    get:
+      operationId: getTaskArtifactZip
+      summary: Download artifact ZIP package for task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ZIP package containing exportSpec.json, logs.txt, task.json, meta.json
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
         '404':
           description: No artifact
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
   /artifacts:
     get:
       operationId: listArtifacts
-      summary: List stored artifacts
+      summary: List available JSON artifacts
       responses:
         '200':
-          description: Artifact list
+          description: Array of artifacts
           content:
             application/json:
               schema:
@@ -217,6 +228,7 @@ paths:
                     - id
                     - createdAt
                     - size
+                    - hasZip
                   properties:
                     id:
                       type: string
@@ -224,6 +236,8 @@ paths:
                       type: number
                     size:
                       type: number
+                    hasZip:
+                      type: boolean
   /tasks/{id}/log:
     post:
       operationId: appendTaskLog
