@@ -17,9 +17,11 @@ const { v4: uuidv4 } = require('uuid');
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 const TASKS_FILE = path.join(DATA_DIR, 'tasks.jsonl');
+const RESULTS_DIR = path.join(DATA_DIR, 'results');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(TASKS_FILE)) fs.writeFileSync(TASKS_FILE, '', 'utf8');
+if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR, { recursive: true });
 
 const app = express();
 app.use(cors());
@@ -139,6 +141,14 @@ function writeOne(task) {
   appendJSONL(TASKS_FILE, task);
 }
 
+function getArtifactPaths(taskId) {
+  const filename = `${taskId}.json`;
+  return {
+    relative: path.posix.join('data', 'results', filename),
+    absolute: path.join(RESULTS_DIR, filename),
+  };
+}
+
 function readAll() {
   const txt = fs.readFileSync(TASKS_FILE, 'utf8');
   const lines = txt ? txt.split('\n').filter(Boolean) : [];
@@ -212,17 +222,37 @@ app.post('/tasks/:id/result', (req, res) => {
   if (!rec) return res.status(404).json({ error: 'not found' });
   const result = req.body && req.body.result;
   if (!result) return res.status(400).json({ error: 'result required' });
+  const { relative: artifactPath, absolute: artifactFile } = getArtifactPaths(id);
+  try {
+    const pretty = JSON.stringify(result, null, 2);
+    fs.writeFileSync(artifactFile, pretty, 'utf8');
+  } catch (err) {
+    console.error('Failed to write artifact', err);
+    return res.status(500).json({ error: 'Failed to write artifact' });
+  }
+  let artifactSize = null;
+  try {
+    const stat = fs.statSync(artifactFile);
+    artifactSize = stat.size;
+  } catch (err) {
+    console.error('Failed to stat artifact', err);
+    return res.status(500).json({ error: 'Failed to finalize artifact' });
+  }
   const updated = {
     ...rec,
     status: 'done',
     result,
     finishedAt: Date.now(),
     error: null,
+    artifactPath,
+    artifactSize,
   };
   writeOne(updated);
   broadcastTaskEvent(id, 'result', {
     status: 'done',
     exportSpec: result,
+    artifactPath,
+    artifactSize,
   }, { closeAfterMs: 3000 });
   res.json({ ok: true });
 });
@@ -235,7 +265,48 @@ app.get('/tasks/:id/result', (req, res) => {
     exportSpec: t.result ?? null,
     logs: normalizeLogs(t.logs).map((l) => l.message),
     error: t.error ?? null,
+    artifactPath: t.artifactPath ?? null,
+    artifactSize: t.artifactSize ?? null,
   });
+});
+
+app.get('/tasks/:id/artifact', (req, res) => {
+  const id = req.params.id;
+  const { absolute: artifactFile } = getArtifactPaths(id);
+  if (!fs.existsSync(artifactFile)) {
+    return res.status(404).json({ error: 'No artifact' });
+  }
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${id}.json"`);
+  res.sendFile(artifactFile);
+});
+
+app.get('/artifacts', (_req, res) => {
+  let files = [];
+  try {
+    files = fs.readdirSync(RESULTS_DIR);
+  } catch (err) {
+    console.error('Failed to list artifacts', err);
+    return res.status(500).json({ error: 'Failed to list artifacts' });
+  }
+  const list = [];
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    const full = path.join(RESULTS_DIR, file);
+    try {
+      const stat = fs.statSync(full);
+      const createdAt = stat.birthtimeMs || stat.ctimeMs || stat.mtimeMs || Date.now();
+      list.push({
+        id: path.basename(file, '.json'),
+        createdAt: Math.round(createdAt),
+        size: stat.size,
+      });
+    } catch (err) {
+      console.error('Failed to stat artifact', full, err);
+    }
+  }
+  list.sort((a, b) => b.createdAt - a.createdAt);
+  res.json(list);
 });
 
 app.post('/tasks/:id/log', (req, res) => {
@@ -282,6 +353,8 @@ app.get('/tasks/:id/watch', (req, res) => {
       status: task.status || 'pending',
       logs: normalizeLogs(task.logs),
       exportSpec: task.result ?? null,
+      artifactPath: task.artifactPath ?? null,
+      artifactSize: task.artifactSize ?? null,
     });
   } catch (_) {
     client.cleanup();

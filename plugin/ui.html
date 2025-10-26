@@ -23,12 +23,30 @@
         padding: 6px 10px;
         cursor: pointer;
       }
+      a.button-link {
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 4px;
+        text-decoration: none;
+        font-weight: 500;
+      }
       #log {
         background: #0f172a;
         color: #e2e8f0;
         padding: 8px;
         height: 180px;
         overflow: auto;
+      }
+      #artifact-download {
+        margin-top: 8px;
+        background: #2563eb;
+        color: #fff;
+        border: 1px solid #1d4ed8;
+      }
+      #artifact-download[aria-disabled='true'] {
+        opacity: 0.6;
+        cursor: not-allowed;
+        pointer-events: none;
       }
       #status-panel {
         margin-top: 12px;
@@ -122,6 +140,14 @@
       <pre id="status-log"></pre>
     </div>
     <pre id="log"></pre>
+    <a
+      id="artifact-download"
+      class="button-link"
+      href="#"
+      aria-disabled="true"
+      rel="noopener noreferrer"
+      >Download artifact</a
+    >
 
     <script>
       const RELAY_URL = "http://localhost:3000";
@@ -150,6 +176,18 @@
       const statusTextEl = document.getElementById("status-text");
       const statusLogEl = document.getElementById("status-log");
       const statusConnectionEl = document.getElementById("status-connection");
+      const artifactLinkEl = document.getElementById("artifact-download");
+
+      const updateArtifactLink = () => {
+        if (!artifactLinkEl) return;
+        if (lastTaskId) {
+          artifactLinkEl.href = `${RELAY_URL}/tasks/${lastTaskId}/artifact`;
+          artifactLinkEl.setAttribute("aria-disabled", "false");
+        } else {
+          artifactLinkEl.href = "#";
+          artifactLinkEl.setAttribute("aria-disabled", "true");
+        }
+      };
 
       const formatStatusLogEntry = (entry) => {
         if (!entry) return "";
@@ -255,6 +293,7 @@
             try {
               const data = JSON.parse(event.data);
               setStatusState(data && data.status ? data.status : "done");
+              updateArtifactLink();
               setTimeout(() => {
                 if (statusSource === source) {
                   closeStatusSource();
@@ -291,6 +330,7 @@
       setStatusLogs([]);
       setStatusState("idle");
       setConnectionState("closed", "disconnected");
+      updateArtifactLink();
       const sample = {
         meta: { specVersion: "0.1", id: "landing-v1" },
         target: {
@@ -402,6 +442,7 @@
           }
           const data = await res.json();
           lastTaskId = data.id;
+          updateArtifactLink();
           document.getElementById("spec").value = JSON.stringify(
             data.taskSpec,
             null,
@@ -429,6 +470,8 @@
       };
       document.getElementById("btn-close").onclick = () => {
         closeStatusSource();
+        lastTaskId = null;
+        updateArtifactLink();
         post("close");
       };
 
@@ -500,6 +543,7 @@
                 body: JSON.stringify({ result: exportSpec }),
               });
               rlog(`Result posted for task ${lastTaskId}`);
+              updateArtifactLink();
               try {
                 await fetch(`${RELAY_URL}/tasks/${lastTaskId}/log`, {
                   method: "POST",

@@ -174,6 +174,56 @@ paths:
       responses:
         '200':
           description: Ok
+  /tasks/{id}/artifact:
+    get:
+      operationId: getTaskArtifact
+      summary: Download task artifact (ExportSpec JSON)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Artifact JSON file
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: No artifact
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /artifacts:
+    get:
+      operationId: listArtifacts
+      summary: List stored artifacts
+      responses:
+        '200':
+          description: Artifact list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - id
+                    - createdAt
+                    - size
+                  properties:
+                    id:
+                      type: string
+                    createdAt:
+                      type: number
+                    size:
+                      type: number
   /tasks/{id}/log:
     post:
       operationId: appendTaskLog
@@ -217,9 +267,9 @@ paths:
                 type: string
                 description: |
                   SSE stream. Events:
-                  - event: status  data: {"status","logs","exportSpec"}
-                  - event: log     data: {"message","ts"}
-                  - event: result  data: {"status","exportSpec"}
+                    - event: status  data: {"status","logs","exportSpec","artifactPath","artifactSize"}
+                    - event: log     data: {"message","ts"}
+                    - event: result  data: {"status","exportSpec","artifactPath","artifactSize"}
         '404':
           description: Not found
   /tasks/latest:
