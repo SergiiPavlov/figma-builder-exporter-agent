@@ -63,3 +63,43 @@ paths:
       responses:
         '200':
           description: Ok
+  /tasks/latest:
+    get:
+      operationId: getLatestTask
+      summary: Get most recent task by status
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending
+              - done
+            default: pending
+      responses:
+        '200':
+          description: Latest task by createdAt
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - status
+                  - createdAt
+                  - taskSpec
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - done
+                  createdAt:
+                    type: number
+                  taskSpec:
+                    type: object
+        '404':
+          description: No tasks for given status

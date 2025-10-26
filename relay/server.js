@@ -70,6 +70,24 @@ app.post('/tasks/:id/result', (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /tasks/latest?status=pending|done (default: pending)
+app.get('/tasks/latest', (req, res) => {
+  const status = String(req.query.status || 'pending');
+  const byId = readAll();
+  const arr = Array.from(byId.values()).filter((t) => t.status === status);
+  if (arr.length === 0) {
+    return res.status(404).json({ error: `No ${status} tasks` });
+  }
+  arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const t = arr[0];
+  res.json({
+    id: t.id,
+    status: t.status,
+    createdAt: t.createdAt,
+    taskSpec: t.taskSpec,
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Relay listening on http://localhost:${PORT}`);
 });
