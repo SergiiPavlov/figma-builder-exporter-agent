@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "exportSpec.schema.json",
+  "type": "object",
+  "required": ["meta", "target", "summary"],
+  "properties": {
+    "meta": { "type": "object" },
+    "target": { "type": "object" },
+    "summary": {
+      "type": "object",
+      "required": ["sections"],
+      "properties": {
+        "sections": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

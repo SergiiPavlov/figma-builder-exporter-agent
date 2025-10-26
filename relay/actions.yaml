@@ -12,6 +12,80 @@ paths:
       responses:
         '200':
           description: ok
+  /validate/taskSpec:
+    post:
+      operationId: validateTaskSpec
+      summary: Validate TaskSpec against JSON Schema
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - taskSpec
+              properties:
+                taskSpec:
+                  type: object
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - valid
+                  - errors
+                properties:
+                  valid:
+                    type: boolean
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        instancePath:
+                          type: string
+                        message:
+                          type: string
+  /validate/exportSpec:
+    post:
+      operationId: validateExportSpec
+      summary: Validate ExportSpec against JSON Schema
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - exportSpec
+              properties:
+                exportSpec:
+                  type: object
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - valid
+                  - errors
+                properties:
+                  valid:
+                    type: boolean
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        instancePath:
+                          type: string
+                        message:
+                          type: string
   /tasks:
     post:
       operationId: postTask

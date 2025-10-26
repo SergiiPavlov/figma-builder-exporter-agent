@@ -133,7 +133,51 @@
         parent.postMessage({ pluginMessage: { type, taskSpec: val } }, "*");
       };
 
-      document.getElementById("btn-validate").onclick = () => post("validate");
+      document.getElementById("btn-validate").onclick = async () => {
+        const textarea = document.getElementById("spec");
+        const raw = textarea.value;
+        let parsed;
+        let parseError = false;
+        try {
+          parsed = JSON.parse(raw);
+        } catch (_) {
+          parseError = true;
+        }
+        let shouldPost = true;
+        if (!parseError) {
+          try {
+            const res = await fetch(`${RELAY_URL}/validate/taskSpec`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ taskSpec: parsed }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (!data.valid) {
+                shouldPost = false;
+                log("TaskSpec schema validation failed:");
+                const errors = Array.isArray(data.errors) ? data.errors : [];
+                if (errors.length === 0) {
+                  log(" - No details provided");
+                } else {
+                  for (const err of errors) {
+                    const path = err.instancePath || "/";
+                    log(` - ${path}: ${err.message}`);
+                  }
+                }
+              }
+            } else {
+              rlog(`TaskSpec validation request failed: HTTP ${res.status}`);
+            }
+          } catch (err) {
+            rlog(
+              "TaskSpec validation request error: " +
+                (err && err.message ? err.message : err)
+            );
+          }
+        }
+        if (shouldPost) post("validate");
+      };
       document.getElementById("btn-build").onclick = () => post("build");
       document.getElementById("btn-export").onclick = () => post("export");
       document.getElementById("btn-fetch").onclick = async () => {
@@ -170,16 +214,59 @@
       };
       document.getElementById("btn-close").onclick = () => post("close");
 
-      onmessage = (e) => {
-        const msg = e.data.pluginMessage;
+      onmessage = async (e) => {
+        const msg = e.data && e.data.pluginMessage;
         if (!msg) return;
-        if (msg.type === "validate:ok") log("Validate OK");
-        else if (msg.type === "validate:error") log("ERROR: " + msg.error);
-        else if (msg.type === "build:ok")
+        if (msg.type === "validate:ok") {
+          log("Validate OK");
+          return;
+        }
+        if (msg.type === "validate:error") {
+          log("ERROR: " + msg.error);
+          return;
+        }
+        if (msg.type === "build:ok") {
           log("Build OK: sections=" + msg.sections);
-        else if (msg.type === "export:ok") {
-          log(msg.exportSpec);
-          const blob = new Blob([JSON.stringify(msg.exportSpec, null, 2)], {
+          return;
+        }
+        if (msg.type === "export:ok") {
+          const exportSpec = msg.exportSpec;
+          let proceed = true;
+          if (exportSpec) {
+            try {
+              const res = await fetch(`${RELAY_URL}/validate/exportSpec`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ exportSpec }),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (!data.valid) {
+                  proceed = false;
+                  log("ExportSpec schema validation failed:");
+                  const errors = Array.isArray(data.errors) ? data.errors : [];
+                  if (errors.length === 0) {
+                    log(" - No details provided");
+                  } else {
+                    for (const err of errors) {
+                      const path = err.instancePath || "/";
+                      log(` - ${path}: ${err.message}`);
+                    }
+                  }
+                }
+              } else {
+                rlog(`ExportSpec validation request failed: HTTP ${res.status}`);
+              }
+            } catch (err) {
+              rlog(
+                "ExportSpec validation request error: " +
+                  (err && err.message ? err.message : err)
+              );
+            }
+          }
+          if (!proceed) return;
+          log(exportSpec);
+          const blob = new Blob([JSON.stringify(exportSpec, null, 2)], {
             type: "application/json",
           });
           const url = URL.createObjectURL(blob);
@@ -187,38 +274,42 @@
           a.href = url;
           a.download = msg.filename || "ExportSpec.json";
           a.style.display = "inline-block";
-        } else if (msg.type === "error") log("ERROR: " + msg.error);
-        else log(msg);
-      };
-
-      const prevOnMessage = onmessage;
-      onmessage = async (e) => {
-        if (prevOnMessage) prevOnMessage(e);
-        const msg = e.data && e.data.pluginMessage;
-        if (msg?.type === "export:ok" && lastTaskId) {
-          try {
-            await fetch(`${RELAY_URL}/tasks/${lastTaskId}/result`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ result: msg.exportSpec }),
-            });
-            rlog(`Result posted for task ${lastTaskId}`);
+          if (lastTaskId) {
             try {
-              await fetch(`${RELAY_URL}/tasks/${lastTaskId}/log`, {
+              await fetch(`${RELAY_URL}/tasks/${lastTaskId}/result`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: "Plugin: result posted (export:ok)" }),
+                body: JSON.stringify({ result: exportSpec }),
               });
-            } catch (logErr) {
+              rlog(`Result posted for task ${lastTaskId}`);
+              try {
+                await fetch(`${RELAY_URL}/tasks/${lastTaskId}/log`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    message: "Plugin: result posted (export:ok)",
+                  }),
+                });
+              } catch (logErr) {
+                rlog(
+                  "Log append error: " +
+                    (logErr && logErr.message ? logErr.message : logErr)
+                );
+              }
+            } catch (err) {
               rlog(
-                "Log append error: " +
-                  (logErr && logErr.message ? logErr.message : logErr)
+                "Post result error: " +
+                  (err && err.message ? err.message : err)
               );
             }
-          } catch (e) {
-            rlog("Post result error: " + (e && e.message ? e.message : e));
           }
+          return;
         }
+        if (msg.type === "error") {
+          log("ERROR: " + msg.error);
+          return;
+        }
+        log(msg);
       };
     </script>
   </body>
