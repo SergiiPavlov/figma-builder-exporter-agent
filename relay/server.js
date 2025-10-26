@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const Ajv = require('ajv');
 const { v4: uuidv4 } = require('uuid');
+const Yazl = require('yazl');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
@@ -26,6 +27,8 @@ if (!fs.existsSync(RESULTS_DIR)) fs.mkdirSync(RESULTS_DIR, { recursive: true });
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
+
+const SAFE_TASK_ID_RE = /^[A-Za-z0-9._-]+$/;
 
 const clientsByTask = new Map();
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -142,11 +145,32 @@ function writeOne(task) {
 }
 
 function getArtifactPaths(taskId) {
+  if (typeof taskId !== 'string' || !SAFE_TASK_ID_RE.test(taskId)) {
+    return null;
+  }
   const filename = `${taskId}.json`;
+  const base = path.resolve(RESULTS_DIR);
+  const absolute = path.resolve(base, filename);
+  if (!absolute.startsWith(base + path.sep)) {
+    return null;
+  }
   return {
     relative: path.posix.join('data', 'results', filename),
-    absolute: path.join(RESULTS_DIR, filename),
+    absolute,
   };
+}
+
+function formatLogLine(entry) {
+  if (!entry) return '';
+  const normalized =
+    typeof entry.message === 'string'
+      ? entry.message.replace(/\r?\n/g, ' ').trim()
+      : String(entry.message ?? '').replace(/\r?\n/g, ' ').trim();
+  if (entry.ts) {
+    const trimmed = normalized || '';
+    return `${entry.ts}${trimmed ? ' ' + trimmed : ''}`;
+  }
+  return normalized;
 }
 
 function readAll() {
@@ -222,7 +246,11 @@ app.post('/tasks/:id/result', (req, res) => {
   if (!rec) return res.status(404).json({ error: 'not found' });
   const result = req.body && req.body.result;
   if (!result) return res.status(400).json({ error: 'result required' });
-  const { relative: artifactPath, absolute: artifactFile } = getArtifactPaths(id);
+  const artifactPaths = getArtifactPaths(id);
+  if (!artifactPaths) {
+    return res.status(400).json({ error: 'Invalid task id' });
+  }
+  const { relative: artifactPath, absolute: artifactFile } = artifactPaths;
   try {
     const pretty = JSON.stringify(result, null, 2);
     fs.writeFileSync(artifactFile, pretty, 'utf8');
@@ -272,7 +300,11 @@ app.get('/tasks/:id/result', (req, res) => {
 
 app.get('/tasks/:id/artifact', (req, res) => {
   const id = req.params.id;
-  const { absolute: artifactFile } = getArtifactPaths(id);
+  const artifactPaths = getArtifactPaths(id);
+  if (!artifactPaths) {
+    return res.status(400).json({ error: 'Invalid task id' });
+  }
+  const { absolute: artifactFile } = artifactPaths;
   if (!fs.existsSync(artifactFile)) {
     return res.status(404).json({ error: 'No artifact' });
   }
@@ -281,31 +313,90 @@ app.get('/tasks/:id/artifact', (req, res) => {
   res.sendFile(artifactFile);
 });
 
-app.get('/artifacts', (_req, res) => {
-  let files = [];
+app.get('/tasks/:id/package.zip', (req, res) => {
+  const id = req.params.id;
+  const artifactPaths = getArtifactPaths(id);
+  if (!artifactPaths) {
+    return res.status(400).json({ error: 'Invalid task id' });
+  }
+  const { absolute: artifactFile, relative: artifactRelativePath } = artifactPaths;
+  if (!fs.existsSync(artifactFile)) {
+    return res.status(404).json({ error: 'No artifact' });
+  }
+  const task = readOne(id);
+  if (!task) {
+    return res.status(404).json({ error: 'not found' });
+  }
+  const logs = normalizeLogs(task.logs);
+  const logsText = logs.map((entry) => formatLogLine(entry)).join('\n');
+  let artifactSize = task.artifactSize ?? null;
   try {
-    files = fs.readdirSync(RESULTS_DIR);
+    const stat = fs.statSync(artifactFile);
+    artifactSize = stat.size;
   } catch (err) {
-    console.error('Failed to list artifacts', err);
-    return res.status(500).json({ error: 'Failed to list artifacts' });
+    console.error('Failed to stat artifact for zip', artifactFile, err);
   }
-  const list = [];
-  for (const file of files) {
-    if (!file.endsWith('.json')) continue;
-    const full = path.join(RESULTS_DIR, file);
-    try {
-      const stat = fs.statSync(full);
-      const createdAt = stat.birthtimeMs || stat.ctimeMs || stat.mtimeMs || Date.now();
-      list.push({
-        id: path.basename(file, '.json'),
-        createdAt: Math.round(createdAt),
-        size: stat.size,
-      });
-    } catch (err) {
-      console.error('Failed to stat artifact', full, err);
+  const taskInfo = {
+    id: task.id,
+    createdAt: task.createdAt ?? null,
+    status: task.status ?? null,
+  };
+  const metaInfo = {
+    id: task.id,
+    createdAt: task.createdAt ?? null,
+    artifactPath: task.artifactPath ?? artifactRelativePath,
+    artifactSize,
+  };
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${id}.zip"`);
+
+  const zip = new Yazl.ZipFile();
+  zip.outputStream.on('error', (err) => {
+    console.error('Failed to stream artifact zip', err);
+    if (!res.headersSent) {
+      res.status(500).end();
+    } else {
+      res.destroy(err);
     }
+  });
+  zip.outputStream.pipe(res);
+  const exportSpecStream = fs.createReadStream(artifactFile);
+  exportSpecStream.on('error', (err) => {
+    console.error('Failed to read artifact for zip', artifactFile, err);
+    zip.emit('error', err);
+  });
+  zip.addReadStream(exportSpecStream, 'exportSpec.json');
+  zip.addBuffer(Buffer.from(logsText, 'utf8'), 'logs.txt');
+  zip.addBuffer(Buffer.from(JSON.stringify(taskInfo, null, 2), 'utf8'), 'task.json');
+  zip.addBuffer(Buffer.from(JSON.stringify(metaInfo, null, 2), 'utf8'), 'meta.json');
+  zip.end();
+});
+
+app.get('/artifacts', (_req, res) => {
+  const byId = readAll();
+  const list = [];
+  for (const task of byId.values()) {
+    const paths = getArtifactPaths(task.id);
+    if (!paths) continue;
+    const { absolute } = paths;
+    if (!fs.existsSync(absolute)) continue;
+    let size = null;
+    try {
+      const stat = fs.statSync(absolute);
+      size = stat.size;
+    } catch (err) {
+      console.error('Failed to stat artifact', absolute, err);
+      continue;
+    }
+    list.push({
+      id: task.id,
+      createdAt: task.createdAt ?? 0,
+      size,
+      hasZip: true,
+    });
   }
-  list.sort((a, b) => b.createdAt - a.createdAt);
+  list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   res.json(list);
 });
 
