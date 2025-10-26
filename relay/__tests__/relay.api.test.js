@@ -163,14 +163,21 @@ describe('Relay API', () => {
 
     const artifactsRes = await request.get('/artifacts');
     expect(artifactsRes.status).toBe(200);
-    expect(artifactsRes.body).toEqual([
+    expect(artifactsRes.body).toEqual(
       expect.objectContaining({
-        id: taskId,
-        createdAt: expect.any(Number),
-        size: expect.any(Number),
-        hasZip: true,
+        items: [
+          expect.objectContaining({
+            id: taskId,
+            createdAt: expect.any(Number),
+            size: expect.any(Number),
+            hasZip: true,
+          }),
+        ],
+        total: expect.any(Number),
+        offset: 0,
+        limit: expect.any(Number),
       }),
-    ]);
+    );
   });
 
   test('validate taskSpec endpoint handles valid and invalid specs', async () => {

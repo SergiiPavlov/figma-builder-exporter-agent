@@ -3,7 +3,7 @@ figma.showUI(__html__, { width: 760, height: 680 });
 function safeParseJSON(text) {
   try {
     return JSON.parse(text);
-  } catch (err) {
+  } catch {
     return null;
   }
 }

@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "lint": "eslint \"relay/**/*.js\" \"plugin/**/*.js\"",
+    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint \"relay/**/*.js\" \"plugin/**/*.js\"",
     "format": "prettier -w ."
   },
   "devDependencies": {
