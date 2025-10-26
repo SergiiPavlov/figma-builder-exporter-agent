@@ -23,6 +23,13 @@
         padding: 6px 10px;
         cursor: pointer;
       }
+      .mode-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        margin: 6px 0;
+      }
       a.button-link {
         display: inline-block;
         padding: 6px 10px;
@@ -101,6 +108,9 @@
       #status-panel[data-state='pending'] #status-text {
         color: #c2410c;
       }
+      #status-panel[data-state='running'] #status-text {
+        color: #2563eb;
+      }
       #status-panel[data-state='done'] #status-text {
         color: #15803d;
       }
@@ -126,6 +136,10 @@
       Build/Export замените <code>REPLACE_WITH_FILE_ID</code> на свой fileId.
     </p>
     <textarea id="spec"></textarea>
+    <label class="mode-toggle">
+      <input type="checkbox" id="pull-mode" />
+      <span>Pull mode</span>
+    </label>
     <div class="row">
       <button id="btn-validate">Validate</button>
       <button id="btn-build">Build</button>
@@ -171,11 +185,13 @@
 
     <script>
       const RELAY_URL = "http://localhost:3000";
+      const PULL_PLUGIN_ID = "plugin-ui";
       let lastTaskId = null;
       let statusSource = null;
       let currentWatchTaskId = null;
       let statusLogs = [];
       const STATUS_LOG_LIMIT = 200;
+      let pullModeEnabled = false;
 
       const log = (m) => {
         const el = document.getElementById("log");
@@ -198,6 +214,14 @@
       const statusConnectionEl = document.getElementById("status-connection");
       const artifactLinkEl = document.getElementById("artifact-download");
       const artifactZipLinkEl = document.getElementById("artifact-zip-download");
+      const pullModeEl = document.getElementById("pull-mode");
+      if (pullModeEl) {
+        pullModeEnabled = !!pullModeEl.checked;
+        pullModeEl.addEventListener("change", (event) => {
+          pullModeEnabled = !!event.target.checked;
+          rlog(`Pull mode ${pullModeEnabled ? "enabled" : "disabled"}`);
+        });
+      }
 
       const updateArtifactLinks = () => {
         if (artifactLinkEl) {
@@ -217,6 +241,48 @@
             artifactZipLinkEl.href = "#";
             artifactZipLinkEl.setAttribute("aria-disabled", "true");
           }
+        }
+      };
+
+      const setTaskSpecTextarea = (taskSpec) => {
+        const textarea = document.getElementById("spec");
+        if (!textarea || taskSpec == null) return;
+        if (typeof taskSpec === "string") {
+          textarea.value = taskSpec;
+          return;
+        }
+        try {
+          textarea.value = JSON.stringify(taskSpec, null, 2);
+        } catch (err) {
+          textarea.value = String(taskSpec);
+        }
+      };
+
+      const assignFetchedTask = async (taskId, taskSpec, label, logMessage) => {
+        if (!taskId) {
+          rlog(`${label}: no tasks available`);
+          lastTaskId = null;
+          updateArtifactLinks();
+          closeStatusSource();
+          return;
+        }
+        lastTaskId = taskId;
+        updateArtifactLinks();
+        setTaskSpecTextarea(taskSpec);
+        rlog(`${label} OK (id=${taskId})`);
+        openTaskWatch(taskId);
+        if (!logMessage) return;
+        try {
+          await fetch(`${RELAY_URL}/tasks/${taskId}/log`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: logMessage }),
+          });
+        } catch (logErr) {
+          rlog(
+            "Log append error: " +
+              (logErr && logErr.message ? logErr.message : logErr)
+          );
         }
       };
 
@@ -467,33 +533,34 @@
       document.getElementById("btn-export").onclick = () => post("export");
       document.getElementById("btn-fetch").onclick = async () => {
         try {
-          const res = await fetch(`${RELAY_URL}/tasks/latest?status=pending`);
-          if (!res.ok) {
-            return rlog(`Fetch failed: ${res.status}`);
-          }
-          const data = await res.json();
-          lastTaskId = data.id;
-          updateArtifactLinks();
-          document.getElementById("spec").value = JSON.stringify(
-            data.taskSpec,
-            null,
-            2
-          );
-          rlog(`Fetched OK (id=${data.id})`);
-          openTaskWatch(lastTaskId);
-          if (lastTaskId) {
-            try {
-              await fetch(`${RELAY_URL}/tasks/${lastTaskId}/log`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: "Plugin: fetched task into textarea" }),
-              });
-            } catch (logErr) {
-              rlog(
-                "Log append error: " +
-                  (logErr && logErr.message ? logErr.message : logErr)
-              );
+          if (pullModeEnabled) {
+            const url = new URL(`${RELAY_URL}/tasks/pull`);
+            if (PULL_PLUGIN_ID) {
+              url.searchParams.set("pluginId", PULL_PLUGIN_ID);
             }
+            const res = await fetch(url.toString());
+            if (!res.ok) {
+              return rlog(`Pull failed: ${res.status}`);
+            }
+            const data = await res.json();
+            await assignFetchedTask(
+              data && data.taskId ? data.taskId : null,
+              data ? data.taskSpec : null,
+              "Pull",
+              "Plugin: pulled task into textarea"
+            );
+          } else {
+            const res = await fetch(`${RELAY_URL}/tasks/latest?status=pending`);
+            if (!res.ok) {
+              return rlog(`Fetch failed: ${res.status}`);
+            }
+            const data = await res.json();
+            await assignFetchedTask(
+              data && data.id ? data.id : null,
+              data ? data.taskSpec : null,
+              "Fetched",
+              "Plugin: fetched task into textarea"
+            );
           }
         } catch (e) {
           rlog("Fetch error: " + (e && e.message ? e.message : e));

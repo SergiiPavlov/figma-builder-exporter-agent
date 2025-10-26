@@ -11,7 +11,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const Ajv = require('ajv');
+const Ajv = require('ajv/dist/2020');
 const { v4: uuidv4 } = require('uuid');
 const Yazl = require('yazl');
 
@@ -173,6 +173,90 @@ function formatLogLine(entry) {
   return normalized;
 }
 
+function toLogEntry(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    return { message: trimmed, ts: new Date().toISOString() };
+  }
+  if (typeof raw === 'object') {
+    const messageValue =
+      typeof raw.message === 'string'
+        ? raw.message
+        : raw.message != null
+        ? String(raw.message)
+        : '';
+    const trimmed = messageValue.trim();
+    if (!trimmed) return null;
+    const tsValue =
+      typeof raw.ts === 'string' && raw.ts.trim() ? raw.ts : new Date().toISOString();
+    return { message: trimmed, ts: tsValue };
+  }
+  const message = String(raw).trim();
+  if (!message) return null;
+  return { message, ts: new Date().toISOString() };
+}
+
+function appendTaskLogs(task, newLogs) {
+  const currentLogs = normalizeLogs(task.logs);
+  const appended = [];
+  if (Array.isArray(newLogs)) {
+    for (const entry of newLogs) {
+      const normalized = toLogEntry(entry);
+      if (!normalized) continue;
+      currentLogs.push(normalized);
+      appended.push(normalized);
+    }
+  }
+  return { logs: currentLogs, appended };
+}
+
+function persistExportSpec(taskId, exportSpec) {
+  const artifactPaths = getArtifactPaths(taskId);
+  if (!artifactPaths) {
+    return { error: { status: 400, body: { error: 'Invalid task id' } } };
+  }
+  const { relative: artifactPath, absolute: artifactFile } = artifactPaths;
+  try {
+    const pretty = JSON.stringify(exportSpec, null, 2);
+    fs.writeFileSync(artifactFile, pretty, 'utf8');
+  } catch (err) {
+    console.error('Failed to write artifact', err);
+    return { error: { status: 500, body: { error: 'Failed to write artifact' } } };
+  }
+  let artifactSize = null;
+  try {
+    const stat = fs.statSync(artifactFile);
+    artifactSize = stat.size;
+  } catch (err) {
+    console.error('Failed to stat artifact', err);
+    return { error: { status: 500, body: { error: 'Failed to finalize artifact' } } };
+  }
+  return { artifactPath, artifactFile, artifactSize };
+}
+
+function finalizeTaskResult(task, exportSpec, { logs: logEntries } = {}) {
+  const persistResult = persistExportSpec(task.id, exportSpec);
+  if (persistResult.error) {
+    return { error: persistResult.error };
+  }
+  const { artifactPath, artifactSize } = persistResult;
+  const { logs, appended } = appendTaskLogs(task, logEntries);
+  const updated = {
+    ...task,
+    status: 'done',
+    result: exportSpec,
+    finishedAt: Date.now(),
+    startedAt: task.startedAt ?? task.createdAt ?? Date.now(),
+    error: null,
+    artifactPath,
+    artifactSize,
+    logs,
+  };
+  return { updated, appended };
+}
+
 function readAll() {
   const txt = fs.readFileSync(TASKS_FILE, 'utf8');
   const lines = txt ? txt.split('\n').filter(Boolean) : [];
@@ -184,6 +268,17 @@ function readAll() {
     } catch (_) {}
   }
   return byId;
+}
+
+function findLatestTaskByStatuses(statuses) {
+  const allowed = new Set(statuses);
+  const byId = readAll();
+  const arr = Array.from(byId.values()).filter((task) => allowed.has(task.status));
+  if (arr.length === 0) {
+    return null;
+  }
+  arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return arr[0];
 }
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -225,9 +320,40 @@ app.post('/tasks', (req, res) => {
     createdAt: Date.now(),
     logs: [],
     error: null,
+    runnerPluginId: null,
+    startedAt: null,
+    finishedAt: null,
   };
   writeOne(rec);
   res.json({ taskId: id });
+});
+
+app.get('/tasks/pull', (req, res) => {
+  const pluginId =
+    typeof req.query.pluginId === 'string' && req.query.pluginId.trim()
+      ? req.query.pluginId.trim()
+      : null;
+  const next = findLatestTaskByStatuses(['pending', 'queued']);
+  if (!next) {
+    return res.json({ taskId: null, taskSpec: null });
+  }
+  const updated = {
+    ...next,
+    status: 'running',
+    runnerPluginId: pluginId ?? next.runnerPluginId ?? null,
+    startedAt: Date.now(),
+    finishedAt: null,
+    error: null,
+  };
+  writeOne(updated);
+  broadcastTaskEvent(updated.id, 'status', {
+    status: 'running',
+    logs: normalizeLogs(updated.logs),
+    exportSpec: updated.result ?? null,
+    artifactPath: updated.artifactPath ?? null,
+    artifactSize: updated.artifactSize ?? null,
+  });
+  res.json({ taskId: updated.id, taskSpec: updated.taskSpec ?? null });
 });
 
 app.get('/tasks/:id', (req, res) => {
@@ -246,41 +372,50 @@ app.post('/tasks/:id/result', (req, res) => {
   if (!rec) return res.status(404).json({ error: 'not found' });
   const result = req.body && req.body.result;
   if (!result) return res.status(400).json({ error: 'result required' });
-  const artifactPaths = getArtifactPaths(id);
-  if (!artifactPaths) {
-    return res.status(400).json({ error: 'Invalid task id' });
+  const finalize = finalizeTaskResult(rec, result);
+  if (finalize.error) {
+    return res.status(finalize.error.status).json(finalize.error.body);
   }
-  const { relative: artifactPath, absolute: artifactFile } = artifactPaths;
-  try {
-    const pretty = JSON.stringify(result, null, 2);
-    fs.writeFileSync(artifactFile, pretty, 'utf8');
-  } catch (err) {
-    console.error('Failed to write artifact', err);
-    return res.status(500).json({ error: 'Failed to write artifact' });
+  writeOne(finalize.updated);
+  for (const entry of finalize.appended) {
+    broadcastTaskEvent(id, 'log', entry);
   }
-  let artifactSize = null;
-  try {
-    const stat = fs.statSync(artifactFile);
-    artifactSize = stat.size;
-  } catch (err) {
-    console.error('Failed to stat artifact', err);
-    return res.status(500).json({ error: 'Failed to finalize artifact' });
-  }
-  const updated = {
-    ...rec,
-    status: 'done',
-    result,
-    finishedAt: Date.now(),
-    error: null,
-    artifactPath,
-    artifactSize,
-  };
-  writeOne(updated);
   broadcastTaskEvent(id, 'result', {
     status: 'done',
     exportSpec: result,
-    artifactPath,
-    artifactSize,
+    artifactPath: finalize.updated.artifactPath,
+    artifactSize: finalize.updated.artifactSize,
+  }, { closeAfterMs: 3000 });
+  res.json({ ok: true });
+});
+
+app.post('/results', (req, res) => {
+  const body = req.body || {};
+  const taskId = typeof body.taskId === 'string' ? body.taskId.trim() : '';
+  if (!taskId) {
+    return res.status(400).json({ error: 'taskId required' });
+  }
+  const exportSpec = body.exportSpec;
+  if (exportSpec == null || typeof exportSpec !== 'object') {
+    return res.status(400).json({ error: 'exportSpec required' });
+  }
+  const rec = readOne(taskId);
+  if (!rec) {
+    return res.status(404).json({ error: 'not found' });
+  }
+  const finalize = finalizeTaskResult(rec, exportSpec, { logs: body.logs });
+  if (finalize.error) {
+    return res.status(finalize.error.status).json(finalize.error.body);
+  }
+  writeOne(finalize.updated);
+  for (const entry of finalize.appended) {
+    broadcastTaskEvent(taskId, 'log', entry);
+  }
+  broadcastTaskEvent(taskId, 'result', {
+    status: 'done',
+    exportSpec,
+    artifactPath: finalize.updated.artifactPath,
+    artifactSize: finalize.updated.artifactSize,
   }, { closeAfterMs: 3000 });
   res.json({ ok: true });
 });
@@ -352,25 +487,52 @@ app.get('/tasks/:id/package.zip', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${id}.zip"`);
 
   const zip = new Yazl.ZipFile();
-  zip.outputStream.on('error', (err) => {
-    console.error('Failed to stream artifact zip', err);
+  let responseClosed = false;
+  let exportSpecStream = null;
+  let zipStarted = false;
+  const abortWithError = (err) => {
+    if (responseClosed) return;
+    responseClosed = true;
+    const reason = err || new Error('Artifact read error');
+    console.error('Failed to stream artifact zip', reason);
+    try {
+      if (exportSpecStream) {
+        exportSpecStream.destroy();
+      }
+    } catch (_) {}
+    try {
+      zip.outputStream.unpipe(res);
+    } catch (_) {}
     if (!res.headersSent) {
-      res.status(500).end();
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.removeHeader('Content-Disposition');
+      res.status(500).json({ error: 'Artifact read error' });
     } else {
-      res.destroy(err);
+      res.destroy(reason);
     }
+  };
+  zip.outputStream.on('error', abortWithError);
+  res.on('close', () => {
+    responseClosed = true;
   });
-  zip.outputStream.pipe(res);
-  const exportSpecStream = fs.createReadStream(artifactFile);
+  const startZipStream = () => {
+    if (zipStarted || responseClosed) return;
+    zipStarted = true;
+    zip.addReadStream(exportSpecStream, 'exportSpec.json');
+    zip.addBuffer(Buffer.from(logsText, 'utf8'), 'logs.txt');
+    zip.addBuffer(Buffer.from(JSON.stringify(taskInfo, null, 2), 'utf8'), 'task.json');
+    zip.addBuffer(Buffer.from(JSON.stringify(metaInfo, null, 2), 'utf8'), 'meta.json');
+    zip.outputStream.pipe(res);
+    zip.end();
+  };
+  exportSpecStream = fs.createReadStream(artifactFile);
+  exportSpecStream.once('open', () => {
+    startZipStream();
+  });
   exportSpecStream.on('error', (err) => {
     console.error('Failed to read artifact for zip', artifactFile, err);
-    zip.emit('error', err);
+    abortWithError(err);
   });
-  zip.addReadStream(exportSpecStream, 'exportSpec.json');
-  zip.addBuffer(Buffer.from(logsText, 'utf8'), 'logs.txt');
-  zip.addBuffer(Buffer.from(JSON.stringify(taskInfo, null, 2), 'utf8'), 'task.json');
-  zip.addBuffer(Buffer.from(JSON.stringify(metaInfo, null, 2), 'utf8'), 'meta.json');
-  zip.end();
 });
 
 app.get('/artifacts', (_req, res) => {
@@ -452,24 +614,39 @@ app.get('/tasks/:id/watch', (req, res) => {
   }
 });
 
-// GET /tasks/latest?status=pending|done (default: pending)
+// GET /tasks/latest?status=pending|running|done (default: pending)
 app.get('/tasks/latest', (req, res) => {
   const status = String(req.query.status || 'pending');
-  const byId = readAll();
-  const arr = Array.from(byId.values()).filter((t) => t.status === status);
-  if (arr.length === 0) {
+  const latest = findLatestTaskByStatuses([status]);
+  if (!latest) {
     return res.status(404).json({ error: `No ${status} tasks` });
   }
-  arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  const t = arr[0];
   res.json({
-    id: t.id,
-    status: t.status,
-    createdAt: t.createdAt,
-    taskSpec: t.taskSpec,
+    id: latest.id,
+    status: latest.status,
+    createdAt: latest.createdAt,
+    taskSpec: latest.taskSpec,
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Relay listening on http://localhost:${PORT}`);
-});
+function startRelayServer(port = PORT) {
+  const normalizedPort =
+    typeof port === 'number'
+      ? port
+      : typeof port === 'string' && port.trim()
+      ? Number(port)
+      : Number(PORT);
+  const actualPort = Number.isFinite(normalizedPort) && normalizedPort >= 0 ? normalizedPort : 3000;
+  const server = app.listen(actualPort, () => {
+    const address = server.address();
+    const portToLog = address && typeof address.port === 'number' ? address.port : actualPort;
+    console.log(`Relay listening on http://localhost:${portToLog}`);
+  });
+  return server;
+}
+
+if (require.main === module) {
+  startRelayServer();
+}
+
+module.exports = { app, startRelayServer };

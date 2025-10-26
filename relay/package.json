@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "lint": "echo \"(optional)\""
+    "lint": "echo \"(optional)\"",
+    "test": "node --test"
   },
   "dependencies": {
     "ajv": "^8.17.1",
