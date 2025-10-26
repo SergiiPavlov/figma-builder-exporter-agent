@@ -11,6 +11,10 @@ const Ajv = typeof AjvModule === 'function' ? AjvModule : AjvModule.default;
 const SAFE_TASK_ID_RE = /^[A-Za-z0-9._-]+$/;
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const KEEPALIVE_INTERVAL_MS = 30 * 1000;
+const CLEANUP_MIN_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_MAX_ARTIFACTS = 200;
+const DEFAULT_TTL_DAYS = 30;
 
 const DEFAULT_DATA_DIR = path.join(__dirname, 'data');
 const TASK_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'taskSpec.schema.json');
@@ -80,6 +84,13 @@ function ensureStorageStructure(dataDir) {
   return { tasksFile, resultsDir };
 }
 
+function parseInteger(value) {
+  if (value == null) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.floor(num);
+}
+
 function createApp(options = {}) {
   const dataDir = resolveDataDir(options.dataDir);
   const { tasksFile, resultsDir } = ensureStorageStructure(dataDir);
@@ -90,6 +101,25 @@ function createApp(options = {}) {
   app.locals.dataDir = dataDir;
 
   const clientsByTask = new Map();
+
+  const configuredMaxArtifacts = parseInteger(
+    options.maxArtifacts != null ? options.maxArtifacts : process.env.MAX_ARTIFACTS,
+  );
+  const maxArtifacts =
+    configuredMaxArtifacts != null && configuredMaxArtifacts >= 0
+      ? configuredMaxArtifacts
+      : DEFAULT_MAX_ARTIFACTS;
+
+  const configuredTtlDays = parseInteger(
+    options.ttlDays != null ? options.ttlDays : process.env.TTL_DAYS,
+  );
+  const ttlDays =
+    configuredTtlDays != null && configuredTtlDays >= 0 ? configuredTtlDays : DEFAULT_TTL_DAYS;
+
+  const cleanupState = {
+    lastRunAt: 0,
+    dirty: true,
+  };
 
   const ajv = new Ajv({ allErrors: true, strict: false });
   const taskSchema = JSON.parse(fs.readFileSync(TASK_SCHEMA_PATH, 'utf8'));
@@ -123,7 +153,7 @@ function createApp(options = {}) {
       }
       try {
         res.end();
-      } catch (_) {}
+      } catch {}
     };
 
     client.resetInactivity = () => {
@@ -139,7 +169,7 @@ function createApp(options = {}) {
         res.write(`event: ${event}\n`);
         res.write(`data: ${JSON.stringify(payload)}\n\n`);
         client.resetInactivity();
-      } catch (_) {
+      } catch {
         cleanup();
       }
     };
@@ -148,7 +178,7 @@ function createApp(options = {}) {
       if (client.closed) return;
       try {
         res.write(`: keep-alive ${Date.now()}\n\n`);
-      } catch (_) {
+      } catch {
         cleanup();
       }
     }, KEEPALIVE_INTERVAL_MS);
@@ -182,7 +212,7 @@ function createApp(options = {}) {
     appendJSONL(tasksFile, task);
   }
 
-  function readAll() {
+  function readAllRaw() {
     if (!fs.existsSync(tasksFile)) return new Map();
     const txt = fs.readFileSync(tasksFile, 'utf8');
     const lines = txt ? txt.split('\n').filter(Boolean) : [];
@@ -191,7 +221,18 @@ function createApp(options = {}) {
       try {
         const obj = JSON.parse(line);
         byId.set(obj.id, obj);
-      } catch (_) {}
+      } catch {}
+    }
+    return byId;
+  }
+
+  function readAll(includeDeleted = false) {
+    const byId = readAllRaw();
+    if (includeDeleted) return byId;
+    for (const [id, task] of byId.entries()) {
+      if (!task || task.deleted) {
+        byId.delete(id);
+      }
     }
     return byId;
   }
@@ -199,6 +240,16 @@ function createApp(options = {}) {
   function readOne(id) {
     const byId = readAll();
     return byId.get(id);
+  }
+
+  function closeTaskClients(taskId) {
+    const set = clientsByTask.get(taskId);
+    if (!set || set.size === 0) return;
+    for (const client of Array.from(set)) {
+      try {
+        client.cleanup();
+      } catch {}
+    }
   }
 
   function getArtifactPaths(taskId) {
@@ -241,6 +292,7 @@ function createApp(options = {}) {
     try {
       const pretty = JSON.stringify(exportSpec, null, 2);
       fs.writeFileSync(artifactFile, pretty, 'utf8');
+      cleanupState.dirty = true;
     } catch (err) {
       console.error('Failed to write artifact', err);
       return { error: { status: 500, body: { error: 'Failed to write artifact' } } };
@@ -530,10 +582,10 @@ function createApp(options = {}) {
         if (exportSpecStream) {
           exportSpecStream.destroy();
         }
-      } catch (_) {}
+      } catch {}
       try {
         zip.outputStream.unpipe(res);
-      } catch (_) {}
+      } catch {}
       if (!res.headersSent) {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.removeHeader('Content-Disposition');
@@ -566,15 +618,101 @@ function createApp(options = {}) {
     });
   });
 
-  app.get('/artifacts', (_req, res) => {
-    const byId = readAll();
-    const list = [];
-    for (const task of byId.values()) {
+  function cleanupArtifacts({ max = maxArtifacts, ttlDays: ttl = ttlDays } = {}) {
+    const now = Date.now();
+    const ttlMs = Number.isFinite(ttl) && ttl > 0 ? Math.floor(ttl) * DAY_IN_MS : null;
+    const normalizedMax =
+      Number.isFinite(max) && max >= 0 ? Math.floor(max) : Math.max(0, maxArtifacts);
+
+    const artifacts = [];
+    const tasks = readAll();
+    for (const task of tasks.values()) {
       const paths = getArtifactPaths(task.id);
       if (!paths) continue;
       const { absolute } = paths;
       if (!fs.existsSync(absolute)) continue;
-      let size = null;
+      let stat;
+      try {
+        stat = fs.statSync(absolute);
+      } catch (err) {
+        console.error('Failed to stat artifact during cleanup', absolute, err);
+        continue;
+      }
+      artifacts.push({
+        id: task.id,
+        task,
+        createdAt: task.createdAt ?? 0,
+        artifactFile: absolute,
+        size: stat.size,
+      });
+    }
+
+    const removals = new Map();
+
+    if (ttlMs != null) {
+      for (const entry of artifacts) {
+        if (!entry.createdAt) {
+          continue;
+        }
+        if (now - entry.createdAt > ttlMs) {
+          removals.set(entry.id, entry);
+        }
+      }
+    }
+
+    const remaining = artifacts
+      .filter((entry) => !removals.has(entry.id))
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+    while (remaining.length > normalizedMax) {
+      const entry = remaining.shift();
+      if (entry) {
+        removals.set(entry.id, entry);
+      }
+    }
+
+    for (const entry of removals.values()) {
+      try {
+        fs.unlinkSync(entry.artifactFile);
+      } catch (err) {
+        if (err && err.code !== 'ENOENT') {
+          console.error('Failed to remove artifact', entry.artifactFile, err);
+        }
+      }
+      closeTaskClients(entry.id);
+      writeOne({ id: entry.id, deleted: true, deletedAt: now });
+    }
+
+    cleanupState.lastRunAt = now;
+    cleanupState.dirty = false;
+    return {
+      total: artifacts.length,
+      removed: removals.size,
+    };
+  }
+
+  function maybeRunCleanup(force = false) {
+    const now = Date.now();
+    if (force) {
+      return cleanupArtifacts();
+    }
+    if (!cleanupState.dirty && now - cleanupState.lastRunAt < CLEANUP_MIN_INTERVAL_MS) {
+      return null;
+    }
+    return cleanupArtifacts();
+  }
+
+  app.get('/artifacts', (req, res) => {
+    maybeRunCleanup(false);
+
+    const tasks = readAll();
+    const items = [];
+    for (const task of tasks.values()) {
+      const paths = getArtifactPaths(task.id);
+      if (!paths) continue;
+      const { absolute } = paths;
+      if (!fs.existsSync(absolute)) continue;
+      let size;
       try {
         const stat = fs.statSync(absolute);
         size = stat.size;
@@ -582,15 +720,34 @@ function createApp(options = {}) {
         console.error('Failed to stat artifact', absolute, err);
         continue;
       }
-      list.push({
+      items.push({
         id: task.id,
         createdAt: task.createdAt ?? 0,
         size,
         hasZip: true,
       });
     }
-    list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    res.json(list);
+
+    const order = String(req.query.order || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    items.sort((a, b) => {
+      const aTs = a.createdAt || 0;
+      const bTs = b.createdAt || 0;
+      return order === 'asc' ? aTs - bTs : bTs - aTs;
+    });
+
+    const offsetRaw = parseInteger(req.query.offset);
+    const limitRaw = parseInteger(req.query.limit);
+    const offset = offsetRaw != null && offsetRaw >= 0 ? offsetRaw : 0;
+    const limitCandidate = limitRaw != null && limitRaw > 0 ? limitRaw : 50;
+    const limit = Math.min(200, limitCandidate);
+
+    const sliced = items.slice(offset, offset + limit);
+    res.json({
+      items: sliced,
+      total: items.length,
+      offset,
+      limit,
+    });
   });
 
   app.post('/tasks/:id/log', (req, res) => {
@@ -640,10 +797,19 @@ function createApp(options = {}) {
         artifactPath: task.artifactPath ?? null,
         artifactSize: task.artifactSize ?? null,
       });
-    } catch (_) {
+    } catch {
       client.cleanup();
     }
   });
+
+  maybeRunCleanup(true);
+
+  app.cleanupArtifacts = cleanupArtifacts;
+  app.locals.cleanup = {
+    maxArtifacts,
+    ttlDays,
+    state: cleanupState,
+  };
 
   return app;
 }

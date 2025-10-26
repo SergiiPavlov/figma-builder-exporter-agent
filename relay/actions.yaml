@@ -267,29 +267,69 @@ paths:
     get:
       operationId: listArtifacts
       summary: List available JSON artifacts
+      parameters:
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+          required: false
+          description: Number of items to skip (default 0)
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+          required: false
+          description: Maximum number of items to return (default 50, max 200)
+        - in: query
+          name: order
+          schema:
+            type: string
+            enum: [asc, desc]
+          required: false
+          description: Sort order by createdAt (default desc)
       responses:
         '200':
-          description: Array of artifacts
+          description: Paginated artifacts list
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  required:
-                    - id
-                    - createdAt
-                    - size
-                    - hasZip
-                  properties:
-                    id:
-                      type: string
-                    createdAt:
-                      type: number
-                    size:
-                      type: number
-                    hasZip:
-                      type: boolean
+                type: object
+                required:
+                  - items
+                  - total
+                  - offset
+                  - limit
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - id
+                        - createdAt
+                        - size
+                        - hasZip
+                      properties:
+                        id:
+                          type: string
+                        createdAt:
+                          type: number
+                        size:
+                          type: number
+                        hasZip:
+                          type: boolean
+                  total:
+                    type: integer
+                    minimum: 0
+                  offset:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 1
   /tasks/{id}/log:
     post:
       operationId: appendTaskLog

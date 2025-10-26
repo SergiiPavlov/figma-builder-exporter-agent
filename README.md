@@ -34,6 +34,7 @@ curl http://localhost:3000/health
 3. Используйте **Validate** для проверки TaskSpec (`/validate/taskSpec`).
 4. Запустите **Export**, чтобы валидировать `ExportSpec`, скачать результат и отправить `/tasks/:id/result`.
 5. При необходимости проверяйте результат напрямую: `curl http://localhost:3000/tasks/<TASK_ID>/result`.
+6. Для обзора последних экспортов используйте `GET /artifacts?offset=0&limit=50&order=desc` — список поддерживает пагинацию и сортировку.
 
 ## Документация для агента
 
