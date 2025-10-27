@@ -20,6 +20,8 @@ const DEFAULT_MAX_ARTIFACTS = 200;
 const DEFAULT_TTL_DAYS = 30;
 const MAX_BULK_ARTIFACT_IDS = 50;
 const BULK_ZIP_MAX_SIZE_BYTES = 100 * 1024 * 1024;
+const PREVIEW_MAX_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
+const PREVIEW_CONTENT_TYPE = 'image/png';
 
 const DEFAULT_WEBHOOK_RETRIES = 3;
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 5000;
@@ -595,11 +597,13 @@ function ensureStorageStructure(dataDir) {
   }
   const resultsDir = path.join(dataDir, 'results');
   fs.mkdirSync(resultsDir, { recursive: true });
+  const previewsDir = path.join(dataDir, 'previews');
+  fs.mkdirSync(previewsDir, { recursive: true });
   const sharesFile = path.join(dataDir, SHARE_STORE_FILENAME);
   if (!fs.existsSync(sharesFile)) {
     fs.writeFileSync(sharesFile, '[]\n', 'utf8');
   }
-  return { tasksFile, resultsDir, sharesFile };
+  return { tasksFile, resultsDir, previewsDir, sharesFile };
 }
 
 function parseInteger(value) {
@@ -611,7 +615,7 @@ function parseInteger(value) {
 
 function createApp(options = {}) {
   const dataDir = resolveDataDir(options.dataDir);
-  const { tasksFile, resultsDir, sharesFile } = ensureStorageStructure(dataDir);
+  const { tasksFile, resultsDir, previewsDir, sharesFile } = ensureStorageStructure(dataDir);
   const app = express();
   app.set('trust proxy', true);
 
@@ -1020,6 +1024,41 @@ function createApp(options = {}) {
     };
   }
 
+  function getPreviewPaths(taskId) {
+    if (typeof taskId !== 'string' || !SAFE_TASK_ID_RE.test(taskId)) {
+      return null;
+    }
+    const filename = `${taskId}.png`;
+    const base = path.resolve(previewsDir);
+    const absolute = path.resolve(base, filename);
+    const relativeToBase = path.relative(base, absolute);
+    if (relativeToBase.startsWith('..') || path.isAbsolute(relativeToBase)) {
+      return null;
+    }
+    return {
+      relative: path.posix.join('data', 'previews', filename),
+      absolute,
+    };
+  }
+
+  function buildPreviewUrl(taskId) {
+    if (typeof taskId !== 'string' || !SAFE_TASK_ID_RE.test(taskId)) {
+      return null;
+    }
+    return `/tasks/${encodeURIComponent(taskId)}/preview.png`;
+  }
+
+  function getPreviewInfo(taskId, task) {
+    const previewPaths = getPreviewPaths(taskId);
+    const hasPreview = !!(previewPaths && fs.existsSync(previewPaths.absolute));
+    const previewUrl = hasPreview ? buildPreviewUrl(taskId) : null;
+    const previewUpdatedAt =
+      hasPreview && task && Number.isFinite(task.previewUpdatedAt)
+        ? Math.floor(task.previewUpdatedAt)
+        : null;
+    return { hasPreview, previewUrl, previewUpdatedAt };
+  }
+
   function ensureJsonArtifact(taskId) {
     const artifactPaths = getArtifactPaths(taskId);
     if (!artifactPaths) {
@@ -1075,12 +1114,40 @@ function createApp(options = {}) {
       createdAt: task.createdAt ?? null,
       status: task.status ?? null,
     };
+    const previewPaths = getPreviewPaths(taskId);
+    let previewBuffer = null;
+    let previewRelativePath = null;
+    let previewSize = null;
+    if (previewPaths) {
+      try {
+        if (fs.existsSync(previewPaths.absolute)) {
+          const file = fs.readFileSync(previewPaths.absolute);
+          if (file && file.length > 0) {
+            previewBuffer = file;
+            previewRelativePath = previewPaths.relative;
+            previewSize = file.length;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to read preview for zip', previewPaths.absolute, err);
+        previewBuffer = null;
+        previewRelativePath = null;
+        previewSize = null;
+      }
+    }
+
     const metaInfo = {
       id: task.id,
       createdAt: task.createdAt ?? null,
       artifactPath: task.artifactPath ?? artifactRelativePath,
       artifactSize,
     };
+    if (previewRelativePath) {
+      metaInfo.previewPath = previewRelativePath;
+    }
+    if (previewSize != null) {
+      metaInfo.previewSize = previewSize;
+    }
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${taskId}.zip"`);
@@ -1124,6 +1191,9 @@ function createApp(options = {}) {
       zip.addBuffer(Buffer.from(logsText, 'utf8'), 'logs.txt');
       zip.addBuffer(Buffer.from(JSON.stringify(taskInfo, null, 2), 'utf8'), 'task.json');
       zip.addBuffer(Buffer.from(JSON.stringify(metaInfo, null, 2), 'utf8'), 'meta.json');
+      if (previewBuffer) {
+        zip.addBuffer(previewBuffer, 'preview.png');
+      }
       zip.outputStream.pipe(res);
       zip.end();
     };
@@ -1234,6 +1304,7 @@ function createApp(options = {}) {
     for (const entry of finalize.appended) {
       broadcastTaskEvent(taskId, 'log', entry);
     }
+    const errorPreviewInfo = getPreviewInfo(taskId, finalize.updated);
     broadcastTaskEvent(
       taskId,
       'result',
@@ -1243,6 +1314,7 @@ function createApp(options = {}) {
         artifactPath: finalize.updated.artifactPath ?? null,
         artifactSize: finalize.updated.artifactSize ?? null,
         error: finalize.updated.error ?? null,
+        ...errorPreviewInfo,
       },
       { closeAfterMs: 3000 },
     );
@@ -1320,12 +1392,14 @@ function createApp(options = {}) {
       error: null,
     };
     writeOne(updated);
+    const statusPreviewInfo = getPreviewInfo(updated.id, updated);
     broadcastTaskEvent(updated.id, 'status', {
       status: 'running',
       logs: normalizeLogs(updated.logs),
       exportSpec: updated.result ?? null,
       artifactPath: updated.artifactPath ?? null,
       artifactSize: updated.artifactSize ?? null,
+      ...statusPreviewInfo,
     });
     res.json({ taskId: updated.id, taskSpec: updated.taskSpec ?? null });
   });
@@ -1348,9 +1422,11 @@ function createApp(options = {}) {
     const id = req.params.id;
     const rec = readOne(id);
     if (!rec) return res.status(404).json({ error: 'not found' });
+    const previewInfo = getPreviewInfo(id, rec);
     res.json({
       ...rec,
       logs: normalizeLogs(rec.logs).map((l) => l.message),
+      ...previewInfo,
     });
   });
 
@@ -1368,6 +1444,7 @@ function createApp(options = {}) {
     for (const entry of finalize.appended) {
       broadcastTaskEvent(id, 'log', entry);
     }
+    const resultPreviewInfo = getPreviewInfo(id, finalize.updated);
     broadcastTaskEvent(
       id,
       'result',
@@ -1376,6 +1453,7 @@ function createApp(options = {}) {
         exportSpec: result,
         artifactPath: finalize.updated.artifactPath,
         artifactSize: finalize.updated.artifactSize,
+        ...resultPreviewInfo,
       },
       { closeAfterMs: 3000 },
     );
@@ -1385,6 +1463,91 @@ function createApp(options = {}) {
       baseUrl: deriveBaseUrl(req),
     });
     res.json({ ok: true });
+  });
+
+  app.post('/tasks/:id/preview', (req, res) => {
+    const id = req.params.id;
+    const task = readOne(id);
+    if (!task) {
+      return res.status(404).json({ error: 'not found' });
+    }
+    const body = req.body || {};
+    if (body.contentType !== PREVIEW_CONTENT_TYPE) {
+      return res.status(400).json({ error: 'contentType must be image/png' });
+    }
+    const base64Input = typeof body.base64 === 'string' ? body.base64.trim() : '';
+    if (!base64Input) {
+      return res.status(400).json({ error: 'base64 required' });
+    }
+    const normalizedInput = base64Input.replace(/\s+/g, '');
+    let buffer;
+    try {
+      buffer = Buffer.from(normalizedInput, 'base64');
+    } catch (err) {
+      return res.status(400).json({ error: 'Invalid base64' });
+    }
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({ error: 'Invalid preview payload' });
+    }
+    const reconstructed = buffer.toString('base64').replace(/=+$/g, '');
+    const normalizedComparable = normalizedInput.replace(/=+$/g, '');
+    if (!reconstructed || reconstructed !== normalizedComparable) {
+      return res.status(400).json({ error: 'Invalid base64' });
+    }
+    if (buffer.length > PREVIEW_MAX_SIZE_BYTES) {
+      return res.status(413).json({ error: 'Preview too large' });
+    }
+
+    const previewPaths = getPreviewPaths(id);
+    if (!previewPaths) {
+      return res.status(400).json({ error: 'Invalid task id' });
+    }
+
+    try {
+      fs.writeFileSync(previewPaths.absolute, buffer);
+      cleanupState.dirty = true;
+    } catch (err) {
+      console.error('Failed to write preview', err);
+      return res.status(500).json({ error: 'Failed to store preview' });
+    }
+
+    const updated = {
+      ...task,
+      previewPath: previewPaths.relative,
+      previewSize: buffer.length,
+      previewUpdatedAt: Date.now(),
+    };
+    writeOne(updated);
+
+    const previewInfo = getPreviewInfo(id, updated);
+    broadcastTaskEvent(id, 'preview', {
+      size: buffer.length,
+      ...previewInfo,
+    });
+
+    res.json({ ok: true, size: buffer.length });
+  });
+
+  app.get('/tasks/:id/preview.png', (req, res) => {
+    const id = req.params.id;
+    const previewPaths = getPreviewPaths(id);
+    if (!previewPaths) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    let exists = false;
+    try {
+      const stat = fs.statSync(previewPaths.absolute);
+      exists = stat.isFile();
+    } catch (err) {
+      if (err && err.code !== 'ENOENT') {
+        console.error('Failed to access preview', previewPaths.absolute, err);
+      }
+    }
+    if (!exists) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    res.type(PREVIEW_CONTENT_TYPE);
+    res.sendFile(previewPaths.absolute);
   });
 
   app.post('/results', (req, res) => {
@@ -1409,6 +1572,7 @@ function createApp(options = {}) {
     for (const entry of finalize.appended) {
       broadcastTaskEvent(taskId, 'log', entry);
     }
+    const resultPreviewInfo = getPreviewInfo(taskId, finalize.updated);
     broadcastTaskEvent(
       taskId,
       'result',
@@ -1417,6 +1581,7 @@ function createApp(options = {}) {
         exportSpec,
         artifactPath: finalize.updated.artifactPath,
         artifactSize: finalize.updated.artifactSize,
+        ...resultPreviewInfo,
       },
       { closeAfterMs: 3000 },
     );
@@ -1431,6 +1596,7 @@ function createApp(options = {}) {
   app.get('/tasks/:id/result', (req, res) => {
     const t = readOne(req.params.id);
     if (!t) return res.status(404).json({ error: 'Not found' });
+    const previewInfo = getPreviewInfo(t.id, t);
     res.json({
       taskId: t.id,
       status: t.status,
@@ -1439,6 +1605,7 @@ function createApp(options = {}) {
       error: t.error ?? null,
       artifactPath: t.artifactPath ?? null,
       artifactSize: t.artifactSize ?? null,
+      ...previewInfo,
     });
   });
 
@@ -1739,11 +1906,17 @@ function createApp(options = {}) {
         console.error('Failed to stat artifact during cleanup', absolute, err);
         continue;
       }
+      const previewPaths = getPreviewPaths(task.id);
+      let previewFile = null;
+      if (previewPaths && fs.existsSync(previewPaths.absolute)) {
+        previewFile = previewPaths.absolute;
+      }
       artifacts.push({
         id: task.id,
         task,
         createdAt: task.createdAt ?? 0,
         artifactFile: absolute,
+        previewFile,
         size: stat.size,
       });
     }
@@ -1778,6 +1951,15 @@ function createApp(options = {}) {
       } catch (err) {
         if (err && err.code !== 'ENOENT') {
           console.error('Failed to remove artifact', entry.artifactFile, err);
+        }
+      }
+      if (entry.previewFile) {
+        try {
+          fs.unlinkSync(entry.previewFile);
+        } catch (err) {
+          if (err && err.code !== 'ENOENT') {
+            console.error('Failed to remove preview', entry.previewFile, err);
+          }
         }
       }
       closeTaskClients(entry.id);
@@ -1822,11 +2004,14 @@ function createApp(options = {}) {
         console.error('Failed to stat artifact', absolute, err);
         continue;
       }
+      const previewInfo = getPreviewInfo(task.id, task);
       items.push({
         id: task.id,
         createdAt: task.createdAt ?? 0,
         size,
         hasZip: true,
+        hasPreview: previewInfo.hasPreview,
+        previewUpdatedAt: previewInfo.previewUpdatedAt,
       });
     }
 
@@ -1892,12 +2077,14 @@ function createApp(options = {}) {
 
     const client = registerClient(id, req, res);
     try {
+      const previewInfo = getPreviewInfo(id, task);
       client.send('status', {
         status: task.status || 'pending',
         logs: normalizeLogs(task.logs),
         exportSpec: task.result ?? null,
         artifactPath: task.artifactPath ?? null,
         artifactSize: task.artifactSize ?? null,
+        ...previewInfo,
       });
     } catch {
       client.cleanup();
