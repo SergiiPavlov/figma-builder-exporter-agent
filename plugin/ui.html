@@ -72,12 +72,97 @@
         padding: 6px 10px;
         cursor: pointer;
       }
+      button[aria-disabled='true'],
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+      .toast-container {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        z-index: 9999;
+        pointer-events: none;
+      }
+      .toast {
+        min-width: 220px;
+        max-width: 320px;
+        padding: 10px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.15);
+        color: #0f172a;
+        background: rgba(255, 255, 255, 0.95);
+        border-left: 4px solid transparent;
+        pointer-events: auto;
+        animation: toast-in 0.18s ease;
+      }
+      .toast--success {
+        border-color: #22c55e;
+      }
+      .toast--error {
+        border-color: #ef4444;
+      }
+      @keyframes toast-in {
+        from {
+          opacity: 0;
+          transform: translateY(-6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
       .mode-toggle {
         display: inline-flex;
         align-items: center;
         gap: 6px;
         font-size: 12px;
         margin: 6px 0;
+      }
+      .artifacts-empty {
+        border: 1px dashed #cbd5f5;
+        border-radius: 8px;
+        background: #f8fafc;
+        padding: 28px 16px;
+        text-align: center;
+        display: none;
+        flex-direction: column;
+        gap: 12px;
+        align-items: center;
+      }
+      .artifacts-empty[data-visible='true'] {
+        display: flex;
+      }
+      .artifacts-empty__icon {
+        font-size: 32px;
+      }
+      .artifacts-empty__text {
+        font-size: 13px;
+        color: #475569;
+      }
+      .artifacts-refresh {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .artifacts-refresh[data-loading='true']::after {
+        content: '';
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        border: 2px solid rgba(37, 99, 235, 0.4);
+        border-top-color: #2563eb;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
       a.button-link {
         display: inline-block;
@@ -221,6 +306,9 @@
         border-collapse: collapse;
         font-size: 12px;
       }
+      .artifacts-table[data-state='loading'] {
+        opacity: 0.65;
+      }
       .artifacts-table th,
       .artifacts-table td {
         border: 1px solid #e2e8f0;
@@ -247,6 +335,28 @@
         text-align: center;
         color: #64748b;
         font-style: italic;
+      }
+      .artifacts-table__skeleton {
+        display: block;
+        width: 100%;
+        height: 10px;
+        border-radius: 4px;
+        background: linear-gradient(
+          90deg,
+          rgba(148, 163, 184, 0.2) 0%,
+          rgba(148, 163, 184, 0.45) 50%,
+          rgba(148, 163, 184, 0.2) 100%
+        );
+        background-size: 200% 100%;
+        animation: skeleton 1.2s ease-in-out infinite;
+      }
+      @keyframes skeleton {
+        0% {
+          background-position: 200% 0;
+        }
+        100% {
+          background-position: -200% 0;
+        }
       }
       .artifact-preview-thumb {
         display: block;
@@ -488,6 +598,15 @@
         font-size: 13px;
         font-weight: 600;
         color: #0f172a;
+      }
+      .artifact-details__logs-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .artifact-details__pause-button[aria-pressed='true'] {
+        background: #0f172a;
+        color: #e2e8f0;
       }
       .artifact-details__logs {
         max-height: 160px;
@@ -734,6 +853,11 @@
         gap: 8px;
         margin-left: auto;
         flex-wrap: wrap;
+      }
+      .artifact-compare__hint {
+        font-size: 11px;
+        color: #64748b;
+        margin-top: 4px;
       }
       .artifact-compare__tabs {
         display: inline-flex;
@@ -1000,6 +1124,13 @@
     </style>
   </head>
   <body>
+    <div
+      id="toast-container"
+      class="toast-container"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
     <h3>Figma Builder+Exporter (M1)</h3>
     <div class="tabs">
       <button type="button" class="tab-button is-active" data-target="panel-builder">
@@ -1095,8 +1226,18 @@
         </label>
         <button type="button" id="artifacts-prev">Prev</button>
         <button type="button" id="artifacts-next">Next</button>
+        <button type="button" id="artifacts-refresh" class="artifacts-refresh">
+          Refresh
+        </button>
       </div>
-      <table class="artifacts-table">
+      <div id="artifacts-empty-state" class="artifacts-empty" data-visible="false">
+        <div class="artifacts-empty__icon" aria-hidden="true">🗂️</div>
+        <div class="artifacts-empty__text">No artifacts yet</div>
+        <button type="button" id="artifacts-empty-refresh" class="artifacts-refresh">
+          Refresh
+        </button>
+      </div>
+      <table id="artifacts-table" class="artifacts-table">
         <thead>
           <tr>
             <th>Select</th>
@@ -1229,6 +1370,9 @@
                 <div class="artifact-details__share-actions">
                   <button type="button" id="artifact-details-share-json">Share JSON</button>
                   <button type="button" id="artifact-details-share-zip">Share ZIP</button>
+                  <button type="button" id="artifact-details-share-copy-link">
+                    Copy link
+                  </button>
                 </div>
                 <div
                   class="artifact-details__share-feedback"
@@ -1265,7 +1409,17 @@
                 aria-live="polite"
               ></div>
               <section>
-                <h5 class="artifact-details__section-title">Logs</h5>
+                <div class="artifact-details__logs-header">
+                  <h5 class="artifact-details__section-title">Logs</h5>
+                  <button
+                    type="button"
+                    id="artifact-details-toggle-logs"
+                    class="artifact-details__pause-button"
+                    aria-pressed="false"
+                  >
+                    Pause logs
+                  </button>
+                </div>
                 <div
                   id="artifact-details-logs"
                   class="artifact-details__logs"
@@ -1382,6 +1536,9 @@
                 >
                   Export diff as HTML
                 </button>
+              </div>
+              <div class="artifact-compare__hint">
+                Exported reports do not embed your API key.
               </div>
             </div>
             <section
@@ -1523,6 +1680,7 @@
       </div>
     </div>
 
+    <script src="utils.js"></script>
     <script>
       const RELAY_URL = "http://localhost:3000";
       const PULL_PLUGIN_ID = "plugin-ui";
@@ -1534,6 +1692,35 @@
       let statusLogs = [];
       const STATUS_LOG_LIMIT = 200;
       let pullModeEnabled = false;
+
+      const pluginUtils = window.PluginUtils || {};
+      const parseServerError =
+        pluginUtils.parseServerError ||
+        ((error, fallback = "Request failed") => {
+          if (error && typeof error === "object" && typeof error.message === "string") {
+            return error.message;
+          }
+          if (typeof error === "string" && error.trim()) {
+            return error.trim();
+          }
+          return fallback;
+        });
+      const createRaceGuard =
+        pluginUtils.createRaceGuard ||
+        (() => ({
+          start: () => ({ token: Date.now(), signal: undefined }),
+          isActive: () => true,
+          finish: () => {},
+          get signal() {
+            return undefined;
+          },
+        }));
+      const createPersistentState =
+        pluginUtils.createPersistentState ||
+        (() => ({
+          read: (value) => value,
+          write: () => false,
+        }));
 
       const buildRelayUrl = (path, { includeApiKey = false } = {}) => {
         try {
@@ -1578,6 +1765,7 @@
       );
 
       const artifactsElements = {
+        table: document.getElementById("artifacts-table"),
         tableBody: document.getElementById("artifacts-tbody"),
         searchInput: document.getElementById("artifacts-search"),
         orderSelect: document.getElementById("artifacts-order"),
@@ -1588,6 +1776,9 @@
         bulkButton: document.getElementById("artifacts-bulk-download"),
         compareButton: document.getElementById("artifacts-compare"),
         errorBox: document.getElementById("artifacts-error"),
+        refreshButton: document.getElementById("artifacts-refresh"),
+        emptyRefreshButton: document.getElementById("artifacts-empty-refresh"),
+        emptyState: document.getElementById("artifacts-empty-state"),
       };
 
       const artifactDetailsElements = {
@@ -1611,6 +1802,7 @@
         previewDownload: document.getElementById("artifact-details-preview-download"),
         shareJsonButton: document.getElementById("artifact-details-share-json"),
         shareZipButton: document.getElementById("artifact-details-share-zip"),
+        shareCopyLinkButton: document.getElementById("artifact-details-share-copy-link"),
         shareFeedback: document.getElementById("artifact-details-share-feedback"),
         shareSummary: document.getElementById("artifact-details-share-summary"),
         shareLink: document.getElementById("artifact-details-share-url"),
@@ -1619,6 +1811,7 @@
         shareError: document.getElementById("artifact-details-share-error"),
         notice: document.getElementById("artifact-details-notice"),
         logs: document.getElementById("artifact-details-logs"),
+        toggleLogs: document.getElementById("artifact-details-toggle-logs"),
         exportViewer: document.getElementById("artifact-details-export-viewer"),
         exportSearch: document.getElementById("artifact-details-export-search"),
       };
@@ -1666,6 +1859,26 @@
           artifactCompareElements.container.querySelector('[data-tab-panel="changes"]');
       }
 
+      const toastContainerEl = document.getElementById("toast-container");
+      const activeToasts = new Set();
+      const showToast = ({ message, type = "info", duration = 2800 } = {}) => {
+        const normalized = typeof message === "string" ? message.trim() : "";
+        if (!toastContainerEl || !normalized) return;
+        const toast = document.createElement("div");
+        toast.className = `toast toast--${type}`;
+        toast.textContent = normalized;
+        toastContainerEl.appendChild(toast);
+        activeToasts.add(toast);
+        const remove = () => {
+          if (!activeToasts.has(toast)) return;
+          activeToasts.delete(toast);
+          if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+          }
+        };
+        setTimeout(remove, Math.max(1200, Number(duration) || 2800));
+      };
+
       const apiKeyInput = document.getElementById("api-key-input");
       const apiKeyClearButton = document.getElementById("api-key-clear");
       const storage = (() => {
@@ -1676,6 +1889,10 @@
           return null;
         }
       })();
+
+      const artifactsPreferences = createPersistentState("plugin:artifacts-preferences", {
+        storage,
+      });
 
       const persistApiKey = (value) => {
         if (!storage) return;
@@ -1741,6 +1958,8 @@
         task: null,
         result: null,
         logs: [],
+        logsPaused: false,
+        pendingLogCount: 0,
         exportSpec: null,
         exportSearch: "",
         notice: null,
@@ -1751,6 +1970,7 @@
         hasPreview: false,
         previewUrl: null,
         previewUpdatedAt: null,
+        progress: null,
       };
 
       const artifactCompareState = {
@@ -1771,10 +1991,8 @@
         error: "",
       };
 
-      let currentDetailsReqId = 0;
-      let currentDetailsAbort = null;
-
       let artifactDetailsToastTimer = null;
+      let artifactDetailsRenderedLogs = "";
 
       const artifactsState = {
         order: "desc",
@@ -1783,10 +2001,38 @@
         total: 0,
         items: [],
         searchTerm: "",
+        searchValue: "",
         selection: new Set(),
         loading: false,
         initialized: false,
+        lastUserRefresh: 0,
       };
+
+      const storedArtifactPreferences =
+        artifactsPreferences.read({ order: "desc", limit: 10, search: "" }) || {};
+      artifactsState.order = storedArtifactPreferences.order === "asc" ? "asc" : "desc";
+      const storedLimit = Number(storedArtifactPreferences.limit);
+      if (Number.isFinite(storedLimit) && storedLimit >= 1 && storedLimit <= 50) {
+        artifactsState.limit = Math.floor(storedLimit);
+      }
+      const storedSearchRaw =
+        typeof storedArtifactPreferences.search === "string"
+          ? storedArtifactPreferences.search
+          : "";
+      artifactsState.searchValue = storedSearchRaw;
+      artifactsState.searchTerm = storedSearchRaw.toLowerCase();
+
+      const persistArtifactsPreferences = () => {
+        artifactsPreferences.write({
+          order: artifactsState.order,
+          limit: artifactsState.limit,
+          search: artifactsState.searchValue || "",
+        });
+      };
+
+      const artifactsFetchGuard = createRaceGuard();
+      const artifactDetailsGuard = createRaceGuard();
+      const compareFetchGuard = createRaceGuard();
 
       const setArtifactsError = (message) => {
         if (!artifactsElements.errorBox) return;
@@ -1892,6 +2138,51 @@
           return ok;
         } catch (_) {
           return false;
+        }
+      };
+
+      const scheduleDomUpdate = (callback) => {
+        if (typeof callback !== "function") return;
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(callback);
+        } else {
+          callback();
+        }
+      };
+
+      const lazyPreviewObserver =
+        typeof IntersectionObserver === "function"
+          ? new IntersectionObserver(
+              (entries, observer) => {
+                for (const entry of entries) {
+                  if (!entry.isIntersecting) continue;
+                  const target = entry.target;
+                  const src = target && target.dataset ? target.dataset.src : null;
+                  if (target && src) {
+                    target.src = src;
+                    delete target.dataset.src;
+                  }
+                  if (observer && target) {
+                    observer.unobserve(target);
+                  }
+                }
+              },
+              { rootMargin: "120px 0px" },
+            )
+          : null;
+
+      const registerLazyPreview = (img, url) => {
+        if (!img) return;
+        if (!url) {
+          img.removeAttribute("data-src");
+          return;
+        }
+        if (lazyPreviewObserver) {
+          img.dataset.src = url;
+          img.removeAttribute("src");
+          lazyPreviewObserver.observe(img);
+        } else {
+          img.src = url;
         }
       };
 
@@ -2086,12 +2377,32 @@
         const logs = Array.isArray(artifactDetailsState.logs)
           ? artifactDetailsState.logs.map((line) => String(line))
           : [];
+        if (artifactDetailsState.logsPaused) {
+          const snapshot = artifactDetailsRenderedLogs || logs.join("\n");
+          if (snapshot) {
+            target.dataset.empty = "false";
+            const suffix =
+              artifactDetailsState.pendingLogCount > 0
+                ? `\n\n[Logs paused – ${artifactDetailsState.pendingLogCount} new entries]`
+                : "\n\n[Logs paused]";
+            target.textContent = `${snapshot}${suffix}`;
+          } else {
+            target.dataset.empty = "true";
+            target.textContent =
+              artifactDetailsState.pendingLogCount > 0
+                ? `Logs paused – ${artifactDetailsState.pendingLogCount} new entries`
+                : "Logs paused";
+          }
+          return;
+        }
         if (logs.length === 0) {
           target.dataset.empty = "true";
           target.textContent = "No logs yet";
+          artifactDetailsRenderedLogs = "";
         } else {
           target.dataset.empty = "false";
-          target.textContent = logs.join("\n");
+          artifactDetailsRenderedLogs = logs.join("\n");
+          target.textContent = artifactDetailsRenderedLogs;
         }
       };
 
@@ -2167,6 +2478,18 @@
           artifactDetailsElements.toast.textContent = toastVisible ? artifactDetailsState.toast : "";
         }
 
+        if (artifactDetailsElements.toggleLogs) {
+          const paused = !!artifactDetailsState.logsPaused;
+          artifactDetailsElements.toggleLogs.setAttribute("aria-pressed", paused ? "true" : "false");
+          if (paused) {
+            const count = Number(artifactDetailsState.pendingLogCount) || 0;
+            artifactDetailsElements.toggleLogs.textContent =
+              count > 0 ? `Resume logs (${count})` : "Resume logs";
+          } else {
+            artifactDetailsElements.toggleLogs.textContent = "Pause logs";
+          }
+        }
+
         if (artifactDetailsElements.jsonLink) {
           artifactDetailsElements.jsonLink.href = "#";
           artifactDetailsElements.jsonLink.setAttribute("aria-disabled", "true");
@@ -2228,6 +2551,9 @@
           artifactDetailsElements.shareError.dataset.visible = "false";
           artifactDetailsElements.shareError.textContent = "";
         }
+        if (artifactDetailsElements.shareCopyLinkButton) {
+          artifactDetailsElements.shareCopyLinkButton.disabled = true;
+        }
 
         if (!hasData) {
           if (artifactDetailsElements.previewSection) {
@@ -2251,6 +2577,9 @@
         if (artifactDetailsElements.taskId) {
           artifactDetailsElements.taskId.textContent = taskId || "—";
         }
+        if (artifactDetailsElements.shareCopyLinkButton) {
+          artifactDetailsElements.shareCopyLinkButton.disabled = !taskId;
+        }
         if (artifactDetailsElements.created) {
           const createdAt =
             artifactDetailsState.task && Number.isFinite(artifactDetailsState.task.createdAt)
@@ -2259,10 +2588,19 @@
           artifactDetailsElements.created.textContent = createdAt != null ? formatDateTime(createdAt) : "—";
         }
         if (artifactDetailsElements.status) {
-          const statusText =
+          let statusText =
             (artifactDetailsState.result && artifactDetailsState.result.status) ||
             (artifactDetailsState.task && artifactDetailsState.task.status) ||
             "unknown";
+          const rawProgress = artifactDetailsState.progress;
+          if (typeof rawProgress === "number" && Number.isFinite(rawProgress)) {
+            let percent = rawProgress;
+            if (percent <= 1 && percent >= 0) {
+              percent = percent * 100;
+            }
+            const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+            statusText = `${statusText} (${clamped}%)`;
+          }
           artifactDetailsElements.status.textContent = statusText;
         }
         if (artifactDetailsElements.jsonLink && taskId) {
@@ -2345,6 +2683,10 @@
           const isPending = shareState.pendingType === "zip";
           artifactDetailsElements.shareZipButton.disabled = !taskId || Boolean(shareState.pendingType);
           artifactDetailsElements.shareZipButton.textContent = isPending ? "Sharing…" : "Share ZIP";
+        }
+        if (artifactDetailsElements.shareCopyLinkButton) {
+          artifactDetailsElements.shareCopyLinkButton.disabled =
+            !taskId || Boolean(shareState.pendingType);
         }
         if (artifactDetailsElements.shareCopyButton) {
           artifactDetailsElements.shareCopyButton.disabled =
@@ -2773,6 +3115,7 @@
           renderArtifactCompare();
           return;
         }
+        const { token, signal } = compareFetchGuard.start();
         try {
           const mode = artifactCompareState.mode === "summary" ? "summary" : "full";
           const res = await relayFetch(buildRelayUrl(`/artifacts/compare`), {
@@ -2785,13 +3128,17 @@
               rightId: artifactCompareState.rightId,
               mode,
             }),
+            signal,
           });
+          if (!compareFetchGuard.isActive(token)) {
+            return;
+          }
           let payload = null;
           try {
             payload = await res.json();
           } catch (_) {}
           if (!res.ok) {
-            const message = payload && payload.error ? payload.error : `HTTP ${res.status}`;
+            const message = parseServerError(payload, `HTTP ${res.status}`);
             throw new Error(message);
           }
           const data = payload && typeof payload === "object" ? payload : {};
@@ -2820,15 +3167,27 @@
             mode,
           };
           artifactCompareState.error = "";
+          if (artifactCompareState.open) {
+            showToast({ type: "success", message: "Comparison ready" });
+          }
         } catch (err) {
-          artifactCompareState.error = `Failed to compare artifacts: ${
-            err && err.message ? err.message : err
-          }`;
+          if (err && err.name === "AbortError") {
+            return;
+          }
+          if (!compareFetchGuard.isActive(token)) {
+            return;
+          }
+          const message = parseServerError(err, "Failed to compare artifacts");
+          artifactCompareState.error = `Failed to compare artifacts: ${message}`;
           artifactCompareState.diff = [];
           artifactCompareState.response = null;
+          showToast({ type: "error", message });
         } finally {
-          artifactCompareState.loading = false;
-          renderArtifactCompare();
+          if (compareFetchGuard.isActive(token)) {
+            artifactCompareState.loading = false;
+            renderArtifactCompare();
+          }
+          compareFetchGuard.finish(token);
         }
       };
 
@@ -2941,49 +3300,57 @@
 
       const loadArtifactDetails = async (taskId) => {
         if (!taskId) return;
-        const reqId = ++currentDetailsReqId;
-        if (currentDetailsAbort) currentDetailsAbort.abort();
-        currentDetailsAbort = new AbortController();
-        const { signal } = currentDetailsAbort;
-
-        const safeSetState = (mutator) => {
-          if (reqId !== currentDetailsReqId) return;
-          mutator();
-          renderArtifactDetails();
-        };
-
+        const { token, signal } = artifactDetailsGuard.start();
         artifactDetailsState.loading = true;
         artifactDetailsState.error = "";
         artifactDetailsState.task = null;
         artifactDetailsState.result = null;
         artifactDetailsState.logs = [];
+        artifactDetailsState.logsPaused = false;
+        artifactDetailsState.pendingLogCount = 0;
         artifactDetailsState.exportSpec = null;
+        artifactDetailsState.progress = null;
+        artifactDetailsState.hasPreview = false;
+        artifactDetailsState.previewUrl = null;
+        artifactDetailsState.previewUpdatedAt = null;
+        artifactDetailsRenderedLogs = "";
         renderArtifactDetails();
 
         try {
           const taskRes = await relayFetch(
             buildRelayUrl(`/tasks/${encodeURIComponent(taskId)}`),
-            {
-              signal,
-            },
+            { signal },
           );
+          if (!artifactDetailsGuard.isActive(token)) {
+            return;
+          }
           if (!taskRes.ok) {
-            throw new Error(`Task request failed: HTTP ${taskRes.status}`);
+            let payload = null;
+            try {
+              payload = await taskRes.json();
+            } catch (_) {}
+            const message = parseServerError(payload, `HTTP ${taskRes.status}`);
+            throw new Error(`Task request failed: ${message}`);
           }
           const taskData = await taskRes.json();
-          safeSetState(() => {
-            artifactDetailsState.task = taskData;
-            artifactDetailsState.logs = Array.isArray(taskData.logs)
-              ? taskData.logs.map((line) => String(line))
-              : [];
-            artifactDetailsState.hasPreview = !!(taskData && taskData.hasPreview);
-            artifactDetailsState.previewUrl =
-              taskData && typeof taskData.previewUrl === "string" ? taskData.previewUrl : null;
-            artifactDetailsState.previewUpdatedAt =
-              taskData && Number.isFinite(taskData.previewUpdatedAt)
-                ? Number(taskData.previewUpdatedAt)
-                : null;
-          });
+          if (!artifactDetailsGuard.isActive(token)) {
+            return;
+          }
+          artifactDetailsState.task = taskData;
+          artifactDetailsState.logs = Array.isArray(taskData.logs)
+            ? taskData.logs.map((line) => String(line))
+            : [];
+          artifactDetailsRenderedLogs = artifactDetailsState.logs.join("\n");
+          artifactDetailsState.hasPreview = !!(taskData && taskData.hasPreview);
+          artifactDetailsState.previewUrl =
+            taskData && typeof taskData.previewUrl === "string" ? taskData.previewUrl : null;
+          artifactDetailsState.previewUpdatedAt =
+            taskData && Number.isFinite(taskData.previewUpdatedAt)
+              ? Number(taskData.previewUpdatedAt)
+              : null;
+          artifactDetailsState.progress =
+            taskData && Number.isFinite(taskData.progress) ? Number(taskData.progress) : null;
+          renderArtifactDetails();
 
           let resultPayload = null;
           try {
@@ -2991,45 +3358,72 @@
               buildRelayUrl(`/tasks/${encodeURIComponent(taskId)}/result`),
               { signal },
             );
-            if (resultRes.status === 404) resultPayload = null;
-            else if (!resultRes.ok) throw new Error(`HTTP ${resultRes.status}`);
-            else resultPayload = await resultRes.json();
-          } catch (e) {
-            if (e.name !== "AbortError") {
-              throw new Error(`Result fetch failed: ${e?.message || e}`);
+            if (!artifactDetailsGuard.isActive(token)) {
+              return;
             }
+            if (resultRes.status === 404) {
+              resultPayload = null;
+            } else if (!resultRes.ok) {
+              let payload = null;
+              try {
+                payload = await resultRes.json();
+              } catch (_) {}
+              const message = parseServerError(payload, `HTTP ${resultRes.status}`);
+              throw new Error(message);
+            } else {
+              resultPayload = await resultRes.json();
+            }
+          } catch (error) {
+            if (error && error.name === "AbortError") {
+              return;
+            }
+            if (!artifactDetailsGuard.isActive(token)) {
+              return;
+            }
+            artifactDetailsState.error = `Failed to load details: ${parseServerError(
+              error,
+              error?.message || "Result fetch failed",
+            )}`;
+            renderArtifactDetails();
+            return;
           }
 
-          safeSetState(() => {
-            artifactDetailsState.result = resultPayload;
-            artifactDetailsState.exportSpec =
-              resultPayload && typeof resultPayload.exportSpec === "object"
-                ? resultPayload.exportSpec
-                : null;
-            artifactDetailsState.error = "";
-            if (resultPayload && typeof resultPayload.hasPreview === "boolean") {
-              artifactDetailsState.hasPreview = resultPayload.hasPreview;
-            }
-            if (resultPayload && typeof resultPayload.previewUrl === "string") {
-              artifactDetailsState.previewUrl = resultPayload.previewUrl;
-            }
-            if (resultPayload && Number.isFinite(resultPayload.previewUpdatedAt)) {
-              artifactDetailsState.previewUpdatedAt = Number(resultPayload.previewUpdatedAt);
-            }
-          });
+          if (!artifactDetailsGuard.isActive(token)) {
+            return;
+          }
+          artifactDetailsState.result = resultPayload;
+          artifactDetailsState.exportSpec =
+            resultPayload && typeof resultPayload.exportSpec === "object"
+              ? resultPayload.exportSpec
+              : null;
+          if (resultPayload && typeof resultPayload.hasPreview === "boolean") {
+            artifactDetailsState.hasPreview = resultPayload.hasPreview;
+          }
+          if (resultPayload && typeof resultPayload.previewUrl === "string") {
+            artifactDetailsState.previewUrl = resultPayload.previewUrl;
+          }
+          if (resultPayload && Number.isFinite(resultPayload.previewUpdatedAt)) {
+            artifactDetailsState.previewUpdatedAt = Number(resultPayload.previewUpdatedAt);
+          }
+          renderArtifactDetails();
         } catch (err) {
-          if (err.name !== "AbortError") {
-            safeSetState(() => {
-              artifactDetailsState.error = `Failed to load details: ${err?.message || err}`;
-            });
+          if (err && err.name === "AbortError") {
+            return;
           }
+          if (!artifactDetailsGuard.isActive(token)) {
+            return;
+          }
+          artifactDetailsState.error = `Failed to load details: ${parseServerError(
+            err,
+            err?.message || "Unknown error",
+          )}`;
+          renderArtifactDetails();
         } finally {
-          safeSetState(() => {
+          if (artifactDetailsGuard.isActive(token)) {
             artifactDetailsState.loading = false;
-          });
-          if (reqId === currentDetailsReqId) {
-            currentDetailsAbort = null;
+            renderArtifactDetails();
           }
+          artifactDetailsGuard.finish(token);
         }
       };
 
@@ -3053,20 +3447,18 @@
             },
           );
           if (!response.ok) {
-            let message = `HTTP ${response.status}`;
+            let payload = null;
             try {
-              const payload = await response.json();
-              if (payload && typeof payload.error === "string" && payload.error.trim()) {
-                message = payload.error.trim();
-              }
+              payload = await response.json();
             } catch (_) {
               try {
                 const text = await response.text();
                 if (text && text.trim()) {
-                  message = text.trim();
+                  payload = { error: { message: text.trim() } };
                 }
               } catch (_) {}
             }
+            const message = parseServerError(payload, `HTTP ${response.status}`);
             throw new Error(message);
           }
 
@@ -3082,8 +3474,14 @@
             expiresAt: Number.isFinite(expiresAtRaw) ? expiresAtRaw : null,
           };
           artifactDetailsState.share.error = "";
+          showToast({
+            type: "success",
+            message: type === "json" ? "Public JSON link ready" : "Public ZIP link ready",
+          });
         } catch (err) {
-          artifactDetailsState.share.error = `Share failed: ${err?.message || err}`;
+          const message = parseServerError(err, "Share failed");
+          artifactDetailsState.share.error = `Share failed: ${message}`;
+          showToast({ type: "error", message });
         } finally {
           artifactDetailsState.share.pendingType = null;
           renderArtifactDetails();
@@ -3100,21 +3498,26 @@
         artifactDetailsState.rerunPending = false;
         artifactDetailsState.error = "";
         artifactDetailsState.logs = [];
+        artifactDetailsState.logsPaused = false;
+        artifactDetailsState.pendingLogCount = 0;
         artifactDetailsState.exportSpec = null;
         artifactDetailsState.task = null;
         artifactDetailsState.result = null;
         artifactDetailsState.hasPreview = false;
         artifactDetailsState.previewUrl = null;
         artifactDetailsState.previewUpdatedAt = null;
+        artifactDetailsState.progress = null;
         artifactDetailsState.share = { info: null, pendingType: null, error: "" };
         if (artifactDetailsElements.exportSearch) {
           artifactDetailsElements.exportSearch.value = "";
         }
         clearTimeout(artifactDetailsToastTimer);
         artifactDetailsToastTimer = null;
+        artifactDetailsRenderedLogs = "";
         renderArtifactDetails();
         loadArtifactDetails(taskId);
         renderArtifactsTable();
+        openTaskWatch(taskId);
       };
 
       const closeArtifactDetails = () => {
@@ -3124,6 +3527,8 @@
         artifactDetailsState.task = null;
         artifactDetailsState.result = null;
         artifactDetailsState.logs = [];
+        artifactDetailsState.logsPaused = false;
+        artifactDetailsState.pendingLogCount = 0;
         artifactDetailsState.exportSpec = null;
         artifactDetailsState.exportSearch = "";
         artifactDetailsState.notice = null;
@@ -3135,6 +3540,7 @@
         artifactDetailsState.hasPreview = false;
         artifactDetailsState.previewUrl = null;
         artifactDetailsState.previewUpdatedAt = null;
+        artifactDetailsState.progress = null;
         if (artifactDetailsElements.exportSearch) {
           artifactDetailsElements.exportSearch.value = "";
         }
@@ -3142,20 +3548,54 @@
         artifactDetailsToastTimer = null;
         renderArtifactDetails();
         renderArtifactsTable();
+        artifactDetailsRenderedLogs = "";
       };
 
       const handleArtifactDetailsKeydown = (event) => {
-        if (event.key !== "Escape") {
+        const active = event.target;
+        const isFormTarget =
+          active &&
+          (active.closest && active.closest("input, textarea, select, button, [contenteditable='true']"));
+        const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
+
+        if (key === "escape") {
+          if (artifactCompareState.open) {
+            event.preventDefault();
+            closeArtifactCompare();
+            return;
+          }
+          if (artifactDetailsState.open) {
+            event.preventDefault();
+            closeArtifactDetails();
+          }
           return;
         }
-        if (artifactCompareState.open) {
-          event.preventDefault();
-          closeArtifactCompare();
+
+        if (isFormTarget) {
           return;
         }
-        if (artifactDetailsState.open) {
+
+        if (key === "f") {
           event.preventDefault();
-          closeArtifactDetails();
+          triggerArtifactsRefresh();
+          return;
+        }
+        if (key === "c") {
+          if (artifactsState.loading) return;
+          const ids = Array.from(artifactsState.selection);
+          if (ids.length !== 2) return;
+          event.preventDefault();
+          if (artifactDetailsState.open) {
+            closeArtifactDetails();
+          }
+          openArtifactCompare(ids[0], ids[1]);
+          return;
+        }
+        if (key === "d") {
+          const ids = Array.from(artifactsState.selection);
+          if (ids.length !== 1) return;
+          event.preventDefault();
+          downloadSingleArtifactJson(ids[0]);
         }
       };
 
@@ -3235,8 +3675,10 @@
         const count = artifactsState.selection.size;
         if (artifactsState.loading || count !== 2) {
           button.setAttribute("disabled", "true");
+          button.setAttribute("aria-disabled", "true");
         } else {
           button.removeAttribute("disabled");
+          button.setAttribute("aria-disabled", "false");
         }
       };
 
@@ -3250,8 +3692,10 @@
             : "Download selected as ZIP";
         if (artifactsState.loading || count === 0) {
           button.setAttribute("disabled", "true");
+          button.setAttribute("aria-disabled", "true");
         } else {
           button.removeAttribute("disabled");
+          button.setAttribute("aria-disabled", "false");
         }
         updateCompareButtonState();
       };
@@ -3261,8 +3705,10 @@
         if (prevButton) {
           if (artifactsState.loading || artifactsState.offset <= 0) {
             prevButton.setAttribute("disabled", "true");
+            prevButton.setAttribute("aria-disabled", "true");
           } else {
             prevButton.removeAttribute("disabled");
+            prevButton.setAttribute("aria-disabled", "false");
           }
         }
         if (nextButton) {
@@ -3271,8 +3717,10 @@
             artifactsState.offset + artifactsState.limit < artifactsState.total;
           if (artifactsState.loading || !hasMore) {
             nextButton.setAttribute("disabled", "true");
+            nextButton.setAttribute("aria-disabled", "true");
           } else {
             nextButton.removeAttribute("disabled");
+            nextButton.setAttribute("aria-disabled", "false");
           }
         }
       };
@@ -3280,7 +3728,23 @@
       const renderArtifactsTable = () => {
         const tbody = artifactsElements.tableBody;
         if (!tbody) return;
-        tbody.innerHTML = "";
+        const table = artifactsElements.table;
+        const emptyState = artifactsElements.emptyState;
+        const infoEl = artifactsElements.paginationInfo;
+
+        if (table) {
+          table.dataset.state = artifactsState.loading ? "loading" : "idle";
+        }
+
+        const applyRows = (fragment) => {
+          scheduleDomUpdate(() => {
+            tbody.innerHTML = "";
+            if (fragment) {
+              tbody.appendChild(fragment);
+            }
+          });
+        };
+
         const searchTerm = artifactsState.searchTerm;
         const filtered = artifactsState.items.filter((item) => {
           if (!searchTerm) return true;
@@ -3288,25 +3752,63 @@
           return id.toLowerCase().includes(searchTerm);
         });
 
+        const showEmpty = !artifactsState.loading && artifactsState.items.length === 0;
+        if (emptyState) {
+          emptyState.dataset.visible = showEmpty ? "true" : "false";
+        }
+        if (table) {
+          table.hidden = showEmpty;
+        }
+        if (showEmpty) {
+          applyRows(null);
+          if (infoEl) {
+            infoEl.textContent = "No artifacts";
+          }
+          updateBulkButtonState();
+          updatePaginationControls();
+          return;
+        }
+
+        if (artifactsState.loading && artifactsState.items.length === 0) {
+          const fragment = document.createDocumentFragment();
+          const skeletonRows = Math.max(3, Math.min(artifactsState.limit || 5, 8));
+          for (let i = 0; i < skeletonRows; i += 1) {
+            const row = document.createElement("tr");
+            for (let col = 0; col < 7; col += 1) {
+              const cell = document.createElement("td");
+              const shimmer = document.createElement("span");
+              shimmer.className = "artifacts-table__skeleton";
+              cell.appendChild(shimmer);
+              row.appendChild(cell);
+            }
+            fragment.appendChild(row);
+          }
+          applyRows(fragment);
+          if (infoEl) {
+            infoEl.textContent = "Loading artifacts…";
+          }
+          updateBulkButtonState();
+          updatePaginationControls();
+          return;
+        }
+
+        const fragment = document.createDocumentFragment();
         if (filtered.length === 0) {
           const emptyRow = document.createElement("tr");
           const cell = document.createElement("td");
           cell.colSpan = 7;
           cell.className = "muted";
-          cell.textContent = artifactsState.items.length === 0 ? "No artifacts" : "No matches";
+          cell.textContent = "No matches";
           emptyRow.appendChild(cell);
-          tbody.appendChild(emptyRow);
+          fragment.appendChild(emptyRow);
         } else {
           for (const item of filtered) {
             const safeId = typeof item.id === "string" ? item.id : String(item.id ?? "");
             const row = document.createElement("tr");
             row.dataset.clickable = "true";
             row.tabIndex = 0;
-            if (artifactDetailsState.open && artifactDetailsState.taskId === safeId) {
-              row.dataset.selected = "true";
-            } else {
-              row.dataset.selected = "false";
-            }
+            row.dataset.selected =
+              artifactDetailsState.open && artifactDetailsState.taskId === safeId ? "true" : "false";
 
             row.addEventListener("click", (event) => {
               if (event.target && event.target.closest("input, button, a")) {
@@ -3366,7 +3868,7 @@
                 const version = Math.floor(item.previewUpdatedAt);
                 previewUrl += previewUrl.includes("?") ? `&v=${version}` : `?v=${version}`;
               }
-              img.src = previewUrl;
+              registerLazyPreview(img, previewUrl);
               previewCell.appendChild(img);
             } else {
               previewCell.textContent = "—";
@@ -3415,11 +3917,12 @@
             zipCell.appendChild(zipLink);
             row.appendChild(zipCell);
 
-            tbody.appendChild(row);
+            fragment.appendChild(row);
           }
         }
 
-        const infoEl = artifactsElements.paginationInfo;
+        applyRows(fragment);
+
         if (infoEl) {
           if (artifactsState.total === 0) {
             infoEl.textContent = "No artifacts";
@@ -3442,26 +3945,51 @@
         if (artifactsPanelEl) {
           artifactsPanelEl.dataset.loading = loading ? "true" : "false";
         }
+        if (artifactsElements.refreshButton) {
+          artifactsElements.refreshButton.disabled = loading;
+          artifactsElements.refreshButton.dataset.loading = loading ? "true" : "false";
+          artifactsElements.refreshButton.setAttribute("aria-disabled", loading ? "true" : "false");
+        }
+        if (artifactsElements.emptyRefreshButton) {
+          artifactsElements.emptyRefreshButton.disabled = loading;
+          artifactsElements.emptyRefreshButton.dataset.loading = loading ? "true" : "false";
+          artifactsElements.emptyRefreshButton.setAttribute("aria-disabled", loading ? "true" : "false");
+        }
         updateBulkButtonState();
         updatePaginationControls();
       };
 
-      const fetchArtifacts = async () => {
+      const fetchArtifacts = async ({ userInitiated = false, resetOffset = false } = {}) => {
         if (artifactsState.loading) return;
+        if (resetOffset) {
+          artifactsState.offset = 0;
+        }
         setArtifactsError("");
+        const { token, signal } = artifactsFetchGuard.start();
         setArtifactsLoading(true);
         try {
           const params = new URLSearchParams();
           params.set("offset", String(artifactsState.offset));
           params.set("limit", String(artifactsState.limit));
           params.set("order", artifactsState.order);
-          const res = await relayFetch(
-            buildRelayUrl(`/artifacts?${params.toString()}`),
-          );
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
+          const response = await relayFetch(buildRelayUrl(`/artifacts?${params.toString()}`), {
+            signal,
+          });
+          if (!artifactsFetchGuard.isActive(token)) {
+            return;
           }
-          const data = await res.json();
+          if (!response.ok) {
+            let payload = null;
+            try {
+              payload = await response.json();
+            } catch (_) {}
+            const message = parseServerError(payload, `HTTP ${response.status}`);
+            throw new Error(message);
+          }
+          const data = await response.json();
+          if (!artifactsFetchGuard.isActive(token)) {
+            return;
+          }
           artifactsState.items = Array.isArray(data.items)
             ? data.items.map((entry) => ({
                 ...entry,
@@ -3495,17 +4023,33 @@
           for (const id of toRemove) {
             artifactsState.selection.delete(id);
           }
+          if (userInitiated) {
+            artifactsState.lastUserRefresh = Date.now();
+            showToast({
+              type: "success",
+              message: `Artifacts refreshed (${artifactsState.items.length})`,
+            });
+          }
         } catch (err) {
+          if (err && err.name === "AbortError") {
+            return;
+          }
+          if (!artifactsFetchGuard.isActive(token)) {
+            return;
+          }
+          const message = parseServerError(err, "Failed to load artifacts");
           console.error("Failed to load artifacts", err);
-          setArtifactsError(
-            `Failed to load artifacts: ${err && err.message ? err.message : err}`
-          );
+          setArtifactsError(`Failed to load artifacts: ${message}`);
+          showToast({ type: "error", message });
           artifactsState.items = [];
           artifactsState.total = 0;
         } finally {
-          setArtifactsLoading(false);
-          refreshArtifactComparePreviews();
-          renderArtifactsTable();
+          if (artifactsFetchGuard.isActive(token)) {
+            setArtifactsLoading(false);
+            refreshArtifactComparePreviews();
+            renderArtifactsTable();
+          }
+          artifactsFetchGuard.finish(token);
         }
       };
 
@@ -3515,6 +4059,7 @@
         if (artifactsState.loading) return;
         setArtifactsError("");
         button.setAttribute("disabled", "true");
+        button.setAttribute("aria-disabled", "true");
         button.dataset.loading = "true";
         try {
           const ids = Array.from(artifactsState.selection);
@@ -3524,14 +4069,19 @@
             body: JSON.stringify({ ids }),
           });
           if (!res.ok) {
-            let errorText = `Bulk download failed: HTTP ${res.status}`;
+            let payload = null;
             try {
-              const text = await res.text();
-              if (text) {
-                errorText += ` (${text.slice(0, 160)})`;
-              }
-            } catch (_) {}
-            throw new Error(errorText);
+              payload = await res.json();
+            } catch (_) {
+              try {
+                const text = await res.text();
+                if (text && !payload) {
+                  payload = { error: text };
+                }
+              } catch (_) {}
+            }
+            const message = parseServerError(payload, `HTTP ${res.status}`);
+            throw new Error(message);
           }
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
@@ -3545,14 +4095,34 @@
           setTimeout(() => {
             URL.revokeObjectURL(url);
           }, 1500);
+          showToast({
+            type: "success",
+            message: `Preparing ZIP for ${ids.length} artifact${ids.length === 1 ? "" : "s"}`,
+          });
         } catch (err) {
-          setArtifactsError(
-            `Bulk download error: ${err && err.message ? err.message : err}`
-          );
+          const message = parseServerError(err, "Bulk download error");
+          setArtifactsError(`Bulk download error: ${message}`);
+          showToast({ type: "error", message });
         } finally {
           button.dataset.loading = "false";
+          button.setAttribute("aria-disabled", "false");
           updateBulkButtonState();
         }
+      };
+
+      const downloadSingleArtifactJson = (id) => {
+        if (!id) return;
+        const url = buildRelayUrl(`/tasks/${encodeURIComponent(id)}/artifact`, {
+          includeApiKey: !!RELAY_API_KEY,
+        });
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${id}.json`;
+        link.rel = "noopener noreferrer";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast({ type: "success", message: `Downloading ${id}.json` });
       };
 
       const setActiveTab = (targetId) => {
@@ -3579,23 +4149,29 @@
       });
 
       if (artifactsElements.searchInput) {
+        artifactsElements.searchInput.value = artifactsState.searchValue || "";
         artifactsElements.searchInput.addEventListener("input", (event) => {
           const value = event.target.value || "";
+          artifactsState.searchValue = value;
           artifactsState.searchTerm = value.toLowerCase();
+          persistArtifactsPreferences();
           renderArtifactsTable();
         });
       }
       if (artifactsElements.orderSelect) {
+        artifactsElements.orderSelect.value = artifactsState.order;
         artifactsElements.orderSelect.addEventListener("change", (event) => {
           const value = String(event.target.value || "desc").toLowerCase();
           artifactsState.order = value === "asc" ? "asc" : "desc";
           artifactsState.offset = 0;
+          persistArtifactsPreferences();
           if (artifactsState.initialized) {
             fetchArtifacts();
           }
         });
       }
       if (artifactsElements.limitInput) {
+        artifactsElements.limitInput.value = String(artifactsState.limit);
         artifactsElements.limitInput.addEventListener("change", (event) => {
           const value = Number(event.target.value);
           if (!Number.isFinite(value)) return;
@@ -3603,6 +4179,7 @@
           artifactsState.limit = clamped;
           artifactsState.offset = 0;
           artifactsElements.limitInput.value = String(clamped);
+          persistArtifactsPreferences();
           if (artifactsState.initialized) {
             fetchArtifacts();
           }
@@ -3625,6 +4202,16 @@
           artifactsState.offset = nextOffset;
           fetchArtifacts();
         });
+      }
+      const triggerArtifactsRefresh = () => {
+        if (artifactsState.loading) return;
+        fetchArtifacts({ userInitiated: true });
+      };
+      if (artifactsElements.refreshButton) {
+        artifactsElements.refreshButton.addEventListener("click", triggerArtifactsRefresh);
+      }
+      if (artifactsElements.emptyRefreshButton) {
+        artifactsElements.emptyRefreshButton.addEventListener("click", triggerArtifactsRefresh);
       }
       if (artifactsElements.compareButton) {
         artifactsElements.compareButton.addEventListener("click", () => {
@@ -3807,12 +4394,37 @@
           shareArtifactLink("zip");
         });
       }
+      if (artifactDetailsElements.shareCopyLinkButton) {
+        artifactDetailsElements.shareCopyLinkButton.addEventListener("click", async () => {
+          const taskId = artifactDetailsState.taskId;
+          if (!taskId) return;
+          const directUrl = buildRelayUrl(
+            `/tasks/${encodeURIComponent(taskId)}/artifact`,
+            { includeApiKey: !!RELAY_API_KEY },
+          );
+          const ok = await copyTextToClipboard(directUrl);
+          setArtifactDetailsToast(ok ? "Link copied" : "Copy failed");
+        });
+      }
       if (artifactDetailsElements.shareCopyButton) {
         artifactDetailsElements.shareCopyButton.addEventListener("click", async () => {
           const info = artifactDetailsState.share && artifactDetailsState.share.info;
           if (!info || !info.url) return;
           const ok = await copyTextToClipboard(info.url);
           setArtifactDetailsToast(ok ? "Link copied" : "Copy failed");
+        });
+      }
+      if (artifactDetailsElements.toggleLogs) {
+        artifactDetailsElements.toggleLogs.addEventListener("click", () => {
+          const nextState = !artifactDetailsState.logsPaused;
+          artifactDetailsState.logsPaused = nextState;
+          if (!nextState) {
+            artifactDetailsState.pendingLogCount = 0;
+            artifactDetailsRenderedLogs = artifactDetailsState.logs.join("\n");
+          } else if (artifactDetailsElements.logs) {
+            artifactDetailsRenderedLogs = artifactDetailsElements.logs.textContent || "";
+          }
+          renderArtifactDetails();
         });
       }
       if (artifactDetailsElements.rerunButton) {
@@ -3963,6 +4575,20 @@
           statusLogs = statusLogs.slice(-STATUS_LOG_LIMIT);
         }
         renderStatusLogs();
+        if (artifactDetailsState.open && artifactDetailsState.taskId === currentWatchTaskId) {
+          artifactDetailsState.logs = Array.isArray(entries)
+            ? entries.map((entry) => formatStatusLogEntry(entry)).filter(Boolean)
+            : [];
+          if (artifactDetailsState.logs.length > STATUS_LOG_LIMIT) {
+            artifactDetailsState.logs = artifactDetailsState.logs.slice(-STATUS_LOG_LIMIT);
+          }
+          if (artifactDetailsState.logsPaused) {
+            artifactDetailsState.pendingLogCount = 0;
+          } else {
+            artifactDetailsRenderedLogs = artifactDetailsState.logs.join("\n");
+          }
+          renderArtifactDetailsLogs();
+        }
       };
 
       const appendStatusLogEntry = (entry) => {
@@ -3973,6 +4599,18 @@
           statusLogs = statusLogs.slice(-STATUS_LOG_LIMIT);
         }
         renderStatusLogs();
+        if (artifactDetailsState.open && artifactDetailsState.taskId === currentWatchTaskId) {
+          artifactDetailsState.logs.push(line);
+          if (artifactDetailsState.logs.length > STATUS_LOG_LIMIT) {
+            artifactDetailsState.logs = artifactDetailsState.logs.slice(-STATUS_LOG_LIMIT);
+          }
+          if (artifactDetailsState.logsPaused) {
+            artifactDetailsState.pendingLogCount += 1;
+          } else {
+            artifactDetailsRenderedLogs = artifactDetailsState.logs.join("\n");
+          }
+          renderArtifactDetailsLogs();
+        }
       };
 
       const setConnectionState = (state, label) => {
@@ -4013,6 +4651,30 @@
               const data = JSON.parse(event.data);
               setStatusState(data && data.status ? data.status : "pending");
               setStatusLogs(data && data.logs ? data.logs : []);
+              if (artifactDetailsState.open && artifactDetailsState.taskId === taskId) {
+                let needsRender = false;
+                if (data && typeof data.status === "string") {
+                  if (artifactDetailsState.task) {
+                    if (artifactDetailsState.task.status !== data.status) {
+                      artifactDetailsState.task.status = data.status;
+                      needsRender = true;
+                    }
+                  } else {
+                    artifactDetailsState.task = { status: data.status };
+                    needsRender = true;
+                  }
+                }
+                if (data && Number.isFinite(data.progress)) {
+                  const numeric = Number(data.progress);
+                  if (artifactDetailsState.progress !== numeric) {
+                    artifactDetailsState.progress = numeric;
+                    needsRender = true;
+                  }
+                }
+                if (needsRender) {
+                  renderArtifactDetails();
+                }
+              }
             } catch (err) {
               rlog(
                 "Failed to parse status event: " +
@@ -4035,6 +4697,17 @@
             try {
               const data = JSON.parse(event.data);
               setStatusState(data && data.status ? data.status : "done");
+              if (artifactDetailsState.open && artifactDetailsState.taskId === taskId) {
+                if (data && Number.isFinite(data.progress)) {
+                  artifactDetailsState.progress = Number(data.progress);
+                } else {
+                  artifactDetailsState.progress = null;
+                }
+                if (artifactDetailsState.task && data && typeof data.status === "string") {
+                  artifactDetailsState.task.status = data.status;
+                }
+                renderArtifactDetails();
+              }
               updateArtifactLinks();
               setTimeout(() => {
                 if (statusSource === source) {
