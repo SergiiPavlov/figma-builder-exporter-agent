@@ -85,7 +85,7 @@ function formatDiffValueForHtml(value, maxLength = 120) {
   } else if (typeof value === 'string') {
     try {
       text = JSON.stringify(value);
-    } catch (err) {
+    } catch {
       text = value;
     }
   } else if (typeof value === 'number') {
@@ -97,7 +97,7 @@ function formatDiffValueForHtml(value, maxLength = 120) {
   } else {
     try {
       text = JSON.stringify(value);
-    } catch (err) {
+    } catch {
       text = String(value);
     }
   }
@@ -2174,7 +2174,7 @@ function createApp(options = {}) {
     let buffer;
     try {
       buffer = Buffer.from(normalizedInput, 'base64');
-    } catch (err) {
+    } catch {
       return res.status(400).json({ error: 'Invalid base64' });
     }
     if (!buffer || buffer.length === 0) {
