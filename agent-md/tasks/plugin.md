@@ -33,3 +33,15 @@
 - Переключатель Order и поле Limit обновляют данные через `/artifacts?offset=…&limit=…&order=…`.
 - Кнопки Prev/Next меняют offset и подгружают следующую/предыдущую страницу.
 - Кнопка Download selected as ZIP отправляет `POST /artifacts/bulk.zip` с выбранными ID и сохраняет архив с подпапками `{id}/` и файлами `exportSpec.json`, `logs.txt`, `task.json`, `meta.json`.
+
+## [PLUGIN] Artifact details & Re-run
+
+**Статус:** done
+
+**UX-сценарий:**
+- Пользователь кликает строку в таблице Artifacts и справа открывается панель деталей без перезагрузки списка.
+- В шапке панели отображаются `Task ID`, `Created`, `Status`, а также кнопки `Download JSON`, `Download ZIP`, `Copy Task ID` и `Re-run task`.
+- Блок `Logs` показывает историю событий построчно; `Copy Task ID` моментально кладёт идентификатор в буфер обмена.
+- Блок `ExportSpec` содержит сворачиваемый просмотр JSON с поиском по значениям и кнопкой `Copy JSON`.
+- Кнопка `Re-run task` отправляет исходный `taskSpec` в `POST /tasks`, добавляя к `meta.id` суффикс `-rerun-<short_ts>` и поле `meta.rerunOf` с исходным идентификатором. После успешного ответа выводится уведомление с новым `taskId` и быстрыми действиями «Watch status» и «Load in Builder».
+- Панель закрывается по нажатию на фон, кнопку × или клавишу `Esc`; пагинация и фильтры таблицы не сбрасываются.
