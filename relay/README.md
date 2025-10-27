@@ -19,6 +19,15 @@ npm run dev   # http://localhost:3000
 
 > Поддерживается повторный запуск задач: отправьте исходный `taskSpec` в `POST /tasks` (плагин добавляет суффикс `-rerun-<short_ts>` к `meta.id` и поле `meta.rerunOf`).
 
+## Auth & Protection
+
+- Включите простую API-аутентификацию через переменную `API_KEYS` (CSV-список значений). Пример: `API_KEYS="dev123,dev456"`.
+- Сервер принимает ключи в заголовках `Authorization: Bearer <key>` или `X-API-Key: <key>`. Для SSE-подписок (`/tasks/{id}/watch`) можно передать ключ в query-параметре `?apiKey=<key>`.
+- Переменная `API_FREE_ENDPOINTS` задаёт список публичных маршрутов (формат: `METHOD /path`, поддерживаются параметры `:token`). По умолчанию доступны `GET /health` и `GET /shared/:token`.
+- Лимиты: по умолчанию действует 100 запросов за 5 минут на ключ/IP (`RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS`). SSE-потоки `/tasks/{id}/watch` исключены из жёсткого лимита. Значение `0` отключает лимитер.
+- CORS настраивается через `CORS_ORIGIN`: `*` (значение по умолчанию в dev) или CSV списка доверенных origin (`https://relay.company.com,https://app.company.com`). Заголовки `Authorization`, `Content-Type` и `X-API-Key` добавлены в allow-list.
+- В плагине Figma во вкладке Builder появился блок “API key”: ключ сохраняется локально и автоматически прокидывается во все HTTP-запросы, включая загрузки артефактов и SSE.
+
 ## Данные
 - JSONL-файл `relay/data/tasks.jsonl` (last-write-wins)
 

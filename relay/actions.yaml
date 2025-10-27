@@ -4,6 +4,12 @@ info:
   version: '0.1'
 servers:
   - url: http://localhost:3000
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API-Key
 paths:
   /health:
     get:
@@ -16,6 +22,8 @@ paths:
     post:
       operationId: validateTaskSpec
       summary: Validate TaskSpec against JSON Schema
+      security:
+        - ApiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -53,6 +61,8 @@ paths:
     post:
       operationId: validateExportSpec
       summary: Validate ExportSpec against JSON Schema
+      security:
+        - ApiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -90,6 +100,8 @@ paths:
     post:
       operationId: postTask
       summary: Create a build task
+      security:
+        - ApiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -106,6 +118,8 @@ paths:
     get:
       operationId: pullTask
       summary: Pull next pending task and mark it as running
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: query
           name: pluginId
@@ -133,6 +147,8 @@ paths:
     get:
       operationId: getTask
       summary: Get task status/result
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: path
           name: id
@@ -183,6 +199,8 @@ paths:
     get:
       operationId: getTaskResult
       summary: Get task result (ExportSpec), status and logs
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: path
           name: id
@@ -251,6 +269,8 @@ paths:
     post:
       operationId: postResults
       summary: Post ExportSpec and logs (compat API)
+      security:
+        - ApiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -276,6 +296,8 @@ paths:
     get:
       operationId: getTaskArtifact
       summary: Download task artifact (ExportSpec JSON)
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: path
           name: id
@@ -293,6 +315,8 @@ paths:
     get:
       operationId: getTaskArtifactZip
       summary: Download artifact ZIP package for task
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: path
           name: id
@@ -313,6 +337,8 @@ paths:
     post:
       operationId: shareArtifact
       summary: Create a time-limited public link for an artifact
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: path
           name: id
@@ -379,6 +405,8 @@ paths:
     post:
       operationId: downloadArtifactsBulkZip
       summary: Download multiple artifacts as a ZIP (by ids)
+      security:
+        - ApiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -410,6 +438,8 @@ paths:
     get:
       operationId: listArtifacts
       summary: List artifacts with pagination
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: query
           name: offset
@@ -481,6 +511,8 @@ paths:
     post:
       operationId: appendTaskLog
       summary: Append a log message to the task
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: path
           name: id
@@ -505,6 +537,8 @@ paths:
     get:
       operationId: watchTaskSSE
       summary: Subscribe to task status via Server-Sent Events
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: path
           name: id
@@ -529,6 +563,8 @@ paths:
     get:
       operationId: getLatestTask
       summary: Get most recent task by status
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: query
           name: status
