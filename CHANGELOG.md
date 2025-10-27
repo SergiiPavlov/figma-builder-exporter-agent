@@ -3,7 +3,12 @@
 Все заметные изменения проекта документируются в этом файле. Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
 
 ## [Unreleased]
-- Подготовка к релизу `v1.0.0`: обновлён Quickstart, добавлены примеры TaskSpec и curl-сценарии, опубликована статическая OpenAPI-документация.
+- TBD.
+
+## [v1.0.0] - 2025-10-27
+- Сводка M14–M24: стабильный Task/Export пайплайн с артефактами, compare, share-token и ленивой галереей.
+- Relay получил webhooks, очередь задач, рейт-лимиты, SSE-стриминг и smoke-тесты Docker-профиля.
+- Опубликована спецификация на GitHub Pages ([OpenAPI docs](https://sergiipavlov.github.io/figma-builder-exporter-agent/docs/openapi.html)) и снапшот `schemas/openapi.v1.0.0.yaml`.
 
 ## [M23] - 2024-05-07
 - Доработан экспорт diff: HTML и ZIP отчёты с сохранением структуры.

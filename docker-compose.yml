@@ -8,6 +8,7 @@ services:
       context: .
       dockerfile: relay/Dockerfile
       target: production
+    # Для фиксированной версии укажите `RELAY_IMAGE=ghcr.io/sergiipavlov/figma-relay:v1.0.0`.
     image: ${RELAY_IMAGE:-ghcr.io/sergiipavlov/figma-relay:latest}
     env_file:
       - relay/.env

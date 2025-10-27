@@ -35,6 +35,7 @@
    docker compose --profile dev up -d
    ```
    Альтернатива: `COMPOSE_PROFILES=dev docker compose up -d`.
+   > Доступные образы в GHCR: `docker pull ghcr.io/sergiipavlov/figma-relay:latest` и `docker pull ghcr.io/sergiipavlov/figma-relay:v1.0.0`.
 3. Выполните smoke-проверку:
    ```bash
    curl -s http://localhost:3000/health
@@ -89,7 +90,7 @@
 
 ## Release notes
 
-- Подготовка к релизу `v1.0.0`: актуальный список изменений в [CHANGELOG.md](CHANGELOG.md).
+- Релиз `v1.0.0`: сводка изменений в [CHANGELOG.md](CHANGELOG.md), статическая спецификация на [GitHub Pages](https://sergiipavlov.github.io/figma-builder-exporter-agent/docs/openapi.html) и архив плагина в разделе [Releases](https://github.com/sergiipavlov/figma-builder-exporter-agent/releases).
 
 ## Быстрый рабочий цикл
 
