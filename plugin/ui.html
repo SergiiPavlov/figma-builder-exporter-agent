@@ -790,6 +790,9 @@
         error: "",
       };
 
+      let currentDetailsReqId = 0;
+      let currentDetailsAbort = null;
+
       let artifactDetailsToastTimer = null;
 
       const artifactsState = {
@@ -1283,6 +1286,17 @@
 
       const loadArtifactDetails = async (taskId) => {
         if (!taskId) return;
+        const reqId = ++currentDetailsReqId;
+        if (currentDetailsAbort) currentDetailsAbort.abort();
+        currentDetailsAbort = new AbortController();
+        const { signal } = currentDetailsAbort;
+
+        const safeSetState = (mutator) => {
+          if (reqId !== currentDetailsReqId) return;
+          mutator();
+          renderArtifactDetails();
+        };
+
         artifactDetailsState.loading = true;
         artifactDetailsState.error = "";
         artifactDetailsState.task = null;
@@ -1290,53 +1304,65 @@
         artifactDetailsState.logs = [];
         artifactDetailsState.exportSpec = null;
         renderArtifactDetails();
+
         try {
-          const taskRes = await fetch(`${RELAY_URL}/tasks/${encodeURIComponent(taskId)}`);
+          const taskRes = await fetch(`${RELAY_URL}/tasks/${encodeURIComponent(taskId)}`, {
+            signal,
+          });
           if (!taskRes.ok) {
             throw new Error(`Task request failed: HTTP ${taskRes.status}`);
           }
           const taskData = await taskRes.json();
-          artifactDetailsState.task = taskData;
-          artifactDetailsState.logs = Array.isArray(taskData.logs)
-            ? taskData.logs.map((line) => String(line))
-            : [];
+          safeSetState(() => {
+            artifactDetailsState.task = taskData;
+            artifactDetailsState.logs = Array.isArray(taskData.logs)
+              ? taskData.logs.map((line) => String(line))
+              : [];
+          });
+
           let resultPayload = null;
           try {
-            const resultRes = await fetch(`${RELAY_URL}/tasks/${encodeURIComponent(taskId)}/result`);
-            if (resultRes.status === 404) {
-              resultPayload = null;
-            } else if (!resultRes.ok) {
-              throw new Error(`HTTP ${resultRes.status}`);
-            } else {
-              resultPayload = await resultRes.json();
-            }
-          } catch (resultErr) {
-            throw new Error(
-              `Result fetch failed: ${
-                resultErr && resultErr.message ? resultErr.message : resultErr
-              }`,
+            const resultRes = await fetch(
+              `${RELAY_URL}/tasks/${encodeURIComponent(taskId)}/result`,
+              { signal },
             );
+            if (resultRes.status === 404) resultPayload = null;
+            else if (!resultRes.ok) throw new Error(`HTTP ${resultRes.status}`);
+            else resultPayload = await resultRes.json();
+          } catch (e) {
+            if (e.name !== "AbortError") {
+              throw new Error(`Result fetch failed: ${e?.message || e}`);
+            }
           }
-          artifactDetailsState.result = resultPayload;
-          artifactDetailsState.exportSpec =
-            resultPayload && typeof resultPayload.exportSpec === "object"
-              ? resultPayload.exportSpec
-              : null;
-          artifactDetailsState.error = "";
+
+          safeSetState(() => {
+            artifactDetailsState.result = resultPayload;
+            artifactDetailsState.exportSpec =
+              resultPayload && typeof resultPayload.exportSpec === "object"
+                ? resultPayload.exportSpec
+                : null;
+            artifactDetailsState.error = "";
+          });
         } catch (err) {
-          artifactDetailsState.error = `Failed to load details: ${
-            err && err.message ? err.message : err
-          }`;
+          if (err.name !== "AbortError") {
+            safeSetState(() => {
+              artifactDetailsState.error = `Failed to load details: ${err?.message || err}`;
+            });
+          }
         } finally {
-          artifactDetailsState.loading = false;
-          renderArtifactDetails();
+          safeSetState(() => {
+            artifactDetailsState.loading = false;
+          });
+          if (reqId === currentDetailsReqId) {
+            currentDetailsAbort = null;
+          }
         }
       };
 
       const openArtifactDetails = (taskId) => {
         if (!taskId) return;
         artifactDetailsState.open = true;
-        artifactDetailsState.taskId = taskId;
+        artifactDetailsState.taskId = taskId; // фиксируем выбранный
         artifactDetailsState.notice = null;
         artifactDetailsState.toast = "";
         artifactDetailsState.exportSearch = "";
