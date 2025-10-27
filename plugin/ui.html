@@ -9,6 +9,32 @@
           Helvetica, Arial;
         margin: 12px;
       }
+      .tabs {
+        display: inline-flex;
+        gap: 6px;
+        margin-bottom: 12px;
+      }
+      .tab-button {
+        padding: 6px 12px;
+        border: 1px solid #cbd5f5;
+        border-radius: 4px;
+        background: #f8fafc;
+        color: #0f172a;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .tab-button.is-active {
+        background: #2563eb;
+        border-color: #1d4ed8;
+        color: #fff;
+      }
+      .tab-panel {
+        display: none;
+      }
+      .tab-panel.is-active {
+        display: block;
+      }
       textarea {
         width: 100%;
         height: 320px;
@@ -127,61 +153,199 @@
         white-space: pre-wrap;
         word-break: break-word;
       }
+      #panel-artifacts {
+        border: 1px solid #cbd5f5;
+        border-radius: 6px;
+        padding: 12px;
+        background: #f8fafc;
+      }
+      #panel-artifacts[data-loading='true'] {
+        opacity: 0.75;
+      }
+      .artifacts-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: flex-end;
+        margin-bottom: 12px;
+      }
+      .artifacts-controls label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 11px;
+        color: #1e293b;
+      }
+      .artifacts-controls input,
+      .artifacts-controls select {
+        padding: 4px 6px;
+        font-size: 12px;
+      }
+      .artifacts-controls button {
+        margin-left: 0;
+      }
+      .artifacts-error {
+        display: none;
+        color: #b91c1c;
+        background: #fee2e2;
+        border: 1px solid #fecaca;
+        border-radius: 4px;
+        padding: 6px 8px;
+        margin-bottom: 12px;
+      }
+      .artifacts-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .artifacts-table th,
+      .artifacts-table td {
+        border: 1px solid #e2e8f0;
+        padding: 6px 8px;
+        text-align: left;
+        vertical-align: middle;
+      }
+      .artifacts-table tbody tr:nth-child(even) {
+        background: #f1f5f9;
+      }
+      .artifacts-table .actions {
+        white-space: nowrap;
+      }
+      .artifacts-table .muted {
+        text-align: center;
+        color: #64748b;
+        font-style: italic;
+      }
+      .artifacts-pagination {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+        font-size: 12px;
+      }
+      .artifacts-pagination button {
+        margin-left: 0;
+      }
+      #artifacts-bulk-download {
+        margin-left: auto;
+        padding: 6px 10px;
+        font-weight: 600;
+      }
+      #artifacts-bulk-download[disabled] {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
     <h3>Figma Builder+Exporter (M1)</h3>
-    <p>
-      Вставьте <b>TaskSpec (JSON)</b> ниже и нажмите <b>Validate</b>. Перед
-      Build/Export замените <code>REPLACE_WITH_FILE_ID</code> на свой fileId.
-    </p>
-    <textarea id="spec"></textarea>
-    <label class="mode-toggle">
-      <input type="checkbox" id="pull-mode" />
-      <span>Pull mode</span>
-    </label>
-    <div class="row">
-      <button id="btn-validate">Validate</button>
-      <button id="btn-build">Build</button>
-      <button id="btn-export">Export</button>
-      <button id="btn-fetch">Fetch</button>
-      <a
-        id="download"
-        style="margin-left: auto; display: none"
-        download="ExportSpec.json"
-        >Download ExportSpec.json</a
-      >
-      <button id="btn-close">Close</button>
+    <div class="tabs">
+      <button type="button" class="tab-button is-active" data-target="panel-builder">
+        Builder
+      </button>
+      <button type="button" class="tab-button" data-target="panel-artifacts">
+        Artifacts
+      </button>
     </div>
-    <pre
-      id="relay-log"
-      style="background: #f1f5f9; color: #0f172a; padding: 8px; max-height: 120px; overflow: auto"
-    ></pre>
-    <div id="status-panel" data-state="idle">
-      <div class="status-header">
-        <span>Status:</span>
-        <span id="status-text">idle</span>
-        <span id="status-connection" data-state="closed">disconnected</span>
+    <div id="panel-builder" class="tab-panel is-active">
+      <p>
+        Вставьте <b>TaskSpec (JSON)</b> ниже и нажмите <b>Validate</b>. Перед
+        Build/Export замените <code>REPLACE_WITH_FILE_ID</code> на свой fileId.
+      </p>
+      <textarea id="spec"></textarea>
+      <label class="mode-toggle">
+        <input type="checkbox" id="pull-mode" />
+        <span>Pull mode</span>
+      </label>
+      <div class="row">
+        <button id="btn-validate">Validate</button>
+        <button id="btn-build">Build</button>
+        <button id="btn-export">Export</button>
+        <button id="btn-fetch">Fetch</button>
+        <a
+          id="download"
+          style="margin-left: auto; display: none"
+          download="ExportSpec.json"
+          >Download ExportSpec.json</a
+        >
+        <button id="btn-close">Close</button>
       </div>
-      <pre id="status-log"></pre>
+      <pre
+        id="relay-log"
+        style="background: #f1f5f9; color: #0f172a; padding: 8px; max-height: 120px; overflow: auto"
+      ></pre>
+      <div id="status-panel" data-state="idle">
+        <div class="status-header">
+          <span>Status:</span>
+          <span id="status-text">idle</span>
+          <span id="status-connection" data-state="closed">disconnected</span>
+        </div>
+        <pre id="status-log"></pre>
+      </div>
+      <pre id="log"></pre>
+      <a
+        id="artifact-download"
+        class="button-link"
+        href="#"
+        aria-disabled="true"
+        rel="noopener noreferrer"
+        >Download artifact</a
+      >
+      <a
+        id="artifact-zip-download"
+        class="button-link"
+        href="#"
+        aria-disabled="true"
+        rel="noopener noreferrer"
+        >Download ZIP</a
+      >
     </div>
-    <pre id="log"></pre>
-    <a
-      id="artifact-download"
-      class="button-link"
-      href="#"
-      aria-disabled="true"
-      rel="noopener noreferrer"
-      >Download artifact</a
-    >
-    <a
-      id="artifact-zip-download"
-      class="button-link"
-      href="#"
-      aria-disabled="true"
-      rel="noopener noreferrer"
-      >Download ZIP</a
-    >
+    <div id="panel-artifacts" class="tab-panel">
+      <div id="artifacts-error" class="artifacts-error" role="alert"></div>
+      <div class="artifacts-controls">
+        <label>
+          Search by ID
+          <input type="text" id="artifacts-search" placeholder="Substring" />
+        </label>
+        <label>
+          Order
+          <select id="artifacts-order">
+            <option value="desc" selected>desc</option>
+            <option value="asc">asc</option>
+          </select>
+        </label>
+        <label>
+          Limit
+          <input type="number" id="artifacts-limit" min="1" max="50" value="10" />
+        </label>
+        <button type="button" id="artifacts-prev">Prev</button>
+        <button type="button" id="artifacts-next">Next</button>
+      </div>
+      <table class="artifacts-table">
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>ID</th>
+            <th>Created</th>
+            <th>Size</th>
+            <th class="actions">JSON</th>
+            <th class="actions">ZIP</th>
+          </tr>
+        </thead>
+        <tbody id="artifacts-tbody">
+          <tr>
+            <td colspan="6" class="muted">No artifacts loaded</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="artifacts-pagination">
+        <div id="artifacts-pagination-info">No artifacts</div>
+        <button type="button" id="artifacts-bulk-download" disabled>
+          Download selected as ZIP
+        </button>
+      </div>
+    </div>
 
     <script>
       const RELAY_URL = "http://localhost:3000";
@@ -192,6 +356,382 @@
       let statusLogs = [];
       const STATUS_LOG_LIMIT = 200;
       let pullModeEnabled = false;
+
+      const artifactsPanelEl = document.getElementById("panel-artifacts");
+      const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
+      const tabPanels = new Map(
+        Array.from(document.querySelectorAll(".tab-panel")).map((panel) => [panel.id, panel])
+      );
+
+      const artifactsElements = {
+        tableBody: document.getElementById("artifacts-tbody"),
+        searchInput: document.getElementById("artifacts-search"),
+        orderSelect: document.getElementById("artifacts-order"),
+        limitInput: document.getElementById("artifacts-limit"),
+        prevButton: document.getElementById("artifacts-prev"),
+        nextButton: document.getElementById("artifacts-next"),
+        paginationInfo: document.getElementById("artifacts-pagination-info"),
+        bulkButton: document.getElementById("artifacts-bulk-download"),
+        errorBox: document.getElementById("artifacts-error"),
+      };
+
+      const artifactsState = {
+        order: "desc",
+        limit: 10,
+        offset: 0,
+        total: 0,
+        items: [],
+        searchTerm: "",
+        selection: new Set(),
+        loading: false,
+        initialized: false,
+      };
+
+      const setArtifactsError = (message) => {
+        if (!artifactsElements.errorBox) return;
+        if (message) {
+          artifactsElements.errorBox.textContent = message;
+          artifactsElements.errorBox.style.display = "block";
+        } else {
+          artifactsElements.errorBox.textContent = "";
+          artifactsElements.errorBox.style.display = "none";
+        }
+      };
+
+      const formatBytes = (bytes) => {
+        const value = Number(bytes);
+        if (!Number.isFinite(value) || value < 0) return "—";
+        if (value === 0) return "0 B";
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        const exponent = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+        const normalized = value / Math.pow(1024, exponent);
+        const formatted = exponent === 0 ? normalized.toFixed(0) : normalized.toFixed(1);
+        return `${formatted} ${units[exponent]}`;
+      };
+
+      const formatDateTime = (value) => {
+        if (!Number.isFinite(value)) return "—";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "—";
+        return date.toLocaleString();
+      };
+
+      const updateBulkButtonState = () => {
+        const button = artifactsElements.bulkButton;
+        if (!button) return;
+        const count = artifactsState.selection.size;
+        button.textContent =
+          count > 0
+            ? `Download selected as ZIP (${count})`
+            : "Download selected as ZIP";
+        if (artifactsState.loading || count === 0) {
+          button.setAttribute("disabled", "true");
+        } else {
+          button.removeAttribute("disabled");
+        }
+      };
+
+      const updatePaginationControls = () => {
+        const { prevButton, nextButton } = artifactsElements;
+        if (prevButton) {
+          if (artifactsState.loading || artifactsState.offset <= 0) {
+            prevButton.setAttribute("disabled", "true");
+          } else {
+            prevButton.removeAttribute("disabled");
+          }
+        }
+        if (nextButton) {
+          const hasMore =
+            artifactsState.total > 0 &&
+            artifactsState.offset + artifactsState.limit < artifactsState.total;
+          if (artifactsState.loading || !hasMore) {
+            nextButton.setAttribute("disabled", "true");
+          } else {
+            nextButton.removeAttribute("disabled");
+          }
+        }
+      };
+
+      const renderArtifactsTable = () => {
+        const tbody = artifactsElements.tableBody;
+        if (!tbody) return;
+        tbody.innerHTML = "";
+        const searchTerm = artifactsState.searchTerm;
+        const filtered = artifactsState.items.filter((item) => {
+          if (!searchTerm) return true;
+          const id = typeof item.id === "string" ? item.id : String(item.id ?? "");
+          return id.toLowerCase().includes(searchTerm);
+        });
+
+        if (filtered.length === 0) {
+          const emptyRow = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 6;
+          cell.className = "muted";
+          cell.textContent = artifactsState.items.length === 0 ? "No artifacts" : "No matches";
+          emptyRow.appendChild(cell);
+          tbody.appendChild(emptyRow);
+        } else {
+          for (const item of filtered) {
+            const safeId = typeof item.id === "string" ? item.id : String(item.id ?? "");
+            const row = document.createElement("tr");
+
+            const selectCell = document.createElement("td");
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.checked = artifactsState.selection.has(safeId);
+            checkbox.addEventListener("change", (event) => {
+              if (event.target.checked) {
+                artifactsState.selection.add(safeId);
+              } else {
+                artifactsState.selection.delete(safeId);
+              }
+              updateBulkButtonState();
+            });
+            selectCell.appendChild(checkbox);
+            row.appendChild(selectCell);
+
+            const idCell = document.createElement("td");
+            idCell.textContent = safeId;
+            row.appendChild(idCell);
+
+            const createdCell = document.createElement("td");
+            createdCell.textContent = formatDateTime(item.createdAt);
+            row.appendChild(createdCell);
+
+            const sizeCell = document.createElement("td");
+            sizeCell.textContent = formatBytes(item.size);
+            row.appendChild(sizeCell);
+
+            const jsonCell = document.createElement("td");
+            jsonCell.className = "actions";
+            const jsonLink = document.createElement("a");
+            jsonLink.href = `${RELAY_URL}/tasks/${encodeURIComponent(safeId)}/artifact`;
+            jsonLink.textContent = "Download JSON";
+            jsonLink.target = "_blank";
+            jsonLink.rel = "noopener noreferrer";
+            jsonLink.download = `${safeId}.json`;
+            jsonCell.appendChild(jsonLink);
+            row.appendChild(jsonCell);
+
+            const zipCell = document.createElement("td");
+            zipCell.className = "actions";
+            const zipLink = document.createElement("a");
+            zipLink.href = `${RELAY_URL}/tasks/${encodeURIComponent(safeId)}/package.zip`;
+            zipLink.textContent = "Download ZIP";
+            zipLink.target = "_blank";
+            zipLink.rel = "noopener noreferrer";
+            zipLink.download = `${safeId}.zip`;
+            zipCell.appendChild(zipLink);
+            row.appendChild(zipCell);
+
+            tbody.appendChild(row);
+          }
+        }
+
+        const infoEl = artifactsElements.paginationInfo;
+        if (infoEl) {
+          if (artifactsState.total === 0) {
+            infoEl.textContent = "No artifacts";
+          } else {
+            const currentPage = Math.floor(artifactsState.offset / artifactsState.limit) + 1;
+            const totalPages = Math.max(1, Math.ceil(artifactsState.total / artifactsState.limit));
+            const visibleLabel =
+              filtered.length === artifactsState.items.length
+                ? `showing ${filtered.length} of ${artifactsState.items.length}`
+                : `filtered ${filtered.length} of ${artifactsState.items.length}`;
+            infoEl.textContent = `Page ${currentPage}/${totalPages}, ${visibleLabel} (total ${artifactsState.total})`;
+          }
+        }
+        updateBulkButtonState();
+        updatePaginationControls();
+      };
+
+      const setArtifactsLoading = (loading) => {
+        artifactsState.loading = loading;
+        if (artifactsPanelEl) {
+          artifactsPanelEl.dataset.loading = loading ? "true" : "false";
+        }
+        updateBulkButtonState();
+        updatePaginationControls();
+      };
+
+      const fetchArtifacts = async () => {
+        if (artifactsState.loading) return;
+        setArtifactsError("");
+        setArtifactsLoading(true);
+        try {
+          const params = new URLSearchParams();
+          params.set("offset", String(artifactsState.offset));
+          params.set("limit", String(artifactsState.limit));
+          params.set("order", artifactsState.order);
+          const res = await fetch(`${RELAY_URL}/artifacts?${params.toString()}`);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          artifactsState.items = Array.isArray(data.items) ? data.items : [];
+          const totalValue = Number(data.total);
+          const offsetValue = Number(data.offset);
+          const limitValue = Number(data.limit);
+          artifactsState.total = Number.isFinite(totalValue)
+            ? totalValue
+            : artifactsState.items.length;
+          artifactsState.offset = Number.isFinite(offsetValue) ? offsetValue : artifactsState.offset;
+          artifactsState.limit = Number.isFinite(limitValue) ? limitValue : artifactsState.limit;
+          if (artifactsElements.limitInput) {
+            artifactsElements.limitInput.value = String(artifactsState.limit);
+          }
+          if (artifactsElements.orderSelect) {
+            artifactsElements.orderSelect.value = artifactsState.order;
+          }
+          const toRemove = [];
+          artifactsState.selection.forEach((id) => {
+            if (!artifactsState.items.some((item) => item && item.id === id)) {
+              toRemove.push(id);
+            }
+          });
+          for (const id of toRemove) {
+            artifactsState.selection.delete(id);
+          }
+        } catch (err) {
+          console.error("Failed to load artifacts", err);
+          setArtifactsError(
+            `Failed to load artifacts: ${err && err.message ? err.message : err}`
+          );
+          artifactsState.items = [];
+          artifactsState.total = 0;
+        } finally {
+          setArtifactsLoading(false);
+          renderArtifactsTable();
+        }
+      };
+
+      const downloadSelectedArtifacts = async () => {
+        const button = artifactsElements.bulkButton;
+        if (!button || artifactsState.selection.size === 0) return;
+        if (artifactsState.loading) return;
+        setArtifactsError("");
+        button.setAttribute("disabled", "true");
+        button.dataset.loading = "true";
+        try {
+          const ids = Array.from(artifactsState.selection);
+          const res = await fetch(`${RELAY_URL}/artifacts/bulk.zip`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids }),
+          });
+          if (!res.ok) {
+            let errorText = `Bulk download failed: HTTP ${res.status}`;
+            try {
+              const text = await res.text();
+              if (text) {
+                errorText += ` (${text.slice(0, 160)})`;
+              }
+            } catch (_) {}
+            throw new Error(errorText);
+          }
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+          link.href = url;
+          link.download = `artifacts-${stamp}.zip`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => {
+            URL.revokeObjectURL(url);
+          }, 1500);
+        } catch (err) {
+          setArtifactsError(
+            `Bulk download error: ${err && err.message ? err.message : err}`
+          );
+        } finally {
+          button.dataset.loading = "false";
+          updateBulkButtonState();
+        }
+      };
+
+      const setActiveTab = (targetId) => {
+        for (const btn of tabButtons) {
+          const isActive = btn.dataset.target === targetId;
+          btn.classList.toggle("is-active", isActive);
+        }
+        for (const [id, panel] of tabPanels.entries()) {
+          panel.classList.toggle("is-active", id === targetId);
+        }
+        if (targetId === "panel-artifacts" && !artifactsState.initialized) {
+          artifactsState.initialized = true;
+          fetchArtifacts();
+        }
+      };
+
+      tabButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const target = btn.dataset.target;
+          if (target) {
+            setActiveTab(target);
+          }
+        });
+      });
+
+      if (artifactsElements.searchInput) {
+        artifactsElements.searchInput.addEventListener("input", (event) => {
+          const value = event.target.value || "";
+          artifactsState.searchTerm = value.toLowerCase();
+          renderArtifactsTable();
+        });
+      }
+      if (artifactsElements.orderSelect) {
+        artifactsElements.orderSelect.addEventListener("change", (event) => {
+          const value = String(event.target.value || "desc").toLowerCase();
+          artifactsState.order = value === "asc" ? "asc" : "desc";
+          artifactsState.offset = 0;
+          if (artifactsState.initialized) {
+            fetchArtifacts();
+          }
+        });
+      }
+      if (artifactsElements.limitInput) {
+        artifactsElements.limitInput.addEventListener("change", (event) => {
+          const value = Number(event.target.value);
+          if (!Number.isFinite(value)) return;
+          const clamped = Math.min(50, Math.max(1, Math.floor(value)));
+          artifactsState.limit = clamped;
+          artifactsState.offset = 0;
+          artifactsElements.limitInput.value = String(clamped);
+          if (artifactsState.initialized) {
+            fetchArtifacts();
+          }
+        });
+      }
+      if (artifactsElements.prevButton) {
+        artifactsElements.prevButton.addEventListener("click", () => {
+          if (artifactsState.loading) return;
+          const nextOffset = Math.max(0, artifactsState.offset - artifactsState.limit);
+          if (nextOffset === artifactsState.offset) return;
+          artifactsState.offset = nextOffset;
+          fetchArtifacts();
+        });
+      }
+      if (artifactsElements.nextButton) {
+        artifactsElements.nextButton.addEventListener("click", () => {
+          if (artifactsState.loading) return;
+          const nextOffset = artifactsState.offset + artifactsState.limit;
+          if (artifactsState.total > 0 && nextOffset >= artifactsState.total) return;
+          artifactsState.offset = nextOffset;
+          fetchArtifacts();
+        });
+      }
+      if (artifactsElements.bulkButton) {
+        artifactsElements.bulkButton.addEventListener("click", () => {
+          downloadSelectedArtifacts();
+        });
+      }
+
+      renderArtifactsTable();
+      setActiveTab("panel-builder");
 
       const log = (m) => {
         const el = document.getElementById("log");

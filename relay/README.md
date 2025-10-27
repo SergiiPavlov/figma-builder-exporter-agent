@@ -31,3 +31,18 @@ npm run dev   # http://localhost:3000
 curl -s "http://localhost:3000/artifacts?limit=5"
 curl -s "http://localhost:3000/artifacts?offset=5&limit=5&order=asc"
 ```
+
+## Artifacts Gallery + Bulk ZIP
+
+- Список артефактов поддерживает локальный поиск в плагине (по подстроке ID), сортировку и пагинацию.
+- Для массовой выгрузки используйте `POST /artifacts/bulk.zip` с телом `{ "ids": ["id1", "id2"] }`.
+- В ответе приходит ZIP-архив, где для каждой задачи есть `exportSpec.json`, `logs.txt`, `task.json`, `meta.json`. Если какие-то ID пропущены, они перечисляются в `bulk.log.txt`.
+
+```bash
+curl -s "http://localhost:3000/artifacts?limit=10&order=desc"
+
+curl -s -X POST http://localhost:3000/artifacts/bulk.zip \
+  -H 'Content-Type: application/json' \
+  -d '{"ids":["task-id-1","task-id-2"]}' \
+  -o artifacts-selected.zip
+```
