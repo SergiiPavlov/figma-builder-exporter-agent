@@ -49,3 +49,64 @@ curl -s -X POST http://localhost:3000/artifacts/bulk.zip \
   -d '{"ids":["task-id-1","task-id-2"]}' \
   -o artifacts-selected.zip
 ```
+
+## Notifications (Webhooks & Slack)
+
+### Webhooks
+
+- Настройте переменные окружения (или аргументы `createApp(...)`), чтобы включить отправку уведомлений:
+  - `WEBHOOK_URL` — адрес `POST`-эндпоинта. Если пусто, вебхуки отключены.
+  - `WEBHOOK_EVENTS` — CSV-список событий (`done`, `error`). По умолчанию отправляются оба.
+  - `WEBHOOK_RETRIES` — количество попыток доставки (по умолчанию 3).
+  - `WEBHOOK_TIMEOUT_MS` — таймаут HTTP-запроса (по умолчанию 5000 мс).
+- Повторные попытки выполняются с экспоненциальной задержкой: 0.5s → 1s → 2s.
+- `POST /tasks/:id/result` и совместимый `POST /results` публикуют событие `task.done`.
+- Фиксация ошибки выполнения (например, через `app.locals.markTaskError(...)`) публикует событие `task.error`.
+- Формат payload:
+
+```json
+{
+  "event": "task.done",
+  "taskId": "…",
+  "createdAt": 1730,
+  "status": "done",
+  "artifact": {
+    "json": "/tasks/{id}/artifact",
+    "zip": "/tasks/{id}/package.zip"
+  },
+  "summary": {
+    "artifactSize": 1234
+  }
+}
+```
+
+```json
+{
+  "event": "task.error",
+  "taskId": "…",
+  "createdAt": 1730,
+  "status": "error",
+  "artifact": {
+    "json": "/tasks/{id}/artifact",
+    "zip": "/tasks/{id}/package.zip"
+  },
+  "summary": {
+    "artifactSize": null
+  },
+  "errorMessage": "Runner crashed"
+}
+```
+
+### Slack
+
+- Если задан `SLACK_WEBHOOK_URL`, дополнительно отправляется короткое сообщение с ссылками на артефакты.
+- Формат для `task.done`:
+
+```
+[task.done] <taskId> ✅
+JSON: http://localhost:3000/tasks/<taskId>/artifact
+ZIP:  http://localhost:3000/tasks/<taskId>/package.zip
+```
+
+- Для `task.error` сообщение содержит значок ❌ и текст ошибки (если есть).
+- Адрес берётся из заголовков входящего запроса (host + protocol) или по умолчанию `http://localhost:3000`.
