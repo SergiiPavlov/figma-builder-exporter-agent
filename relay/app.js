@@ -22,8 +22,9 @@ const DEFAULT_MAX_ARTIFACTS = 200;
 const DEFAULT_TTL_DAYS = 30;
 const MAX_BULK_ARTIFACT_IDS = 50;
 const BULK_ZIP_MAX_SIZE_BYTES = 100 * 1024 * 1024;
-const COMPARE_MAX_ARTIFACT_SIZE_BYTES = 5 * 1024 * 1024;
-const PREVIEW_MAX_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
+const DEFAULT_COMPARE_MAX_BYTES = 5 * 1024 * 1024;
+const DEFAULT_PREVIEW_MAX_BYTES = 2_000_000;
+const DEFAULT_JSON_BODY_LIMIT = '1mb';
 const PREVIEW_CONTENT_TYPE = 'image/png';
 
 const DEFAULT_WEBHOOK_RETRIES = 3;
@@ -215,6 +216,114 @@ function parsePositiveInteger(value, fallback) {
     return fallback;
   }
   return Math.floor(num);
+}
+
+function parseByteLimit(value, fallback) {
+  if (value == null) {
+    return fallback;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value < 0) {
+      return fallback;
+    }
+    return Math.floor(value);
+  }
+  const str = String(value).trim();
+  if (!str) {
+    return fallback;
+  }
+  const normalized = str.replace(/_/g, '');
+  const num = Number(normalized);
+  if (!Number.isFinite(num) || num < 0) {
+    return fallback;
+  }
+  return Math.floor(num);
+}
+
+function resolveJsonBodyLimit(value, fallback = DEFAULT_JSON_BODY_LIMIT) {
+  if (value == null) {
+    return fallback;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value <= 0) {
+      return fallback;
+    }
+    return Math.floor(value);
+  }
+  const str = String(value).trim();
+  return str ? str : fallback;
+}
+
+function maskApiKey(key) {
+  if (typeof key !== 'string') {
+    return '';
+  }
+  const trimmed = key.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (trimmed.length <= 4) {
+    return `****${trimmed}`;
+  }
+  return `****${trimmed.slice(-4)}`;
+}
+
+function shouldIncludeErrorDetails() {
+  return process.env.NODE_ENV !== 'production';
+}
+
+function resolveErrorMessage(statusCode, message) {
+  if (typeof message === 'string' && message.trim()) {
+    return message.trim();
+  }
+  const normalizedStatus = Number.isInteger(statusCode) ? statusCode : 500;
+  return http.STATUS_CODES[normalizedStatus] || 'Error';
+}
+
+function createErrorPayload(statusCode, message, details) {
+  const normalizedStatus = Number.isInteger(statusCode) ? statusCode : 500;
+  const payload = {
+    error: {
+      code: normalizedStatus,
+      message: resolveErrorMessage(normalizedStatus, message),
+    },
+  };
+  if (details != null && shouldIncludeErrorDetails()) {
+    payload.error.details = details;
+  }
+  return payload;
+}
+
+function buildHttpError(statusCode, message, details) {
+  const normalizedStatus = Number.isInteger(statusCode) ? statusCode : 500;
+  return {
+    status: normalizedStatus,
+    body: createErrorPayload(normalizedStatus, message, details),
+  };
+}
+
+function sendJsonError(res, statusCode, message, details) {
+  return res.status(statusCode).json(createErrorPayload(statusCode, message, details));
+}
+
+function setCommonSecurityHeaders(res) {
+  if (!res || typeof res.setHeader !== 'function') {
+    return;
+  }
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Frame-Options', 'DENY');
+}
+
+function setHtmlSecurityHeaders(res) {
+  setCommonSecurityHeaders(res);
+  if (!res || typeof res.setHeader !== 'function') {
+    return;
+  }
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'",
+  );
 }
 
 function clampTtlMinutes(value, fallback = DEFAULT_PUBLIC_TOKEN_TTL_MIN) {
@@ -776,6 +885,63 @@ function createApp(options = {}) {
   const app = express();
   app.set('trust proxy', trustProxySetting);
 
+  app.use((req, res, next) => {
+    const originalJson = res.json.bind(res);
+    res.json = (body) => {
+      setCommonSecurityHeaders(res);
+      return originalJson(body);
+    };
+
+    const originalSend = res.send.bind(res);
+    res.send = (body) => {
+      const headerValue =
+        (typeof res.getHeader === 'function' && res.getHeader('Content-Type')) ||
+        (typeof res.get === 'function' && res.get('Content-Type'));
+      if (typeof headerValue === 'string') {
+        const lowered = headerValue.toLowerCase();
+        if (lowered.includes('application/json')) {
+          setCommonSecurityHeaders(res);
+        } else if (lowered.includes('text/html')) {
+          setHtmlSecurityHeaders(res);
+        }
+      }
+      return originalSend(body);
+    };
+
+    const originalSendFile = res.sendFile.bind(res);
+    res.sendFile = (filePath, options, callback) => {
+      if (typeof filePath === 'string') {
+        const lowerPath = filePath.toLowerCase();
+        if (lowerPath.endsWith('.json')) {
+          setCommonSecurityHeaders(res);
+        } else if (lowerPath.endsWith('.html')) {
+          setHtmlSecurityHeaders(res);
+        }
+      }
+      return originalSendFile(filePath, options, callback);
+    };
+
+    next();
+  });
+
+  const jsonBodyLimit = resolveJsonBodyLimit(
+    options.jsonBodyLimit != null ? options.jsonBodyLimit : process.env.JSON_BODY_LIMIT,
+  );
+  const previewMaxBytes = parseByteLimit(
+    options.previewMaxBytes != null ? options.previewMaxBytes : process.env.PREVIEW_MAX_BYTES,
+    DEFAULT_PREVIEW_MAX_BYTES,
+  );
+  const compareMaxBytes = parseByteLimit(
+    options.compareMaxBytes != null ? options.compareMaxBytes : process.env.COMPARE_MAX_BYTES,
+    DEFAULT_COMPARE_MAX_BYTES,
+  );
+
+  app.locals.limits = {
+    jsonBodyLimit,
+    previewMaxBytes,
+    compareMaxBytes,
+  };
+
   let activeWebhookRequests = 0;
   const webhookIdleWaiters = new Set();
 
@@ -816,9 +982,15 @@ function createApp(options = {}) {
     });
   };
 
-  const apiKeys = parseApiKeys(
+  const activeApiKeys = parseApiKeys(
     options.apiKeys != null ? options.apiKeys : process.env.API_KEYS,
   );
+  const rolloverApiKeys = parseApiKeys(
+    options.apiKeysRollover != null
+      ? options.apiKeysRollover
+      : process.env.API_KEYS_ROLLOVER,
+  );
+  const apiKeys = new Set([...activeApiKeys, ...rolloverApiKeys]);
   const freeEndpoints = parseFreeEndpoints(
     options.apiFreeEndpoints != null ? options.apiFreeEndpoints : process.env.API_FREE_ENDPOINTS,
   );
@@ -850,8 +1022,10 @@ function createApp(options = {}) {
     const providedKey = extractApiKeyFromRequest(req);
     if (providedKey && apiKeys.has(providedKey)) {
       req.relayAuth.apiKey = providedKey;
+      req.relayAuth.apiKeyMasked = maskApiKey(providedKey);
     } else {
       req.relayAuth.apiKey = null;
+      req.relayAuth.apiKeyMasked = providedKey ? maskApiKey(providedKey) : null;
     }
 
     if (!requireApiKey) {
@@ -874,7 +1048,7 @@ function createApp(options = {}) {
       return next();
     }
 
-    res.status(401).json({ error: 'Unauthorized' });
+    sendJsonError(res, 401, 'Unauthorized');
   });
 
   const rawRateLimitWindow =
@@ -938,12 +1112,12 @@ function createApp(options = {}) {
         Math.ceil((bucket.windowStart + rateLimitWindowMs - now) / 1000),
       );
       res.set('Retry-After', String(retryAfterSeconds));
-      return res.status(429).json({ error: 'Too many requests' });
+      return sendJsonError(res, 429, 'Too many requests');
     }
     return next();
   });
 
-  app.use(express.json({ limit: '5mb' }));
+  app.use(express.json({ limit: jsonBodyLimit }));
 
   app.locals.dataDir = dataDir;
 
@@ -1265,10 +1439,10 @@ function createApp(options = {}) {
   function ensureJsonArtifact(taskId) {
     const artifactPaths = getArtifactPaths(taskId);
     if (!artifactPaths) {
-      return { error: { status: 400, body: { error: 'Invalid task id' } } };
+      return { error: buildHttpError(400, 'Invalid task id') };
     }
     if (!fs.existsSync(artifactPaths.absolute)) {
-      return { error: { status: 404, body: { error: 'No artifact' } } };
+      return { error: buildHttpError(404, 'No artifact') };
     }
     return { artifactPaths };
   }
@@ -1280,7 +1454,7 @@ function createApp(options = {}) {
     }
     const task = readOne(taskId);
     if (!task) {
-      return { error: { status: 404, body: { error: 'not found' } } };
+      return { error: buildHttpError(404, 'not found') };
     }
     return { ...ensured, task };
   }
@@ -1296,29 +1470,24 @@ function createApp(options = {}) {
       stat = fs.statSync(artifactPaths.absolute);
     } catch (err) {
       console.error('Failed to stat artifact for compare', artifactPaths.absolute, err);
-      return { error: { status: 500, body: { error: 'Failed to read artifact' } } };
+      return { error: buildHttpError(500, 'Failed to read artifact') };
     }
-    if (stat && stat.size > COMPARE_MAX_ARTIFACT_SIZE_BYTES) {
-      return {
-        error: {
-          status: 413,
-          body: { error: 'Artifact too large for comparison' },
-        },
-      };
+    if (compareMaxBytes > 0 && stat && stat.size > compareMaxBytes) {
+      return { error: buildHttpError(413, 'Payload too large') };
     }
     let text;
     try {
       text = fs.readFileSync(artifactPaths.absolute, 'utf8');
     } catch (err) {
       console.error('Failed to read artifact for compare', artifactPaths.absolute, err);
-      return { error: { status: 500, body: { error: 'Failed to read artifact' } } };
+      return { error: buildHttpError(500, 'Failed to read artifact') };
     }
     let exportSpec;
     try {
       exportSpec = JSON.parse(text);
     } catch (err) {
       console.error('Failed to parse artifact JSON for compare', artifactPaths.absolute, err);
-      return { error: { status: 500, body: { error: 'Failed to parse artifact' } } };
+      return { error: buildHttpError(500, 'Failed to parse artifact') };
     }
     return { exportSpec, size: stat ? stat.size : null };
   }
@@ -1329,12 +1498,7 @@ function createApp(options = {}) {
     const normalizedMode = mode === 'full' ? 'full' : 'summary';
 
     if (!normalizedLeft || !normalizedRight) {
-      return {
-        error: {
-          status: 400,
-          body: { error: 'leftId and rightId are required' },
-        },
-      };
+      return { error: buildHttpError(400, 'leftId and rightId are required') };
     }
 
     const left = readExportSpecForCompare(normalizedLeft);
@@ -1864,7 +2028,7 @@ function createApp(options = {}) {
       if (!res.headersSent) {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.removeHeader('Content-Disposition');
-        res.status(500).json({ error: 'Artifact read error' });
+        sendJsonError(res, 500, 'Artifact read error');
       } else {
         res.destroy(reason);
       }
@@ -1916,7 +2080,7 @@ function createApp(options = {}) {
   function persistExportSpec(taskId, exportSpec) {
     const artifactPaths = getArtifactPaths(taskId);
     if (!artifactPaths) {
-      return { error: { status: 400, body: { error: 'Invalid task id' } } };
+      return { error: buildHttpError(400, 'Invalid task id') };
     }
     const { relative: artifactPath, absolute: artifactFile } = artifactPaths;
     try {
@@ -1925,7 +2089,7 @@ function createApp(options = {}) {
       cleanupState.dirty = true;
     } catch (err) {
       console.error('Failed to write artifact', err);
-      return { error: { status: 500, body: { error: 'Failed to write artifact' } } };
+      return { error: buildHttpError(500, 'Failed to write artifact') };
     }
     let artifactSize = null;
     try {
@@ -1933,7 +2097,7 @@ function createApp(options = {}) {
       artifactSize = stat.size;
     } catch (err) {
       console.error('Failed to stat artifact', err);
-      return { error: { status: 500, body: { error: 'Failed to finalize artifact' } } };
+      return { error: buildHttpError(500, 'Failed to finalize artifact') };
     }
     return { artifactPath, artifactFile, artifactSize };
   }
@@ -2048,7 +2212,7 @@ function createApp(options = {}) {
 
   app.post('/tasks', (req, res) => {
     const { taskSpec } = req.body || {};
-    if (!taskSpec) return res.status(400).json({ error: 'taskSpec required' });
+    if (!taskSpec) return sendJsonError(res, 400, 'taskSpec required');
     const id = uuidv4();
     const rec = {
       id,
@@ -2099,7 +2263,7 @@ function createApp(options = {}) {
     const status = String(req.query.status || 'pending');
     const latest = findLatestTaskByStatuses([status]);
     if (!latest) {
-      return res.status(404).json({ error: `No ${status} tasks` });
+      return sendJsonError(res, 404, `No ${status} tasks`);
     }
     res.json({
       id: latest.id,
@@ -2112,7 +2276,7 @@ function createApp(options = {}) {
   app.get('/tasks/:id', (req, res) => {
     const id = req.params.id;
     const rec = readOne(id);
-    if (!rec) return res.status(404).json({ error: 'not found' });
+    if (!rec) return sendJsonError(res, 404, 'not found');
     const previewInfo = getPreviewInfo(id, rec);
     res.json({
       ...rec,
@@ -2124,9 +2288,9 @@ function createApp(options = {}) {
   app.post('/tasks/:id/result', (req, res) => {
     const id = req.params.id;
     const rec = readOne(id);
-    if (!rec) return res.status(404).json({ error: 'not found' });
+    if (!rec) return sendJsonError(res, 404, 'not found');
     const result = req.body && req.body.result;
-    if (!result) return res.status(400).json({ error: 'result required' });
+    if (!result) return sendJsonError(res, 400, 'result required');
     const finalize = finalizeTaskResult(rec, result);
     if (finalize.error) {
       return res.status(finalize.error.status).json(finalize.error.body);
@@ -2160,38 +2324,38 @@ function createApp(options = {}) {
     const id = req.params.id;
     const task = readOne(id);
     if (!task) {
-      return res.status(404).json({ error: 'not found' });
+      return sendJsonError(res, 404, 'not found');
     }
     const body = req.body || {};
     if (body.contentType !== PREVIEW_CONTENT_TYPE) {
-      return res.status(400).json({ error: 'contentType must be image/png' });
+      return sendJsonError(res, 400, 'contentType must be image/png');
     }
     const base64Input = typeof body.base64 === 'string' ? body.base64.trim() : '';
     if (!base64Input) {
-      return res.status(400).json({ error: 'base64 required' });
+      return sendJsonError(res, 400, 'base64 required');
     }
     const normalizedInput = base64Input.replace(/\s+/g, '');
     let buffer;
     try {
       buffer = Buffer.from(normalizedInput, 'base64');
     } catch {
-      return res.status(400).json({ error: 'Invalid base64' });
+      return sendJsonError(res, 400, 'Invalid base64');
     }
     if (!buffer || buffer.length === 0) {
-      return res.status(400).json({ error: 'Invalid preview payload' });
+      return sendJsonError(res, 400, 'Invalid preview payload');
     }
     const reconstructed = buffer.toString('base64').replace(/=+$/g, '');
     const normalizedComparable = normalizedInput.replace(/=+$/g, '');
     if (!reconstructed || reconstructed !== normalizedComparable) {
-      return res.status(400).json({ error: 'Invalid base64' });
+      return sendJsonError(res, 400, 'Invalid base64');
     }
-    if (buffer.length > PREVIEW_MAX_SIZE_BYTES) {
-      return res.status(413).json({ error: 'Preview too large' });
+    if (previewMaxBytes > 0 && buffer.length > previewMaxBytes) {
+      return sendJsonError(res, 413, 'Payload too large');
     }
 
     const previewPaths = getPreviewPaths(id);
     if (!previewPaths) {
-      return res.status(400).json({ error: 'Invalid task id' });
+      return sendJsonError(res, 400, 'Invalid task id');
     }
 
     try {
@@ -2199,7 +2363,7 @@ function createApp(options = {}) {
       cleanupState.dirty = true;
     } catch (err) {
       console.error('Failed to write preview', err);
-      return res.status(500).json({ error: 'Failed to store preview' });
+      return sendJsonError(res, 500, 'Failed to store preview');
     }
 
     const updated = {
@@ -2223,7 +2387,7 @@ function createApp(options = {}) {
     const id = req.params.id;
     const previewPaths = getPreviewPaths(id);
     if (!previewPaths) {
-      return res.status(404).json({ error: 'Not found' });
+      return sendJsonError(res, 404, 'Not found');
     }
     let exists = false;
     try {
@@ -2235,7 +2399,7 @@ function createApp(options = {}) {
       }
     }
     if (!exists) {
-      return res.status(404).json({ error: 'Not found' });
+      return sendJsonError(res, 404, 'Not found');
     }
     res.type(PREVIEW_CONTENT_TYPE);
     res.sendFile(previewPaths.absolute);
@@ -2245,15 +2409,15 @@ function createApp(options = {}) {
     const body = req.body || {};
     const taskId = typeof body.taskId === 'string' ? body.taskId.trim() : '';
     if (!taskId) {
-      return res.status(400).json({ error: 'taskId required' });
+      return sendJsonError(res, 400, 'taskId required');
     }
     const exportSpec = body.exportSpec;
     if (exportSpec == null || typeof exportSpec !== 'object') {
-      return res.status(400).json({ error: 'exportSpec required' });
+      return sendJsonError(res, 400, 'exportSpec required');
     }
     const rec = readOne(taskId);
     if (!rec) {
-      return res.status(404).json({ error: 'not found' });
+      return sendJsonError(res, 404, 'not found');
     }
     const finalize = finalizeTaskResult(rec, exportSpec, { logs: body.logs });
     if (finalize.error) {
@@ -2286,7 +2450,7 @@ function createApp(options = {}) {
 
   app.get('/tasks/:id/result', (req, res) => {
     const t = readOne(req.params.id);
-    if (!t) return res.status(404).json({ error: 'Not found' });
+    if (!t) return sendJsonError(res, 404, 'Not found');
     const previewInfo = getPreviewInfo(t.id, t);
     res.json({
       taskId: t.id,
@@ -2347,7 +2511,7 @@ function createApp(options = {}) {
   app.get('/shared/:token', (req, res) => {
     const rawToken = typeof req.params.token === 'string' ? req.params.token.trim() : '';
     if (!rawToken) {
-      return res.status(404).json({ error: 'Not found' });
+      return sendJsonError(res, 404, 'Not found');
     }
 
     const now = Date.now();
@@ -2358,17 +2522,17 @@ function createApp(options = {}) {
         if (now - expired.expiresAt > EXPIRED_TOKEN_RETENTION_MS) {
           expiredShareTokens.delete(rawToken);
         }
-        return res.status(410).json({ error: 'Expired' });
+        return sendJsonError(res, 410, 'Expired');
       }
       pruneExpiredShares({ persist: true });
-      return res.status(404).json({ error: 'Not found' });
+      return sendJsonError(res, 404, 'Not found');
     }
 
     if (entry.expiresAt <= now) {
       shareTokens.delete(rawToken);
       expiredShareTokens.set(rawToken, entry);
       persistShareTokens();
-      return res.status(410).json({ error: 'Expired' });
+      return sendJsonError(res, 410, 'Expired');
     }
 
     const type = sanitizeShareType(entry.type);
@@ -2382,7 +2546,7 @@ function createApp(options = {}) {
     shareTokens.delete(rawToken);
     persistShareTokens();
     console.error('[relay] Unsupported share type for token', summarizeToken(rawToken), type);
-    return res.status(500).json({ error: 'Unsupported share type' });
+    return sendJsonError(res, 500, 'Unsupported share type');
   });
 
   app.post('/artifacts/bulk.zip', (req, res) => {
@@ -2390,15 +2554,13 @@ function createApp(options = {}) {
     const { ids } = body;
 
     if (!Array.isArray(ids)) {
-      return res.status(400).json({ error: 'ids must be an array' });
+      return sendJsonError(res, 400, 'ids must be an array');
     }
     if (ids.length === 0) {
-      return res.status(400).json({ error: 'ids must not be empty' });
+      return sendJsonError(res, 400, 'ids must not be empty');
     }
     if (ids.length > MAX_BULK_ARTIFACT_IDS) {
-      return res
-        .status(400)
-        .json({ error: `Too many ids (max ${MAX_BULK_ARTIFACT_IDS})` });
+      return sendJsonError(res, 400, `Too many ids (max ${MAX_BULK_ARTIFACT_IDS})`);
     }
 
     const normalizedIds = [];
@@ -2429,7 +2591,7 @@ function createApp(options = {}) {
     }
 
     if (normalizedIds.length === 0) {
-      return res.status(400).json({ error: 'no valid ids provided' });
+      return sendJsonError(res, 400, 'no valid ids provided');
     }
 
     const tasks = readAll(true);
@@ -2480,7 +2642,7 @@ function createApp(options = {}) {
 
       totalSize += stat.size + logsBuffer.length + taskBuffer.length + metaBuffer.length;
       if (totalSize > BULK_ZIP_MAX_SIZE_BYTES) {
-        return res.status(413).json({ error: 'Bulk payload too large' });
+        return sendJsonError(res, 413, 'Payload too large');
       }
 
       entries.push({
@@ -2506,12 +2668,12 @@ function createApp(options = {}) {
     if (logLines.length > 0) {
       logBuffer = Buffer.from(logLines.join('\n') + '\n', 'utf8');
       if (totalSize + logBuffer.length > BULK_ZIP_MAX_SIZE_BYTES) {
-        return res.status(413).json({ error: 'Bulk payload too large' });
+        return sendJsonError(res, 413, 'Payload too large');
       }
     }
 
     if (entries.length === 0 && !logBuffer) {
-      return res.status(404).json({ error: 'No artifacts found for provided ids' });
+      return sendJsonError(res, 404, 'No artifacts found for provided ids');
     }
 
     res.setHeader('Content-Type', 'application/zip');
@@ -2537,7 +2699,7 @@ function createApp(options = {}) {
       if (!res.headersSent) {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.removeHeader('Content-Disposition');
-        res.status(500).json({ error: 'Artifact read error' });
+        sendJsonError(res, 500, 'Artifact read error');
       } else {
         res.destroy(reason);
       }
@@ -2620,7 +2782,7 @@ function createApp(options = {}) {
       if (!res.headersSent) {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.removeHeader('Content-Disposition');
-        res.status(500).json({ error: 'Failed to generate compare zip' });
+        sendJsonError(res, 500, 'Failed to generate compare zip');
       } else {
         res.destroy(reason);
       }
@@ -2835,10 +2997,10 @@ function createApp(options = {}) {
   app.post('/tasks/:id/log', (req, res) => {
     const { message } = req.body || {};
     if (typeof message !== 'string' || !message.trim()) {
-      return res.status(400).json({ error: 'message required' });
+      return sendJsonError(res, 400, 'message required');
     }
     const t = readOne(req.params.id);
-    if (!t) return res.status(404).json({ error: 'Not found' });
+    if (!t) return sendJsonError(res, 404, 'Not found');
     const logs = normalizeLogs(t.logs);
     const entry = {
       message: message.trim(),
@@ -2855,7 +3017,7 @@ function createApp(options = {}) {
     const id = req.params.id;
     const task = readOne(id);
     if (!task) {
-      return res.status(404).json({ error: 'not found' });
+      return sendJsonError(res, 404, 'not found');
     }
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -2884,6 +3046,46 @@ function createApp(options = {}) {
     } catch {
       client.cleanup();
     }
+  });
+
+  app.use((req, res) => {
+    sendJsonError(res, 404, 'Not found');
+  });
+
+  app.use((err, req, res, next) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+
+    if (err && typeof err === 'object' && Number.isInteger(err.status) && err.body) {
+      return res.status(err.status).json(err.body);
+    }
+
+    const statusCandidate = err && (err.status || err.statusCode);
+    const parsedStatus = Number(statusCandidate);
+    const status = Number.isFinite(parsedStatus) ? Math.floor(parsedStatus) : 500;
+    let message;
+    if (status === 413) {
+      message = 'Payload too large';
+    } else if (status >= 500) {
+      message = resolveErrorMessage(status);
+    } else {
+      message = resolveErrorMessage(status, err && err.message);
+    }
+    const details =
+      err && err.details != null
+        ? err.details
+        : err && err.stack
+        ? { stack: err.stack }
+        : undefined;
+    const maskedKey = req && req.relayAuth && req.relayAuth.apiKeyMasked;
+    if (maskedKey) {
+      console.error('[relay] Unhandled error', err, `key:${maskedKey}`);
+    } else {
+      console.error('[relay] Unhandled error', err);
+    }
+
+    sendJsonError(res, status, message, details);
   });
 
   maybeRunCleanup(true);

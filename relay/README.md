@@ -45,6 +45,15 @@ TRUST_PROXY=loopback     # доверять локальному прокси
 - CORS настраивается через `CORS_ORIGIN`: `*` (значение по умолчанию в dev) или CSV списка доверенных origin (`https://relay.company.com,https://app.company.com`). Заголовки `Authorization`, `Content-Type` и `X-API-Key` добавлены в allow-list.
 - В плагине Figma во вкладке Builder появился блок “API key”: ключ сохраняется локально и автоматически прокидывается во все HTTP-запросы, включая загрузки артефактов и SSE.
 
+## Security
+
+- Лимиты входящих тел настраиваются через переменные окружения:
+  - `JSON_BODY_LIMIT` (по умолчанию `1mb`) — ограничение для всех JSON-эндпоинтов (`express.json`). При превышении сервер отвечает `413` и `{ "error": { "code": 413, "message": "Payload too large" } }`.
+  - `PREVIEW_MAX_BYTES` (по умолчанию `2_000_000`) — максимальный размер PNG при `POST /tasks/{id}/preview`. Лимит считается после декодирования base64.
+  - `COMPARE_MAX_BYTES` (по умолчанию `5 * 1024 * 1024`) — максимальный размер JSON-артефакта, который можно сравнивать через `/artifacts/compare.*`.
+- Все HTML/JSON-ответы получают строгие заголовки: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`. Для HTML (`compare.html`) дополнительно добавлен CSP: `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'`. Скрипты подключаем только через внешние `<script src="…">`, чтобы не встраивать секреты непосредственно в выдачу.
+- Для плавной ротации ключей используйте `API_KEYS_ROLLOVER`: добавьте старый ключ в эту переменную, раздайте новый через `API_KEYS`, дождитесь миграции клиентов и удалите значение из `API_KEYS_ROLLOVER`. В логах ключи маскируются (`key:****abcd`).
+
 ## Данные
 - JSONL-файл `relay/data/tasks.jsonl` (last-write-wins)
 
