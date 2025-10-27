@@ -67,3 +67,15 @@
 - Во вкладке Compare появилась кнопка «Export diff as HTML». Она активируется после выбора двух артефактов и загрузки результатов сравнения.
 - Кнопка открывает новый таб с `GET /artifacts/compare.html?leftId=…&rightId=…&mode=full`; API key автоматически подставляется в query string.
 - HTML-страница показывает Summary/Changes, якоря по путям и внизу кнопку «Download JSON diff» для того же набора параметров.
+
+## Download diff.zip
+
+- В панели Compare рядом с HTML-экспортом есть кнопка «Download diff.zip». Она становится активной после загрузки diff.
+- Кнопка вызывает `GET /artifacts/compare.zip` с текущими `leftId/rightId` (и `mode=full`) и учитывает сохранённый API key.
+- Архив содержит `diff.json`, `diff.html` и `meta.txt` — можно делиться офлайн-отчётом.
+
+## Visual compare
+
+- Если у обоих выбранных артефактов есть превью, появляется блок Visual compare.
+- Режимы: Side-by-side (две картинки) и Overlay slider (ползунок для наложения). Переключатель и слайдер обновляют только визуальный блок.
+- Превью автоматически подтягиваются с Relay с учётом API key и кэш-версии.

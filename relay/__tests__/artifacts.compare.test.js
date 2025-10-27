@@ -2,8 +2,20 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const supertest = require('supertest');
+const JSZip = require('jszip');
 
 const { createApp } = require('../app');
+
+function binaryParser(res, callback) {
+  res.setEncoding('binary');
+  let data = '';
+  res.on('data', (chunk) => {
+    data += chunk;
+  });
+  res.on('end', () => {
+    callback(null, Buffer.from(data, 'binary'));
+  });
+}
 
 function createTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'relay-compare-'));
@@ -150,12 +162,83 @@ describe('Artifacts compare endpoint', () => {
     expect(res.text).toMatch(/hero\.headline/);
   });
 
+  test('serves ZIP report with diff.json and diff.html', async () => {
+    const leftSpec = {
+      meta: { version: '1.0' },
+      hero: { headline: 'Left' },
+    };
+    const rightSpec = {
+      meta: { version: '1.2' },
+      hero: { headline: 'Right', cta: 'Buy now' },
+    };
+
+    const leftId = await createTaskWithResult('zip-left', leftSpec);
+    const rightId = await createTaskWithResult('zip-right', rightSpec);
+
+    const zipRes = await request
+      .get(
+        `/artifacts/compare.zip?leftId=${encodeURIComponent(leftId)}&rightId=${encodeURIComponent(
+          rightId,
+        )}&mode=full`,
+      )
+      .buffer(true)
+      .parse(binaryParser);
+
+    expect(zipRes.status).toBe(200);
+    expect(zipRes.headers['content-type']).toMatch(/application\/zip/);
+    expect(zipRes.headers['content-disposition']).toContain('compare-');
+
+    const archive = await JSZip.loadAsync(zipRes.body);
+    const diffFile = archive.file('diff.json');
+    expect(diffFile).toBeTruthy();
+    const diffText = await diffFile.async('string');
+    const diffPayload = JSON.parse(diffText);
+
+    const jsonRes = await request
+      .post('/artifacts/compare')
+      .send({ leftId, rightId, mode: 'full' });
+    expect(jsonRes.status).toBe(200);
+    expect(diffPayload).toEqual(jsonRes.body);
+
+    const htmlFile = archive.file('diff.html');
+    expect(htmlFile).toBeTruthy();
+    const zipHtml = await htmlFile.async('string');
+
+    const htmlRes = await request.get(
+      `/artifacts/compare.html?leftId=${encodeURIComponent(leftId)}&rightId=${encodeURIComponent(
+        rightId,
+      )}&mode=full`,
+    );
+    expect(htmlRes.status).toBe(200);
+    const normalize = (value) =>
+      value.replace(/Generated at [^·<]+· Mode:/g, 'Generated at TIMESTAMP · Mode:');
+    expect(normalize(zipHtml)).toBe(normalize(htmlRes.text));
+
+    const metaFile = archive.file('meta.txt');
+    expect(metaFile).toBeTruthy();
+    const metaText = await metaFile.async('string');
+    expect(metaText).toContain(`Left: ${leftId}`);
+    expect(metaText).toContain(`Right: ${rightId}`);
+    expect(metaText).toContain('Mode: full');
+  });
+
   test('returns 404 for HTML report when artifact is missing', async () => {
     const exportSpec = { hero: { headline: 'Exists' } };
     const leftId = await createTaskWithResult('html-missing-left', exportSpec);
 
     const res = await request.get(
       `/artifacts/compare.html?leftId=${encodeURIComponent(leftId)}&rightId=missing-html`,
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  test('returns 404 for ZIP report when artifact is missing', async () => {
+    const exportSpec = { hero: { headline: 'Exists' } };
+    const leftId = await createTaskWithResult('zip-missing-left', exportSpec);
+
+    const res = await request.get(
+      `/artifacts/compare.zip?leftId=${encodeURIComponent(leftId)}&rightId=missing-zip`,
     );
 
     expect(res.status).toBe(404);
@@ -174,6 +257,26 @@ describe('Artifacts compare endpoint', () => {
 
     const res = await request.get(
       `/artifacts/compare.html?leftId=${encodeURIComponent(leftId)}&rightId=${encodeURIComponent(
+        rightId,
+      )}`,
+    );
+
+    expect(res.status).toBe(413);
+  });
+
+  test('returns 413 for ZIP report when artifact exceeds size limit', async () => {
+    const largeString = 'x'.repeat(6 * 1024 * 1024);
+    const bigSpec = { payload: largeString };
+    const smallSpec = { payload: 'small' };
+
+    const leftId = await createTaskWithResult('zip-large-left', smallSpec);
+    const rightId = await createTaskWithResult('zip-large-right', smallSpec);
+
+    const artifactPath = path.join(dataDir, 'results', `${rightId}.json`);
+    fs.writeFileSync(artifactPath, JSON.stringify(bigSpec, null, 2), 'utf8');
+
+    const res = await request.get(
+      `/artifacts/compare.zip?leftId=${encodeURIComponent(leftId)}&rightId=${encodeURIComponent(
         rightId,
       )}`,
     );

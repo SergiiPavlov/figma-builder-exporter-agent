@@ -549,6 +549,41 @@ paths:
           description: One or both artifacts not found
         '413':
           description: Payload too large
+  /artifacts/compare.zip:
+    get:
+      operationId: getArtifactsCompareZip
+      summary: Download ZIP with diff.json and diff.html
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: leftId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: rightId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: mode
+          schema:
+            type: string
+            enum: [summary, full]
+            default: summary
+      responses:
+        '200':
+          description: ZIP with diff artifacts
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: One or both artifacts not found
+        '413':
+          description: Payload too large
   /artifacts/compare.html:
     get:
       operationId: getArtifactsCompareHtml
