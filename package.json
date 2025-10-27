@@ -10,10 +10,10 @@
     "e2e": "node e2e/run.js",
     "e2e:ci": "node e2e/run.js --ci",
     "docker:build": "docker build -f relay/Dockerfile -t ${RELAY_IMAGE:-figma-relay:local} .",
-    "docker:up": "docker compose --profile prod up -d",
-    "docker:up:dev": "docker compose --profile dev up -d",
+    "docker:up": "docker compose --profile dev up -d",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f relay"
+    "docker:logs": "docker compose logs -f relay",
+    "docker:up:prod": "docker compose --profile prod up -d"
   },
   "devDependencies": {
     "eslint": "^8.57.0",

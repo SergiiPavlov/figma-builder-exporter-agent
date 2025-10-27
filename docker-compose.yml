@@ -1,3 +1,5 @@
+# NOTE: services use Compose profiles (`dev`, `prod`).
+# Run with: `docker compose --profile dev up -d` or set `COMPOSE_PROFILES=dev`.
 version: "3.9"
 
 services:

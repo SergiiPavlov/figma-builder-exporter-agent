@@ -30,14 +30,18 @@
 ## Quickstart (Docker)
 
 1. Подготовьте `.env` на основе примера и задайте `API_KEYS=dev123`.
-2. Запустите сервисы:
+2. Запустите сервисы (DEV-профиль):
    ```bash
-   docker compose up -d
+   docker compose --profile dev up -d
    ```
+   Альтернатива: `COMPOSE_PROFILES=dev docker compose up -d`.
 3. Выполните smoke-проверку:
    ```bash
-   curl http://localhost:3000/health
+   curl -s http://localhost:3000/health
    ```
+   Для прод-профиля: `docker compose --profile prod up -d`.
+
+> **Важно:** контейнеры привязаны к профилям Compose. Без явного указания `--profile` или `COMPOSE_PROFILES` сервисы **не стартуют**.
 
 ## Plugin setup
 
