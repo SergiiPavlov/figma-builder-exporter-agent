@@ -85,6 +85,21 @@ curl -s -X POST http://localhost:3000/artifacts/bulk.zip \
   -o artifacts-selected.zip
 ```
 
+## Diff HTML report
+
+- `GET /artifacts/compare.html?leftId=<id>&rightId=<id>&mode=summary|full` — HTML-отчёт сравнения двух артефактов.
+- По умолчанию `mode=summary`; `full` добавляет блоки `unchanged` в список изменений.
+- Заголовок содержит идентификаторы и отметку генерации, секции `Summary` и `Changes` отображают счётчики и список путей
+  (для каждого значения показывается компактный `left/right`).
+- Внизу есть кнопка «Download JSON diff», которая отправляет `POST /artifacts/compare` с теми же параметрами.
+- Ограничение размера входящих артефактов — 5 МБ (тот же лимит, что и для JSON diff); превышение даёт `413`.
+- Если хотя бы один артефакт не найден, возвращается `404`.
+- Для защищённых инстансов можно добавить `apiKey=<value>` в query-string, чтобы открыть отчёт и скачать JSON.
+
+```bash
+curl -i "http://localhost:3000/artifacts/compare.html?leftId=task-a&rightId=task-b&mode=full"
+```
+
 ## Previews
 
 - PNG-превью хранятся в `relay/data/previews/{taskId}.png`.

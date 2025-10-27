@@ -729,6 +729,12 @@
         gap: 10px;
         flex-wrap: wrap;
       }
+      .artifact-compare__actions {
+        display: inline-flex;
+        gap: 8px;
+        margin-left: auto;
+        flex-wrap: wrap;
+      }
       .artifact-compare__tabs {
         display: inline-flex;
         gap: 6px;
@@ -749,7 +755,6 @@
         color: #ffffff;
       }
       .artifact-compare__download {
-        margin-left: auto;
         padding: 6px 12px;
         border-radius: 4px;
         border: 1px solid #0f172a;
@@ -1244,14 +1249,24 @@
                   Changes
                 </button>
               </div>
-              <button
-                type="button"
-                class="artifact-compare__download"
-                id="artifact-compare-download"
-                aria-disabled="true"
-              >
-                Download diff.json
-              </button>
+              <div class="artifact-compare__actions">
+                <button
+                  type="button"
+                  class="artifact-compare__download"
+                  id="artifact-compare-download"
+                  aria-disabled="true"
+                >
+                  Download diff.json
+                </button>
+                <button
+                  type="button"
+                  class="artifact-compare__download"
+                  id="artifact-compare-export-html"
+                  aria-disabled="true"
+                >
+                  Export diff as HTML
+                </button>
+              </div>
             </div>
             <div class="artifact-compare__section" data-tab-panel="summary" data-active="true">
               <div class="artifact-compare__summary-grid">
@@ -1415,6 +1430,7 @@
         tabSummary: document.getElementById("artifact-compare-tab-summary"),
         tabChanges: document.getElementById("artifact-compare-tab-changes"),
         downloadButton: document.getElementById("artifact-compare-download"),
+        exportHtmlButton: document.getElementById("artifact-compare-export-html"),
         summaryAdded: document.getElementById("artifact-compare-summary-added"),
         summaryRemoved: document.getElementById("artifact-compare-summary-removed"),
         summaryChanged: document.getElementById("artifact-compare-summary-changed"),
@@ -2279,6 +2295,17 @@
             hasResponse ? "false" : "true",
           );
           artifactCompareElements.downloadButton.disabled = !hasResponse;
+        }
+
+        if (artifactCompareElements.exportHtmlButton) {
+          const canExportHtml =
+            Boolean(artifactCompareState.leftId && artifactCompareState.rightId) &&
+            !artifactCompareState.loading;
+          artifactCompareElements.exportHtmlButton.setAttribute(
+            "aria-disabled",
+            canExportHtml ? "false" : "true",
+          );
+          artifactCompareElements.exportHtmlButton.disabled = !canExportHtml;
         }
 
         const rawEntries = Array.isArray(artifactCompareState.diff)
@@ -3269,6 +3296,26 @@
             setTimeout(() => URL.revokeObjectURL(url), 0);
           } catch (err) {
             console.error("Failed to download diff", err);
+          }
+        });
+      }
+      if (artifactCompareElements.exportHtmlButton) {
+        artifactCompareElements.exportHtmlButton.addEventListener("click", () => {
+          if (
+            artifactCompareElements.exportHtmlButton.getAttribute("aria-disabled") === "true" ||
+            !artifactCompareState.leftId ||
+            !artifactCompareState.rightId
+          ) {
+            return;
+          }
+          try {
+            const url = new URL(buildRelayUrl(`/artifacts/compare.html`, { includeApiKey: true }));
+            url.searchParams.set("leftId", artifactCompareState.leftId);
+            url.searchParams.set("rightId", artifactCompareState.rightId);
+            url.searchParams.set("mode", "full");
+            window.open(url.toString(), "_blank", "noopener,noreferrer");
+          } catch (err) {
+            console.error("Failed to export HTML diff", err);
           }
         });
       }

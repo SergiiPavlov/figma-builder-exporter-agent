@@ -122,6 +122,65 @@ describe('Artifacts compare endpoint', () => {
     expect(res.body.diff.length).toBe(0);
   });
 
+  test('serves HTML report with summary and changes', async () => {
+    const leftSpec = {
+      meta: { version: '1.0' },
+      hero: { headline: 'Hello' },
+    };
+    const rightSpec = {
+      meta: { version: '1.1' },
+      hero: { headline: 'Hello world', cta: 'Buy' },
+    };
+
+    const leftId = await createTaskWithResult('html-left', leftSpec);
+    const rightId = await createTaskWithResult('html-right', rightSpec);
+
+    const res = await request.get(
+      `/artifacts/compare.html?leftId=${encodeURIComponent(leftId)}&rightId=${encodeURIComponent(
+        rightId,
+      )}&mode=full`,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.text).toContain('<section id="summary">');
+    expect(res.text).toContain('<section id="changes">');
+    expect(res.text).toContain('Download JSON diff');
+    expect(res.text).toMatch(/change-item/);
+    expect(res.text).toMatch(/hero\.headline/);
+  });
+
+  test('returns 404 for HTML report when artifact is missing', async () => {
+    const exportSpec = { hero: { headline: 'Exists' } };
+    const leftId = await createTaskWithResult('html-missing-left', exportSpec);
+
+    const res = await request.get(
+      `/artifacts/compare.html?leftId=${encodeURIComponent(leftId)}&rightId=missing-html`,
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  test('returns 413 for HTML report when artifact exceeds size limit', async () => {
+    const largeString = 'x'.repeat(6 * 1024 * 1024);
+    const bigSpec = { payload: largeString };
+    const smallSpec = { payload: 'small' };
+
+    const leftId = await createTaskWithResult('html-large', smallSpec);
+    const rightId = await createTaskWithResult('html-small', smallSpec);
+
+    const artifactPath = path.join(dataDir, 'results', `${rightId}.json`);
+    fs.writeFileSync(artifactPath, JSON.stringify(bigSpec, null, 2), 'utf8');
+
+    const res = await request.get(
+      `/artifacts/compare.html?leftId=${encodeURIComponent(leftId)}&rightId=${encodeURIComponent(
+        rightId,
+      )}`,
+    );
+
+    expect(res.status).toBe(413);
+  });
+
   test('returns 404 when artifact is missing', async () => {
     const exportSpec = { sections: [{ type: 'hero', name: 'Hero' }] };
     const leftId = await createTaskWithResult('exists', exportSpec);
