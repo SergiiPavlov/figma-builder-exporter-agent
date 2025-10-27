@@ -11,7 +11,7 @@
    ```
    cp relay/.env.example relay/.env
    ```
-2. Соберите образ и запустите прод-профиль:
+2. Соберите образ и запустите прод-профиль (по умолчанию используется `ghcr.io/sergiipavlov/figma-relay:latest`):
    ```
    npm run docker:build
    npm run docker:up
