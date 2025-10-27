@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint \"relay/**/*.js\" \"plugin/**/*.js\"",
+    "test": "npm --prefix relay test",
+    "test:ci": "npm --prefix relay test -- --runInBand",
+    "lint": "npm --prefix relay run lint",
     "format": "prettier -w .",
     "docker:build": "docker build -f relay/Dockerfile -t ${RELAY_IMAGE:-figma-relay:local} .",
     "docker:up": "docker compose --profile prod up -d",

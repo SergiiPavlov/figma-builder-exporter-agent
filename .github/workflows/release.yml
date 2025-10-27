@@ -6,10 +6,6 @@ on:
       - main
       - 'feat/**'
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: figma-relay
-
 permissions:
   contents: read
   packages: write
@@ -21,64 +17,52 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Compute image repo (lowercase)
-        id: repo
+      - name: Compute image repo (lowercase) and short SHA
+        id: meta
         run: |
           OWNER_LC="${GITHUB_REPOSITORY_OWNER,,}"
-          echo "OWNER_LC=$OWNER_LC" >> $GITHUB_ENV
-          IMAGE_REPO="${REGISTRY}/${OWNER_LC}/${IMAGE_NAME}"
-          echo "IMAGE_REPO=$IMAGE_REPO" >> $GITHUB_ENV
-          SHORT_SHA="${GITHUB_SHA::7}"
-          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+          echo "owner_lc=$OWNER_LC" >> "$GITHUB_OUTPUT"
+          echo "image_repo=ghcr.io/$OWNER_LC/figma-relay" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests (CI)
+        run: npm run test:ci
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build image
+      - name: Build & load (production)
         uses: docker/build-push-action@v5
         with:
           context: .
           file: relay/Dockerfile
           target: production
           load: true
-          tags: ${{ env.IMAGE_REPO }}:${{ env.SHORT_SHA }}
+          tags: |
+            ${{ steps.meta.outputs.image_repo }}:${{ steps.meta.outputs.short_sha }}
 
-      - name: Smoke test /health
-        env:
-          IMAGE_REPO: ${{ env.IMAGE_REPO }}
-          IMAGE_TAG: ${{ env.SHORT_SHA }}
+      - name: Smoke test container
         run: |
-          set -euo pipefail
-          trap 'docker rm -f relay-smoke >/dev/null 2>&1 || true' EXIT
-          docker run -d --rm --name relay-smoke -p 3000:3000 "$IMAGE_REPO:$IMAGE_TAG"
-          for attempt in $(seq 1 20); do
-            if curl -fsS http://localhost:3000/health > /tmp/health.txt; then
-              cat /tmp/health.txt
-              break
-            fi
-            sleep 2
-          done
+          docker run -d --rm -p 3000:3000 --name relay ${{ steps.meta.outputs.image_repo }}:${{ steps.meta.outputs.short_sha }}
+          sleep 3
           curl -fsS http://localhost:3000/health
+          docker rm -f relay
 
-      - name: Stop smoke container
-        if: always()
-        run: docker rm -f relay-smoke >/dev/null 2>&1 || true
-
-      - name: Log in to GHCR
+      - name: Docker login GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push image
-        env:
-          IMAGE_REPO: ${{ env.IMAGE_REPO }}
-          IMAGE_TAG: ${{ env.SHORT_SHA }}
-        run: |
-          set -euo pipefail
-          docker push "$IMAGE_REPO:$IMAGE_TAG"
-          if [ "${{ github.ref_protected }}" = "true" ]; then
-            docker tag "$IMAGE_REPO:$IMAGE_TAG" "$IMAGE_REPO:latest"
-            docker push "$IMAGE_REPO:latest"
-          fi
+      - name: Build & push (production)
+        if: github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: relay/Dockerfile
+          target: production
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_repo }}:${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image_repo }}:latest
