@@ -100,6 +100,19 @@ curl -s -X POST http://localhost:3000/artifacts/bulk.zip \
 curl -i "http://localhost:3000/artifacts/compare.html?leftId=task-a&rightId=task-b&mode=full"
 ```
 
+## Compare ZIP report
+
+- `GET /artifacts/compare.zip?leftId=<id>&rightId=<id>&mode=summary|full` — архив с результатами сравнения.
+- Внутри находятся `diff.json` (как `POST /artifacts/compare`), `diff.html` (идентичен `GET /artifacts/compare.html`) и `meta.txt`
+  с отметкой генерации и параметрами запроса.
+- Ответ приходит с заголовком `Content-Type: application/zip` и именем файла `compare-<left>-vs-<right>.zip`.
+- Ошибки совпадают с JSON/HTML-диффом: `404`, если артефакт отсутствует, и `413`, если размер превысил лимит 5 МБ.
+- Для закрытых инстансов можно передать `apiKey` в query-string, чтобы собрать архив с действующим ключом.
+
+```bash
+curl -I "http://localhost:3000/artifacts/compare.zip?leftId=task-a&rightId=task-b&mode=full"
+```
+
 ## Previews
 
 - PNG-превью хранятся в `relay/data/previews/{taskId}.png`.

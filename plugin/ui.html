@@ -889,6 +889,114 @@
         min-height: 28px;
         overflow-wrap: anywhere;
       }
+      .artifact-compare__visual {
+        border-top: 1px solid #e2e8f0;
+        padding-top: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .artifact-compare__visual[data-visible='false'] {
+        display: none;
+      }
+      .artifact-compare__visual-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .artifact-compare__visual-title {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .artifact-compare__visual-toggle {
+        display: inline-flex;
+        gap: 6px;
+        margin-left: auto;
+      }
+      .artifact-compare__visual-toggle-button {
+        padding: 4px 10px;
+        border: 1px solid #cbd5f5;
+        border-radius: 4px;
+        background: #f8fafc;
+        color: #0f172a;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .artifact-compare__visual-toggle-button.is-active {
+        background: #2563eb;
+        border-color: #1d4ed8;
+        color: #ffffff;
+      }
+      .artifact-compare__visual-body {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .artifact-compare__visual-side {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
+      }
+      .artifact-compare__visual-side[data-active='false'] {
+        display: none;
+      }
+      .artifact-compare__visual-figure {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .artifact-compare__visual-caption {
+        font-size: 11px;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .artifact-compare__visual-image {
+        width: 100%;
+        border: 1px solid #cbd5f5;
+        border-radius: 6px;
+        background: #ffffff;
+        object-fit: contain;
+      }
+      .artifact-compare__visual-overlay {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .artifact-compare__visual-overlay[data-active='false'] {
+        display: none;
+      }
+      .artifact-compare__overlay-stage {
+        position: relative;
+        width: 100%;
+        border: 1px solid #cbd5f5;
+        border-radius: 6px;
+        overflow: hidden;
+        background: #ffffff;
+      }
+      .artifact-compare__overlay-base,
+      .artifact-compare__overlay-foreground img {
+        display: block;
+        width: 100%;
+        height: auto;
+        object-fit: contain;
+      }
+      .artifact-compare__overlay-foreground {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        overflow: hidden;
+        border-right: 2px solid rgba(37, 99, 235, 0.75);
+      }
+      .artifact-compare__overlay-slider {
+        width: 100%;
+      }
     </style>
   </head>
   <body>
@@ -1261,6 +1369,14 @@
                 <button
                   type="button"
                   class="artifact-compare__download"
+                  id="artifact-compare-download-zip"
+                  aria-disabled="true"
+                >
+                  Download diff.zip
+                </button>
+                <button
+                  type="button"
+                  class="artifact-compare__download"
                   id="artifact-compare-export-html"
                   aria-disabled="true"
                 >
@@ -1268,6 +1384,96 @@
                 </button>
               </div>
             </div>
+            <section
+              class="artifact-compare__visual"
+              id="artifact-compare-visual"
+              data-visible="false"
+            >
+              <div class="artifact-compare__visual-header">
+                <h5 class="artifact-compare__visual-title">Visual compare</h5>
+                <div
+                  class="artifact-compare__visual-toggle"
+                  role="tablist"
+                  aria-label="Visual compare mode"
+                >
+                  <button
+                    type="button"
+                    class="artifact-compare__visual-toggle-button is-active"
+                    data-mode="side-by-side"
+                    id="artifact-compare-visual-mode-side"
+                  >
+                    Side-by-side
+                  </button>
+                  <button
+                    type="button"
+                    class="artifact-compare__visual-toggle-button"
+                    data-mode="overlay"
+                    id="artifact-compare-visual-mode-overlay"
+                  >
+                    Overlay slider
+                  </button>
+                </div>
+              </div>
+              <div class="artifact-compare__visual-body">
+                <div
+                  class="artifact-compare__visual-side"
+                  id="artifact-compare-visual-side"
+                  data-active="true"
+                >
+                  <figure class="artifact-compare__visual-figure">
+                    <figcaption class="artifact-compare__visual-caption">Left</figcaption>
+                    <img
+                      id="artifact-compare-visual-left-image"
+                      class="artifact-compare__visual-image"
+                      alt="Left preview"
+                      draggable="false"
+                    />
+                  </figure>
+                  <figure class="artifact-compare__visual-figure">
+                    <figcaption class="artifact-compare__visual-caption">Right</figcaption>
+                    <img
+                      id="artifact-compare-visual-right-image"
+                      class="artifact-compare__visual-image"
+                      alt="Right preview"
+                      draggable="false"
+                    />
+                  </figure>
+                </div>
+                <div
+                  class="artifact-compare__visual-overlay"
+                  id="artifact-compare-visual-overlay"
+                  data-active="false"
+                >
+                  <div class="artifact-compare__overlay-stage">
+                    <img
+                      id="artifact-compare-overlay-base"
+                      class="artifact-compare__overlay-base"
+                      alt="Left preview base"
+                      draggable="false"
+                    />
+                    <div
+                      class="artifact-compare__overlay-foreground"
+                      id="artifact-compare-overlay-foreground"
+                    >
+                      <img
+                        id="artifact-compare-overlay-top"
+                        alt="Right preview overlay"
+                        draggable="false"
+                      />
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value="50"
+                    class="artifact-compare__overlay-slider"
+                    id="artifact-compare-overlay-slider"
+                    aria-label="Overlay position"
+                  />
+                </div>
+              </div>
+            </section>
             <div class="artifact-compare__section" data-tab-panel="summary" data-active="true">
               <div class="artifact-compare__summary-grid">
                 <div class="artifact-compare__summary-card">
@@ -1430,6 +1636,7 @@
         tabSummary: document.getElementById("artifact-compare-tab-summary"),
         tabChanges: document.getElementById("artifact-compare-tab-changes"),
         downloadButton: document.getElementById("artifact-compare-download"),
+        downloadZipButton: document.getElementById("artifact-compare-download-zip"),
         exportHtmlButton: document.getElementById("artifact-compare-export-html"),
         summaryAdded: document.getElementById("artifact-compare-summary-added"),
         summaryRemoved: document.getElementById("artifact-compare-summary-removed"),
@@ -1440,6 +1647,17 @@
         searchInput: document.getElementById("artifact-compare-search"),
         emptyState: document.getElementById("artifact-compare-empty"),
         diffList: document.getElementById("artifact-compare-list"),
+        visualSection: document.getElementById("artifact-compare-visual"),
+        visualModeSide: document.getElementById("artifact-compare-visual-mode-side"),
+        visualModeOverlay: document.getElementById("artifact-compare-visual-mode-overlay"),
+        visualSideContainer: document.getElementById("artifact-compare-visual-side"),
+        visualOverlayContainer: document.getElementById("artifact-compare-visual-overlay"),
+        visualLeftImage: document.getElementById("artifact-compare-visual-left-image"),
+        visualRightImage: document.getElementById("artifact-compare-visual-right-image"),
+        overlayBaseImage: document.getElementById("artifact-compare-overlay-base"),
+        overlayTopImage: document.getElementById("artifact-compare-overlay-top"),
+        overlayForeground: document.getElementById("artifact-compare-overlay-foreground"),
+        overlaySlider: document.getElementById("artifact-compare-overlay-slider"),
       };
       if (artifactCompareElements.container) {
         artifactCompareElements.summarySection =
@@ -1487,6 +1705,7 @@
         persistApiKey(normalized);
         updateArtifactLinks();
         renderArtifactDetails();
+        renderArtifactCompare();
         if (currentWatchTaskId) {
           if (normalized) {
             openTaskWatch(currentWatchTaskId);
@@ -1544,6 +1763,11 @@
         response: null,
         searchTerm: "",
         activeTab: "summary",
+        mode: "full",
+        leftPreview: { hasPreview: false, previewUpdatedAt: null },
+        rightPreview: { hasPreview: false, previewUpdatedAt: null },
+        visualMode: "side-by-side",
+        overlayPosition: 50,
         error: "",
       };
 
@@ -1616,6 +1840,34 @@
           remaining = `${Math.max(seconds, 1)} sec`;
         }
         return `${remaining} left (until ${formatDateTime(expiresAt)})`;
+      };
+
+      const getArtifactPreviewInfo = (id) => {
+        if (typeof id !== "string" || !id) {
+          return { hasPreview: false, previewUpdatedAt: null };
+        }
+        const item = artifactsState.items.find((entry) => entry && entry.id === id);
+        if (!item) {
+          return { hasPreview: false, previewUpdatedAt: null };
+        }
+        return {
+          hasPreview: !!item.hasPreview,
+          previewUpdatedAt: Number.isFinite(item.previewUpdatedAt)
+            ? Number(item.previewUpdatedAt)
+            : null,
+        };
+      };
+
+      const buildComparePreviewUrl = (taskId, updatedAt) => {
+        if (!taskId) return null;
+        let url = buildRelayUrl(`/tasks/${encodeURIComponent(taskId)}/preview.png`, {
+          includeApiKey: !!RELAY_API_KEY,
+        });
+        if (Number.isFinite(updatedAt)) {
+          const version = Math.floor(updatedAt);
+          url += url.includes("?") ? `&v=${version}` : `?v=${version}`;
+        }
+        return url;
       };
 
       const copyTextToClipboard = async (text) => {
@@ -2288,13 +2540,21 @@
           artifactCompareElements.searchInput.disabled = artifactCompareState.loading;
         }
 
+        const hasResponse = Boolean(artifactCompareState.response);
         if (artifactCompareElements.downloadButton) {
-          const hasResponse = Boolean(artifactCompareState.response);
           artifactCompareElements.downloadButton.setAttribute(
             "aria-disabled",
             hasResponse ? "false" : "true",
           );
           artifactCompareElements.downloadButton.disabled = !hasResponse;
+        }
+
+        if (artifactCompareElements.downloadZipButton) {
+          artifactCompareElements.downloadZipButton.setAttribute(
+            "aria-disabled",
+            hasResponse ? "false" : "true",
+          );
+          artifactCompareElements.downloadZipButton.disabled = !hasResponse;
         }
 
         if (artifactCompareElements.exportHtmlButton) {
@@ -2385,6 +2645,126 @@
               : "No differences";
           }
         }
+
+        const hasVisual =
+          artifactCompareState.leftPreview.hasPreview && artifactCompareState.rightPreview.hasPreview;
+        if (artifactCompareElements.visualSection) {
+          artifactCompareElements.visualSection.dataset.visible = hasVisual ? "true" : "false";
+        }
+        if (hasVisual) {
+          const visualMode = artifactCompareState.visualMode === "overlay" ? "overlay" : "side-by-side";
+          const overlayValue = Number.isFinite(artifactCompareState.overlayPosition)
+            ? Math.min(100, Math.max(0, artifactCompareState.overlayPosition))
+            : 50;
+
+          if (artifactCompareElements.visualModeSide) {
+            artifactCompareElements.visualModeSide.classList.toggle("is-active", visualMode === "side-by-side");
+          }
+          if (artifactCompareElements.visualModeOverlay) {
+            artifactCompareElements.visualModeOverlay.classList.toggle("is-active", visualMode === "overlay");
+          }
+          if (artifactCompareElements.visualSideContainer) {
+            artifactCompareElements.visualSideContainer.dataset.active = visualMode === "side-by-side" ? "true" : "false";
+          }
+          if (artifactCompareElements.visualOverlayContainer) {
+            artifactCompareElements.visualOverlayContainer.dataset.active = visualMode === "overlay" ? "true" : "false";
+          }
+
+          const leftUrl = artifactCompareState.leftPreview.hasPreview
+            ? buildComparePreviewUrl(
+                artifactCompareState.leftId,
+                artifactCompareState.leftPreview.previewUpdatedAt,
+              )
+            : null;
+          const rightUrl = artifactCompareState.rightPreview.hasPreview
+            ? buildComparePreviewUrl(
+                artifactCompareState.rightId,
+                artifactCompareState.rightPreview.previewUpdatedAt,
+              )
+            : null;
+
+          if (artifactCompareElements.visualLeftImage) {
+            if (leftUrl) {
+              artifactCompareElements.visualLeftImage.src = leftUrl;
+            } else {
+              artifactCompareElements.visualLeftImage.removeAttribute("src");
+            }
+          }
+          if (artifactCompareElements.visualRightImage) {
+            if (rightUrl) {
+              artifactCompareElements.visualRightImage.src = rightUrl;
+            } else {
+              artifactCompareElements.visualRightImage.removeAttribute("src");
+            }
+          }
+          if (artifactCompareElements.overlayBaseImage) {
+            if (leftUrl) {
+              artifactCompareElements.overlayBaseImage.src = leftUrl;
+            } else {
+              artifactCompareElements.overlayBaseImage.removeAttribute("src");
+            }
+          }
+          if (artifactCompareElements.overlayTopImage) {
+            if (rightUrl) {
+              artifactCompareElements.overlayTopImage.src = rightUrl;
+            } else {
+              artifactCompareElements.overlayTopImage.removeAttribute("src");
+            }
+          }
+          if (artifactCompareElements.overlaySlider) {
+            artifactCompareElements.overlaySlider.value = String(overlayValue);
+          }
+          if (artifactCompareElements.overlayForeground) {
+            artifactCompareElements.overlayForeground.style.width = `${overlayValue}%`;
+          }
+        } else {
+          if (artifactCompareElements.visualModeSide) {
+            artifactCompareElements.visualModeSide.classList.remove("is-active");
+          }
+          if (artifactCompareElements.visualModeOverlay) {
+            artifactCompareElements.visualModeOverlay.classList.remove("is-active");
+          }
+          if (artifactCompareElements.visualSideContainer) {
+            artifactCompareElements.visualSideContainer.dataset.active = "false";
+          }
+          if (artifactCompareElements.visualOverlayContainer) {
+            artifactCompareElements.visualOverlayContainer.dataset.active = "false";
+          }
+          if (artifactCompareElements.visualLeftImage) {
+            artifactCompareElements.visualLeftImage.removeAttribute("src");
+          }
+          if (artifactCompareElements.visualRightImage) {
+            artifactCompareElements.visualRightImage.removeAttribute("src");
+          }
+          if (artifactCompareElements.overlayBaseImage) {
+            artifactCompareElements.overlayBaseImage.removeAttribute("src");
+          }
+          if (artifactCompareElements.overlayTopImage) {
+            artifactCompareElements.overlayTopImage.removeAttribute("src");
+          }
+          if (artifactCompareElements.overlaySlider) {
+            artifactCompareElements.overlaySlider.value = "50";
+          }
+          if (artifactCompareElements.overlayForeground) {
+            artifactCompareElements.overlayForeground.style.width = "50%";
+          }
+        }
+      };
+
+      const refreshArtifactComparePreviews = () => {
+        if (!artifactCompareState.open) return;
+        const left = getArtifactPreviewInfo(artifactCompareState.leftId);
+        const right = getArtifactPreviewInfo(artifactCompareState.rightId);
+        const changed =
+          left.hasPreview !== artifactCompareState.leftPreview.hasPreview ||
+          left.previewUpdatedAt !== artifactCompareState.leftPreview.previewUpdatedAt ||
+          right.hasPreview !== artifactCompareState.rightPreview.hasPreview ||
+          right.previewUpdatedAt !== artifactCompareState.rightPreview.previewUpdatedAt;
+        artifactCompareState.leftPreview = left;
+        artifactCompareState.rightPreview = right;
+        if (changed) {
+          renderArtifactCompare();
+        }
       };
 
       const fetchArtifactCompareDiff = async () => {
@@ -2394,6 +2774,7 @@
           return;
         }
         try {
+          const mode = artifactCompareState.mode === "summary" ? "summary" : "full";
           const res = await relayFetch(buildRelayUrl(`/artifacts/compare`), {
             method: "POST",
             headers: {
@@ -2402,7 +2783,7 @@
             body: JSON.stringify({
               leftId: artifactCompareState.leftId,
               rightId: artifactCompareState.rightId,
-              mode: "full",
+              mode,
             }),
           });
           let payload = null;
@@ -2436,6 +2817,7 @@
             rightId: typeof data.rightId === "string" ? data.rightId : artifactCompareState.rightId,
             summary: artifactCompareState.summary,
             diff: Array.isArray(data.diff) ? data.diff : [],
+            mode,
           };
           artifactCompareState.error = "";
         } catch (err) {
@@ -2461,6 +2843,11 @@
         artifactCompareState.summary = { added: 0, removed: 0, changed: 0, unchanged: 0 };
         artifactCompareState.diff = [];
         artifactCompareState.response = null;
+        artifactCompareState.mode = "full";
+        artifactCompareState.visualMode = "side-by-side";
+        artifactCompareState.overlayPosition = 50;
+        artifactCompareState.leftPreview = getArtifactPreviewInfo(normalizedLeft);
+        artifactCompareState.rightPreview = getArtifactPreviewInfo(normalizedRight);
         artifactCompareState.error = "";
         artifactCompareState.loading = true;
         renderArtifactCompare();
@@ -2478,7 +2865,28 @@
         artifactCompareState.response = null;
         artifactCompareState.searchTerm = "";
         artifactCompareState.activeTab = "summary";
+        artifactCompareState.mode = "full";
+        artifactCompareState.leftPreview = { hasPreview: false, previewUpdatedAt: null };
+        artifactCompareState.rightPreview = { hasPreview: false, previewUpdatedAt: null };
+        artifactCompareState.visualMode = "side-by-side";
+        artifactCompareState.overlayPosition = 50;
         artifactCompareState.error = "";
+        renderArtifactCompare();
+      };
+
+      const setArtifactCompareVisualMode = (mode) => {
+        const normalized = mode === "overlay" ? "overlay" : "side-by-side";
+        if (artifactCompareState.visualMode === normalized) return;
+        artifactCompareState.visualMode = normalized;
+        renderArtifactCompare();
+      };
+
+      const setArtifactCompareOverlayPosition = (value) => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return;
+        const clamped = Math.min(100, Math.max(0, Math.round(numeric)));
+        if (artifactCompareState.overlayPosition === clamped) return;
+        artifactCompareState.overlayPosition = clamped;
         renderArtifactCompare();
       };
 
@@ -2502,10 +2910,16 @@
         const nextRight = artifactCompareState.leftId;
         artifactCompareState.leftId = nextLeft;
         artifactCompareState.rightId = nextRight;
+        const nextLeftPreview = artifactCompareState.rightPreview;
+        const nextRightPreview = artifactCompareState.leftPreview;
+        artifactCompareState.leftPreview = nextLeftPreview;
+        artifactCompareState.rightPreview = nextRightPreview;
         artifactCompareState.loading = true;
         artifactCompareState.summary = { added: 0, removed: 0, changed: 0, unchanged: 0 };
         artifactCompareState.diff = [];
         artifactCompareState.response = null;
+        artifactCompareState.visualMode = "side-by-side";
+        artifactCompareState.overlayPosition = 50;
         artifactCompareState.error = "";
         renderArtifactCompare();
         fetchArtifactCompareDiff();
@@ -3090,6 +3504,7 @@
           artifactsState.total = 0;
         } finally {
           setArtifactsLoading(false);
+          refreshArtifactComparePreviews();
           renderArtifactsTable();
         }
       };
@@ -3299,6 +3714,26 @@
           }
         });
       }
+      if (artifactCompareElements.downloadZipButton) {
+        artifactCompareElements.downloadZipButton.addEventListener("click", () => {
+          if (
+            artifactCompareElements.downloadZipButton.getAttribute("aria-disabled") === "true" ||
+            !artifactCompareState.leftId ||
+            !artifactCompareState.rightId
+          ) {
+            return;
+          }
+          try {
+            const url = new URL(buildRelayUrl(`/artifacts/compare.zip`, { includeApiKey: true }));
+            url.searchParams.set("leftId", artifactCompareState.leftId);
+            url.searchParams.set("rightId", artifactCompareState.rightId);
+            url.searchParams.set("mode", artifactCompareState.mode === "summary" ? "summary" : "full");
+            window.open(url.toString(), "_blank", "noopener,noreferrer");
+          } catch (err) {
+            console.error("Failed to download diff ZIP", err);
+          }
+        });
+      }
       if (artifactCompareElements.exportHtmlButton) {
         artifactCompareElements.exportHtmlButton.addEventListener("click", () => {
           if (
@@ -3312,11 +3747,26 @@
             const url = new URL(buildRelayUrl(`/artifacts/compare.html`, { includeApiKey: true }));
             url.searchParams.set("leftId", artifactCompareState.leftId);
             url.searchParams.set("rightId", artifactCompareState.rightId);
-            url.searchParams.set("mode", "full");
+            url.searchParams.set("mode", artifactCompareState.mode === "summary" ? "summary" : "full");
             window.open(url.toString(), "_blank", "noopener,noreferrer");
           } catch (err) {
             console.error("Failed to export HTML diff", err);
           }
+        });
+      }
+      if (artifactCompareElements.visualModeSide) {
+        artifactCompareElements.visualModeSide.addEventListener("click", () => {
+          setArtifactCompareVisualMode("side-by-side");
+        });
+      }
+      if (artifactCompareElements.visualModeOverlay) {
+        artifactCompareElements.visualModeOverlay.addEventListener("click", () => {
+          setArtifactCompareVisualMode("overlay");
+        });
+      }
+      if (artifactCompareElements.overlaySlider) {
+        artifactCompareElements.overlaySlider.addEventListener("input", (event) => {
+          setArtifactCompareOverlayPosition(event.target.value);
         });
       }
       if (artifactDetailsElements.exportSearch) {
