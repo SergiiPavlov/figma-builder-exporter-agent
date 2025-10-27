@@ -57,6 +57,25 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function sanitizeSensitiveQueryParams(html) {
+  if (typeof html !== 'string') {
+    return '';
+  }
+
+  let sanitized = html.replace(
+    /([?&])(apiKey|x-api-key)=[^&"'\s>]*/gi,
+    (match, separator) => (separator === '?' ? '?' : ''),
+  );
+
+  sanitized = sanitized
+    .replace(/\?&/g, '?')
+    .replace(/\?{2,}/g, '?')
+    .replace(/&&+/g, '&')
+    .replace(/\?($|#)/g, '$1');
+
+  return sanitized;
+}
+
 function formatDiffValueForHtml(value, maxLength = 120) {
   let text;
   if (value === undefined) {
@@ -1365,7 +1384,7 @@ function createApp(options = {}) {
     };
   }
 
-  function buildCompareHtmlDocument(context, { apiKeyQuery, generatedAt } = {}) {
+  function buildCompareHtmlDocument(context, { generatedAt } = {}) {
     const {
       leftId,
       rightId,
@@ -1440,9 +1459,7 @@ function createApp(options = {}) {
 
     const effectiveGeneratedAt =
       typeof generatedAt === 'string' && generatedAt ? generatedAt : new Date().toISOString();
-    const compareAction = apiKeyQuery
-      ? `/artifacts/compare?apiKey=${encodeURIComponent(apiKeyQuery)}`
-      : '/artifacts/compare';
+    const compareAction = '/artifacts/compare';
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -1615,6 +1632,30 @@ function createApp(options = {}) {
       .actions form {
         margin: 0;
       }
+      .api-key-input {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin: 12px 0;
+        font-size: 0.9rem;
+      }
+      .api-key-input input {
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+        font-size: 0.95rem;
+        background: #f9fafb;
+        color: inherit;
+      }
+      .api-key-input input:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+      }
+      .api-key-input small {
+        color: #6b7280;
+        font-size: 0.75rem;
+      }
       .button {
         display: inline-flex;
         align-items: center;
@@ -1696,6 +1737,16 @@ function createApp(options = {}) {
           <input type="hidden" name="leftId" value="${escapeHtml(leftId)}" />
           <input type="hidden" name="rightId" value="${escapeHtml(rightId)}" />
           <input type="hidden" name="mode" value="${escapeHtml(mode)}" />
+          <label class="api-key-input">
+            <span>API key (optional for rerun)</span>
+            <input
+              type="password"
+              name="apiKey"
+              autocomplete="off"
+              placeholder="Enter API key before submitting"
+            />
+            <small>Without an API key the server will reject the request (HTTP 401).</small>
+          </label>
           <button type="submit" class="button">Download JSON diff</button>
         </form>
       </div>
@@ -2527,7 +2578,6 @@ function createApp(options = {}) {
   });
 
   app.get('/artifacts/compare.zip', (req, res) => {
-    const apiKeyQuery = typeof req.query.apiKey === 'string' ? req.query.apiKey.trim() : '';
     const context = computeCompareContext({
       leftId: req.query.leftId,
       rightId: req.query.rightId,
@@ -2539,7 +2589,9 @@ function createApp(options = {}) {
     }
 
     const generatedAt = new Date().toISOString();
-    const html = buildCompareHtmlDocument(context, { apiKeyQuery, generatedAt });
+    const html = sanitizeSensitiveQueryParams(
+      buildCompareHtmlDocument(context, { generatedAt }),
+    );
     const diffPayload = {
       leftId: context.leftId,
       rightId: context.rightId,
@@ -2593,7 +2645,6 @@ function createApp(options = {}) {
   });
 
   app.get('/artifacts/compare.html', (req, res) => {
-    const apiKeyQuery = typeof req.query.apiKey === 'string' ? req.query.apiKey.trim() : '';
     const context = computeCompareContext({
       leftId: req.query.leftId,
       rightId: req.query.rightId,
@@ -2604,7 +2655,7 @@ function createApp(options = {}) {
       return res.status(context.error.status).json(context.error.body);
     }
 
-    const html = buildCompareHtmlDocument(context, { apiKeyQuery });
+    const html = sanitizeSensitiveQueryParams(buildCompareHtmlDocument(context));
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.send(html);

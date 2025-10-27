@@ -5,7 +5,33 @@
 
 ## Быстрый старт
 
-### 1. Запуск Relay
+### Вариант A. Docker Compose
+
+1. Подготовьте настройки окружения (можно начать с примера):
+   ```
+   cp relay/.env.example relay/.env
+   ```
+2. Соберите образ и запустите прод-профиль:
+   ```
+   npm run docker:build
+   npm run docker:up
+   ```
+   Сервис будет доступен на `http://localhost:3000`.
+3. Выполните smoke-проверку:
+   ```
+   curl http://localhost:3000/health
+   ```
+4. Для отладки вебхуков можно поднять echo-сервис (порт `7777`):
+   ```
+   npm run docker:up:dev
+   ```
+5. Посмотреть логи и остановить контейнеры:
+   ```
+   npm run docker:logs
+   npm run docker:down
+   ```
+
+### Вариант B. Запуск напрямую (Node.js)
 ```
 cd relay
 npm install
@@ -18,12 +44,12 @@ npm run dev
 curl http://localhost:3000/health
 ```
 
-### 2. Установка плагина
+### Установка плагина
 - Откройте Figma.
 - Зайдите в меню **Plugins → Development → Import plugin from manifest…**.
 - Выберите `plugin/manifest.json`.
 
-### 3. Быстрый рабочий цикл
+### Быстрый рабочий цикл
 1. Создайте задачу:
    ```
    curl -s -X POST http://localhost:3000/tasks \
