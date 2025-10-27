@@ -85,7 +85,7 @@
 
 - [API Reference (OpenAPI)](docs/openapi.html)
 
-Если это первый запуск, Pages будут включены автоматически этим workflow (требуются права `pages: write`).
+Перед первым деплоем включите Pages вручную: Settings → Pages → Source: GitHub Actions.
 
 ## Release notes
 
