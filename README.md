@@ -74,6 +74,17 @@ curl http://localhost:3000/health
 
 - `npm run test` (выполненный из корня репозитория) проксирует запуск тестов из каталога [`relay/`](./relay/).
 
+## End-to-End tests
+
+Запустите Relay и e2e-набор в отдельных терминалах:
+
+```sh
+# в одном терминале
+API_KEYS=dev123 TRUST_PROXY=false npm run dev --prefix relay
+# в другом
+RELAY_URL=http://localhost:3000 API_KEY=dev123 npm run e2e
+```
+
 ## Документация для агента
 
 Актуальные задачи, чек-листы и плейбуки находятся в каталоге [`agent-md/`](./agent-md/).

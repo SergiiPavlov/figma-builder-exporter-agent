@@ -1,0 +1,73 @@
+name: End-to-End Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+          cache-dependency-path: relay/package-lock.json
+
+      - name: Install relay dependencies
+        run: npm ci --prefix relay
+
+      - name: Start relay server
+        run: |
+          API_KEYS=ci_e2e \
+          TRUST_PROXY=false \
+          JSON_BODY_LIMIT=1mb \
+          PREVIEW_MAX_BYTES=2000000 \
+          npm run dev --prefix relay &
+        env:
+          NODE_ENV: development
+
+      - name: Wait for relay health endpoint
+        run: |
+          for i in {1..40}; do
+            if curl -fsS http://localhost:3000/health >/dev/null; then
+              echo "Relay is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Relay failed to start" >&2
+          exit 1
+
+      - name: Run E2E suite
+        run: RELAY_URL=http://localhost:3000 API_KEY=ci_e2e npm run e2e:ci
+
+      - name: Upload e2e log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: e2e/artifacts/e2e.log
+          if-no-files-found: warn
+
+      - name: Upload compare HTML artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diff.html
+          path: e2e/artifacts/e2e-diff.html
+          if-no-files-found: ignore
+
+      - name: Upload compare ZIP artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diff.zip
+          path: e2e/artifacts/e2e-diff.zip
+          if-no-files-found: ignore
