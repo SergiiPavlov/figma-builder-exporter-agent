@@ -13,8 +13,11 @@ npm run dev   # http://localhost:3000
 ## Эндпоинты
 - `GET /health` → `{ ok: true }`
 - `POST /tasks` body: `{ taskSpec }` → `{ taskId }`
-- `GET /tasks/{id}` → `{ status: pending|done, taskSpec?, result? }`
+- `GET /tasks/{id}` → `{ id, status, createdAt, taskSpec, logs[], result?, artifactPath?, artifactSize? }`
+- `GET /tasks/{id}/result` → `{ taskId, status, exportSpec, logs[], error?, artifactPath?, artifactSize? }`
 - `POST /tasks/{id}/result` body: `{ result }` → `{ ok: true }`
+
+> Поддерживается повторный запуск задач: отправьте исходный `taskSpec` в `POST /tasks` (плагин добавляет суффикс `-rerun-<short_ts>` к `meta.id` и поле `meta.rerunOf`).
 
 ## Данные
 - JSONL-файл `relay/data/tasks.jsonl` (last-write-wins)

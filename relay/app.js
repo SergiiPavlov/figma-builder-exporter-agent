@@ -510,6 +510,7 @@ function createApp(options = {}) {
     const t = readOne(req.params.id);
     if (!t) return res.status(404).json({ error: 'Not found' });
     res.json({
+      taskId: t.id,
       status: t.status,
       exportSpec: t.result ?? null,
       logs: normalizeLogs(t.logs).map((l) => l.message),

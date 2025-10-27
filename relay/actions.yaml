@@ -141,7 +141,44 @@ paths:
             type: string
       responses:
         '200':
-          description: Ok
+          description: Task entry
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - status
+                  - createdAt
+                  - taskSpec
+                  - logs
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, queued, running, done, error]
+                  createdAt:
+                    type: integer
+                    format: int64
+                  taskSpec:
+                    type: object
+                  logs:
+                    type: array
+                    items:
+                      type: string
+                  result:
+                    type: object
+                    nullable: true
+                  artifactPath:
+                    type: string
+                    nullable: true
+                  artifactSize:
+                    type: integer
+                    nullable: true
+                  error:
+                    type: string
+                    nullable: true
   /tasks/{id}/result:
     get:
       operationId: getTaskResult
@@ -160,14 +197,17 @@ paths:
               schema:
                 type: object
                 required:
+                  - taskId
                   - status
                   - exportSpec
                   - logs
                   - error
                 properties:
+                  taskId:
+                    type: string
                   status:
                     type: string
-                    enum: [pending, running, done, error]
+                    enum: [pending, queued, running, done, error]
                   exportSpec:
                     type: object
                     nullable: true
@@ -177,6 +217,12 @@ paths:
                       type: string
                   error:
                     type: string
+                    nullable: true
+                  artifactPath:
+                    type: string
+                    nullable: true
+                  artifactSize:
+                    type: integer
                     nullable: true
         '404':
           description: Not found

@@ -208,6 +208,12 @@
       .artifacts-table tbody tr:nth-child(even) {
         background: #f1f5f9;
       }
+      .artifacts-table tbody tr[data-clickable='true'] {
+        cursor: pointer;
+      }
+      .artifacts-table tbody tr[data-selected='true'] {
+        background: #dbeafe;
+      }
       .artifacts-table .actions {
         white-space: nowrap;
       }
@@ -235,6 +241,255 @@
       #artifacts-bulk-download[disabled] {
         opacity: 0.6;
         cursor: not-allowed;
+      }
+      .artifact-details {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        justify-content: flex-end;
+        pointer-events: none;
+        z-index: 50;
+      }
+      .artifact-details[data-open='true'] {
+        pointer-events: auto;
+      }
+      .artifact-details__overlay {
+        flex: 1;
+        background: rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(2px);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      .artifact-details[data-open='true'] .artifact-details__overlay {
+        opacity: 1;
+      }
+      .artifact-details__panel {
+        width: min(420px, 100%);
+        max-width: 100%;
+        background: #ffffff;
+        border-left: 1px solid #cbd5f5;
+        box-shadow: -4px 0 16px rgba(15, 23, 42, 0.12);
+        padding: 16px;
+        overflow-y: auto;
+        transform: translateX(100%);
+        transition: transform 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .artifact-details[data-open='true'] .artifact-details__panel {
+        transform: translateX(0);
+      }
+      .artifact-details__header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .artifact-details__title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .artifact-details__close {
+        margin-left: auto;
+        border: none;
+        background: transparent;
+        color: #0f172a;
+        font-size: 18px;
+        line-height: 1;
+        padding: 2px 6px;
+        cursor: pointer;
+      }
+      .artifact-details__meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
+        font-size: 12px;
+      }
+      .artifact-details__meta-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .artifact-details__meta-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        color: #64748b;
+        letter-spacing: 0.02em;
+      }
+      .artifact-details__meta-value {
+        color: #0f172a;
+        word-break: break-all;
+      }
+      .artifact-details__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .artifact-details__actions a,
+      .artifact-details__actions button {
+        font-size: 12px;
+      }
+      .artifact-details__notice {
+        font-size: 12px;
+        background: #e0f2fe;
+        border: 1px solid #bae6fd;
+        color: #0c4a6e;
+        border-radius: 4px;
+        padding: 8px;
+        display: none;
+        gap: 8px;
+      }
+      .artifact-details__notice[data-visible='true'] {
+        display: flex;
+        flex-direction: column;
+      }
+      .artifact-details__notice-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 6px;
+      }
+      .artifact-details__toast {
+        font-size: 11px;
+        color: #0f172a;
+        background: rgba(226, 232, 240, 0.8);
+        border-radius: 4px;
+        padding: 4px 6px;
+        align-self: flex-start;
+        display: none;
+      }
+      .artifact-details__toast[data-visible='true'] {
+        display: inline-block;
+      }
+      .artifact-details__section-title {
+        margin: 0 0 4px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .artifact-details__logs {
+        max-height: 160px;
+        overflow-y: auto;
+        border: 1px solid #e2e8f0;
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 8px;
+        font-family: ui-monospace, Consolas, Menlo, monospace;
+        font-size: 11px;
+        white-space: pre-wrap;
+      }
+      .artifact-details__logs[data-empty='true'] {
+        color: #cbd5f5;
+        font-style: italic;
+      }
+      .artifact-details__export-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .artifact-details__export-controls {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+      }
+      .artifact-details__export-controls input[type='search'] {
+        padding: 4px 6px;
+        font-size: 12px;
+        width: 160px;
+      }
+      .artifact-details__export-viewer {
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+        padding: 8px;
+        max-height: 280px;
+        overflow: auto;
+        font-family: ui-monospace, Consolas, Menlo, monospace;
+        font-size: 11px;
+      }
+      .artifact-details__export-viewer[data-empty='true'] {
+        color: #64748b;
+        font-style: italic;
+      }
+      .json-node {
+        margin-left: 0;
+      }
+      .json-node > details > summary {
+        cursor: pointer;
+        list-style: none;
+      }
+      .json-node > details > summary::-webkit-details-marker {
+        display: none;
+      }
+      .json-node > details > summary::before {
+        content: '▸';
+        display: inline-block;
+        margin-right: 6px;
+        transform: rotate(0deg);
+        transition: transform 0.15s ease;
+        color: #2563eb;
+      }
+      .json-node > details[open] > summary::before {
+        transform: rotate(90deg);
+      }
+      .json-node > details > .json-children {
+        margin-left: 14px;
+      }
+      .json-leaf {
+        margin-left: 18px;
+      }
+      .json-key {
+        color: #1d4ed8;
+      }
+      .json-value-string {
+        color: #047857;
+      }
+      .json-value-number,
+      .json-value-bigint {
+        color: #b91c1c;
+      }
+      .json-value-boolean {
+        color: #7c3aed;
+      }
+      .json-value-null,
+      .json-value-undefined {
+        color: #0f172a;
+        font-style: italic;
+      }
+      .artifact-details__export-viewer mark {
+        background: #fde68a;
+        color: inherit;
+        padding: 0;
+      }
+      .json-node[data-search-active='true'][data-has-match='false'] {
+        opacity: 0.45;
+      }
+      .artifact-details__loading,
+      .artifact-details__error {
+        font-size: 12px;
+      }
+      .artifact-details__loading {
+        color: #1d4ed8;
+      }
+      .artifact-details__error {
+        color: #b91c1c;
+      }
+      .artifact-details__empty {
+        color: #64748b;
+        font-style: italic;
+      }
+      .artifact-details__content {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .artifact-details__body {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
       }
     </style>
   </head>
@@ -345,6 +600,129 @@
           Download selected as ZIP
         </button>
       </div>
+      <div
+        id="artifact-details"
+        class="artifact-details"
+        data-open="false"
+        aria-hidden="true"
+      >
+        <div class="artifact-details__overlay" id="artifact-details-overlay"></div>
+        <aside
+          class="artifact-details__panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="artifact-details-title"
+        >
+          <div class="artifact-details__header">
+            <h4 class="artifact-details__title" id="artifact-details-title">
+              Artifact details
+            </h4>
+            <button
+              type="button"
+              class="artifact-details__close"
+              id="artifact-details-close"
+              aria-label="Close details"
+            >
+              ×
+            </button>
+          </div>
+          <div
+            class="artifact-details__toast"
+            id="artifact-details-toast"
+            aria-live="polite"
+          ></div>
+          <div class="artifact-details__body">
+            <div
+              class="artifact-details__loading"
+              id="artifact-details-loading"
+              hidden
+            >
+              Loading details…
+            </div>
+            <div class="artifact-details__error" id="artifact-details-error" hidden></div>
+            <div class="artifact-details__content" id="artifact-details-content" hidden>
+              <div class="artifact-details__meta">
+                <div class="artifact-details__meta-item">
+                  <span class="artifact-details__meta-label">Task ID</span>
+                  <span class="artifact-details__meta-value" id="artifact-details-task-id">—</span>
+                </div>
+                <div class="artifact-details__meta-item">
+                  <span class="artifact-details__meta-label">Created</span>
+                  <span class="artifact-details__meta-value" id="artifact-details-created">—</span>
+                </div>
+                <div class="artifact-details__meta-item">
+                  <span class="artifact-details__meta-label">Status</span>
+                  <span class="artifact-details__meta-value" id="artifact-details-status">—</span>
+                </div>
+              </div>
+              <div class="artifact-details__actions">
+                <a
+                  id="artifact-details-json"
+                  class="button-link"
+                  href="#"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-disabled="true"
+                  >Download JSON</a
+                >
+                <a
+                  id="artifact-details-zip"
+                  class="button-link"
+                  href="#"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-disabled="true"
+                  >Download ZIP</a
+                >
+                <button type="button" id="artifact-details-copy-id">
+                  Copy Task ID
+                </button>
+                <button type="button" id="artifact-details-rerun">Re-run task</button>
+              </div>
+              <div
+                class="artifact-details__notice"
+                id="artifact-details-notice"
+                data-visible="false"
+                role="status"
+                aria-live="polite"
+              ></div>
+              <section>
+                <h5 class="artifact-details__section-title">Logs</h5>
+                <div
+                  id="artifact-details-logs"
+                  class="artifact-details__logs"
+                  data-empty="true"
+                >
+                  No logs yet
+                </div>
+              </section>
+              <section>
+                <div class="artifact-details__export-header">
+                  <h5 class="artifact-details__section-title">ExportSpec</h5>
+                  <div class="artifact-details__export-controls">
+                    <input
+                      type="search"
+                      id="artifact-details-export-search"
+                      placeholder="Search JSON"
+                      aria-label="Search ExportSpec"
+                    />
+                    <button type="button" id="artifact-details-copy-export">
+                      Copy JSON
+                    </button>
+                  </div>
+                </div>
+                <div
+                  id="artifact-details-export-viewer"
+                  class="artifact-details__export-viewer"
+                  data-empty="true"
+                >
+                  No ExportSpec available
+                </div>
+              </section>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
 
     <script>
@@ -374,6 +752,45 @@
         bulkButton: document.getElementById("artifacts-bulk-download"),
         errorBox: document.getElementById("artifacts-error"),
       };
+
+      const artifactDetailsElements = {
+        container: document.getElementById("artifact-details"),
+        overlay: document.getElementById("artifact-details-overlay"),
+        closeButton: document.getElementById("artifact-details-close"),
+        toast: document.getElementById("artifact-details-toast"),
+        loading: document.getElementById("artifact-details-loading"),
+        error: document.getElementById("artifact-details-error"),
+        content: document.getElementById("artifact-details-content"),
+        taskId: document.getElementById("artifact-details-task-id"),
+        created: document.getElementById("artifact-details-created"),
+        status: document.getElementById("artifact-details-status"),
+        jsonLink: document.getElementById("artifact-details-json"),
+        zipLink: document.getElementById("artifact-details-zip"),
+        copyIdButton: document.getElementById("artifact-details-copy-id"),
+        copyExportButton: document.getElementById("artifact-details-copy-export"),
+        rerunButton: document.getElementById("artifact-details-rerun"),
+        notice: document.getElementById("artifact-details-notice"),
+        logs: document.getElementById("artifact-details-logs"),
+        exportViewer: document.getElementById("artifact-details-export-viewer"),
+        exportSearch: document.getElementById("artifact-details-export-search"),
+      };
+
+      const artifactDetailsState = {
+        open: false,
+        loading: false,
+        taskId: null,
+        task: null,
+        result: null,
+        logs: [],
+        exportSpec: null,
+        exportSearch: "",
+        notice: null,
+        toast: "",
+        rerunPending: false,
+        error: "",
+      };
+
+      let artifactDetailsToastTimer = null;
 
       const artifactsState = {
         order: "desc",
@@ -414,6 +831,629 @@
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return "—";
         return date.toLocaleString();
+      };
+
+      const copyTextToClipboard = async (text) => {
+        if (typeof text !== "string") return false;
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+          }
+        } catch (_) {}
+        try {
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.setAttribute("readonly", "true");
+          textarea.style.position = "fixed";
+          textarea.style.opacity = "0";
+          textarea.style.pointerEvents = "none";
+          document.body.appendChild(textarea);
+          textarea.select();
+          const ok = document.execCommand("copy");
+          document.body.removeChild(textarea);
+          return ok;
+        } catch (_) {
+          return false;
+        }
+      };
+
+      const formatJsonPrimitive = (value) => {
+        if (value === null) return "null";
+        if (value === undefined) return "undefined";
+        if (typeof value === "string") {
+          return JSON.stringify(value);
+        }
+        if (typeof value === "number" || typeof value === "bigint") {
+          return String(value);
+        }
+        if (typeof value === "boolean") {
+          return value ? "true" : "false";
+        }
+        try {
+          return JSON.stringify(value);
+        } catch (_) {
+          return String(value);
+        }
+      };
+
+      const createSummaryLabel = (key, value) => {
+        const isArray = Array.isArray(value);
+        const size = isArray
+          ? value.length
+          : value && typeof value === "object"
+          ? Object.keys(value).length
+          : 0;
+        const baseLabel = isArray
+          ? `Array (${size} ${size === 1 ? "item" : "items"})`
+          : `Object (${size} ${size === 1 ? "key" : "keys"})`;
+        if (key == null) {
+          return baseLabel;
+        }
+        return `${key}: ${baseLabel}`;
+      };
+
+      const createHighlightedFragment = (text, search) => {
+        const fragment = document.createDocumentFragment();
+        const value = String(text ?? "");
+        if (!search || !search.normalized) {
+          fragment.appendChild(document.createTextNode(value));
+          return fragment;
+        }
+        const lower = value.toLowerCase();
+        const needle = search.normalized;
+        let index = lower.indexOf(needle);
+        if (index === -1) {
+          fragment.appendChild(document.createTextNode(value));
+          return fragment;
+        }
+        const length = search.raw.length;
+        let start = 0;
+        while (index !== -1) {
+          if (index > start) {
+            fragment.appendChild(document.createTextNode(value.slice(start, index)));
+          }
+          const mark = document.createElement("mark");
+          mark.textContent = value.slice(index, index + length);
+          fragment.appendChild(mark);
+          start = index + length;
+          index = lower.indexOf(needle, start);
+        }
+        if (start < value.length) {
+          fragment.appendChild(document.createTextNode(value.slice(start)));
+        }
+        return fragment;
+      };
+
+      const buildJsonViewerNode = (key, value, search, depth = 0) => {
+        const container = document.createElement("div");
+        container.className = "json-node";
+        const searchActive = !!(search && search.normalized);
+        container.dataset.searchActive = searchActive ? "true" : "false";
+
+        if (value instanceof Date) {
+          return buildJsonViewerNode(key, value.toISOString(), search, depth + 1);
+        }
+
+        if (Array.isArray(value)) {
+          const details = document.createElement("details");
+          const summary = document.createElement("summary");
+          const label = createSummaryLabel(key, value);
+          summary.appendChild(createHighlightedFragment(label, search));
+          details.appendChild(summary);
+
+          const childrenWrapper = document.createElement("div");
+          childrenWrapper.className = "json-children";
+          let hasMatch = searchActive && label.toLowerCase().includes(search.normalized);
+          if (value.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "artifact-details__empty";
+            empty.textContent = "[]";
+            childrenWrapper.appendChild(empty);
+          } else {
+            value.forEach((item, index) => {
+              const childKey = `[${index}]`;
+              const { element, hasMatch: childMatch } = buildJsonViewerNode(
+                childKey,
+                item,
+                search,
+                depth + 1,
+              );
+              if (childMatch) hasMatch = true;
+              childrenWrapper.appendChild(element);
+            });
+          }
+          details.appendChild(childrenWrapper);
+          details.open = !searchActive && depth <= 0 ? true : hasMatch;
+          container.dataset.hasMatch = hasMatch ? "true" : "false";
+          container.appendChild(details);
+          return { element: container, hasMatch };
+        }
+
+        if (value && typeof value === "object") {
+          const details = document.createElement("details");
+          const summary = document.createElement("summary");
+          const label = createSummaryLabel(key, value);
+          summary.appendChild(createHighlightedFragment(label, search));
+          details.appendChild(summary);
+
+          const childrenWrapper = document.createElement("div");
+          childrenWrapper.className = "json-children";
+          let hasMatch = searchActive && label.toLowerCase().includes(search.normalized);
+          const entries = Object.entries(value);
+          if (entries.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "artifact-details__empty";
+            empty.textContent = "{}";
+            childrenWrapper.appendChild(empty);
+          } else {
+            for (const [childKey, childValue] of entries) {
+              const { element, hasMatch: childMatch } = buildJsonViewerNode(
+                childKey,
+                childValue,
+                search,
+                depth + 1,
+              );
+              if (childMatch) hasMatch = true;
+              childrenWrapper.appendChild(element);
+            }
+          }
+          details.appendChild(childrenWrapper);
+          details.open = !searchActive && depth <= 0 ? true : hasMatch;
+          container.dataset.hasMatch = hasMatch ? "true" : "false";
+          container.appendChild(details);
+          return { element: container, hasMatch };
+        }
+
+        const leaf = document.createElement("div");
+        leaf.className = "json-leaf";
+        let hasMatch = false;
+        if (key != null) {
+          const keyLabel = String(key);
+          const keySpan = document.createElement("span");
+          keySpan.className = "json-key";
+          keySpan.appendChild(createHighlightedFragment(keyLabel, search));
+          leaf.appendChild(keySpan);
+          leaf.appendChild(document.createTextNode(": "));
+          if (searchActive && keyLabel.toLowerCase().includes(search.normalized)) {
+            hasMatch = true;
+          }
+        }
+        const valueText = formatJsonPrimitive(value);
+        const valueType = value === null ? "null" : value === undefined ? "undefined" : typeof value;
+        const valueSpan = document.createElement("span");
+        valueSpan.className = `json-value json-value-${valueType}`;
+        valueSpan.appendChild(createHighlightedFragment(valueText, search));
+        if (searchActive && valueText.toLowerCase().includes(search.normalized)) {
+          hasMatch = true;
+        }
+        leaf.appendChild(valueSpan);
+        container.dataset.hasMatch = hasMatch ? "true" : "false";
+        container.appendChild(leaf);
+        return { element: container, hasMatch };
+      };
+
+      const renderArtifactDetailsLogs = () => {
+        const target = artifactDetailsElements.logs;
+        if (!target) return;
+        if (artifactDetailsState.loading) {
+          target.dataset.empty = "true";
+          target.textContent = "Loading logs…";
+          return;
+        }
+        if (artifactDetailsState.error) {
+          target.dataset.empty = "true";
+          target.textContent = "—";
+          return;
+        }
+        const logs = Array.isArray(artifactDetailsState.logs)
+          ? artifactDetailsState.logs.map((line) => String(line))
+          : [];
+        if (logs.length === 0) {
+          target.dataset.empty = "true";
+          target.textContent = "No logs yet";
+        } else {
+          target.dataset.empty = "false";
+          target.textContent = logs.join("\n");
+        }
+      };
+
+      const renderExportSpecViewer = () => {
+        const viewer = artifactDetailsElements.exportViewer;
+        if (!viewer) return;
+        const spec = artifactDetailsState.exportSpec;
+        const rawSearch = artifactDetailsState.exportSearch || "";
+        const trimmed = rawSearch.trim();
+        const search = trimmed
+          ? {
+              raw: trimmed,
+              normalized: trimmed.toLowerCase(),
+            }
+          : null;
+        if (artifactDetailsState.loading) {
+          viewer.dataset.empty = "true";
+          viewer.innerHTML = "Loading ExportSpec…";
+          return;
+        }
+        if (artifactDetailsState.error) {
+          viewer.dataset.empty = "true";
+          viewer.innerHTML = "—";
+          return;
+        }
+        viewer.innerHTML = "";
+        if (!spec || typeof spec !== "object") {
+          viewer.dataset.empty = "true";
+          viewer.textContent = "No ExportSpec available";
+          return;
+        }
+        const { element, hasMatch } = buildJsonViewerNode(null, spec, search, 0);
+        viewer.dataset.empty = "false";
+        viewer.appendChild(element);
+        if (search && !hasMatch) {
+          const empty = document.createElement("div");
+          empty.className = "artifact-details__empty";
+          empty.textContent = `No matches for "${search.raw}"`;
+          viewer.appendChild(empty);
+        }
+      };
+
+      const renderArtifactDetails = () => {
+        const container = artifactDetailsElements.container;
+        if (!container) return;
+        container.dataset.open = artifactDetailsState.open ? "true" : "false";
+        container.setAttribute("aria-hidden", artifactDetailsState.open ? "false" : "true");
+
+        if (!artifactDetailsState.open) {
+          if (artifactDetailsElements.toast) {
+            artifactDetailsElements.toast.dataset.visible = "false";
+            artifactDetailsElements.toast.textContent = "";
+          }
+          return;
+        }
+
+        if (artifactDetailsElements.loading) {
+          artifactDetailsElements.loading.hidden = !artifactDetailsState.loading;
+        }
+        if (artifactDetailsElements.error) {
+          const hasError = Boolean(artifactDetailsState.error);
+          artifactDetailsElements.error.hidden = !hasError;
+          artifactDetailsElements.error.textContent = hasError ? artifactDetailsState.error : "";
+        }
+        const hasData = !artifactDetailsState.loading && !artifactDetailsState.error;
+        if (artifactDetailsElements.content) {
+          artifactDetailsElements.content.hidden = !hasData;
+        }
+
+        if (artifactDetailsElements.toast) {
+          const toastVisible = Boolean(artifactDetailsState.toast);
+          artifactDetailsElements.toast.dataset.visible = toastVisible ? "true" : "false";
+          artifactDetailsElements.toast.textContent = toastVisible ? artifactDetailsState.toast : "";
+        }
+
+        if (artifactDetailsElements.jsonLink) {
+          artifactDetailsElements.jsonLink.href = "#";
+          artifactDetailsElements.jsonLink.setAttribute("aria-disabled", "true");
+          artifactDetailsElements.jsonLink.tabIndex = -1;
+        }
+        if (artifactDetailsElements.zipLink) {
+          artifactDetailsElements.zipLink.href = "#";
+          artifactDetailsElements.zipLink.setAttribute("aria-disabled", "true");
+          artifactDetailsElements.zipLink.tabIndex = -1;
+        }
+        if (artifactDetailsElements.copyIdButton) {
+          artifactDetailsElements.copyIdButton.disabled = true;
+        }
+        if (artifactDetailsElements.copyExportButton) {
+          artifactDetailsElements.copyExportButton.disabled = true;
+        }
+        if (artifactDetailsElements.rerunButton) {
+          artifactDetailsElements.rerunButton.disabled = true;
+          artifactDetailsElements.rerunButton.textContent = artifactDetailsState.rerunPending
+            ? "Re-running…"
+            : "Re-run task";
+        }
+        if (artifactDetailsElements.notice) {
+          artifactDetailsElements.notice.dataset.visible = "false";
+          artifactDetailsElements.notice.innerHTML = "";
+        }
+        if (artifactDetailsElements.exportSearch) {
+          artifactDetailsElements.exportSearch.value = artifactDetailsState.exportSearch;
+        }
+
+        if (!hasData) {
+          renderArtifactDetailsLogs();
+          renderExportSpecViewer();
+          return;
+        }
+
+        const taskId = artifactDetailsState.taskId;
+        if (artifactDetailsElements.taskId) {
+          artifactDetailsElements.taskId.textContent = taskId || "—";
+        }
+        if (artifactDetailsElements.created) {
+          const createdAt =
+            artifactDetailsState.task && Number.isFinite(artifactDetailsState.task.createdAt)
+              ? artifactDetailsState.task.createdAt
+              : null;
+          artifactDetailsElements.created.textContent = createdAt != null ? formatDateTime(createdAt) : "—";
+        }
+        if (artifactDetailsElements.status) {
+          const statusText =
+            (artifactDetailsState.result && artifactDetailsState.result.status) ||
+            (artifactDetailsState.task && artifactDetailsState.task.status) ||
+            "unknown";
+          artifactDetailsElements.status.textContent = statusText;
+        }
+        if (artifactDetailsElements.jsonLink && taskId) {
+          artifactDetailsElements.jsonLink.href = `${RELAY_URL}/tasks/${encodeURIComponent(taskId)}/artifact`;
+          artifactDetailsElements.jsonLink.setAttribute("aria-disabled", "false");
+          artifactDetailsElements.jsonLink.tabIndex = 0;
+        }
+        if (artifactDetailsElements.zipLink && taskId) {
+          artifactDetailsElements.zipLink.href = `${RELAY_URL}/tasks/${encodeURIComponent(taskId)}/package.zip`;
+          artifactDetailsElements.zipLink.setAttribute("aria-disabled", "false");
+          artifactDetailsElements.zipLink.tabIndex = 0;
+        }
+        if (artifactDetailsElements.copyIdButton) {
+          artifactDetailsElements.copyIdButton.disabled = !taskId;
+        }
+        if (artifactDetailsElements.copyExportButton) {
+          artifactDetailsElements.copyExportButton.disabled = !artifactDetailsState.exportSpec;
+        }
+        if (artifactDetailsElements.rerunButton) {
+          const hasSpec = artifactDetailsState.task && artifactDetailsState.task.taskSpec;
+          artifactDetailsElements.rerunButton.disabled = !hasSpec || artifactDetailsState.rerunPending;
+          artifactDetailsElements.rerunButton.textContent = artifactDetailsState.rerunPending
+            ? "Re-running…"
+            : "Re-run task";
+        }
+
+        renderArtifactDetailsLogs();
+        renderExportSpecViewer();
+
+        if (artifactDetailsElements.notice) {
+          const notice = artifactDetailsState.notice;
+          if (notice && notice.message) {
+            artifactDetailsElements.notice.dataset.visible = "true";
+            artifactDetailsElements.notice.innerHTML = "";
+            const messageSpan = document.createElement("span");
+            messageSpan.textContent = notice.message;
+            artifactDetailsElements.notice.appendChild(messageSpan);
+            if (Array.isArray(notice.actions) && notice.actions.length > 0) {
+              const actionsContainer = document.createElement("div");
+              actionsContainer.className = "artifact-details__notice-actions";
+              for (const action of notice.actions) {
+                if (!action || typeof action.onClick !== "function" || !action.label) continue;
+                const button = document.createElement("button");
+                button.type = "button";
+                button.textContent = action.label;
+                button.addEventListener("click", () => action.onClick());
+                actionsContainer.appendChild(button);
+              }
+              if (actionsContainer.childNodes.length > 0) {
+                artifactDetailsElements.notice.appendChild(actionsContainer);
+              }
+            }
+          } else {
+            artifactDetailsElements.notice.dataset.visible = "false";
+            artifactDetailsElements.notice.innerHTML = "";
+          }
+        }
+      };
+
+      const setArtifactDetailsToast = (message, duration = 2200) => {
+        artifactDetailsState.toast = message ? String(message) : "";
+        renderArtifactDetails();
+        clearTimeout(artifactDetailsToastTimer);
+        if (artifactDetailsState.toast) {
+          artifactDetailsToastTimer = setTimeout(() => {
+            artifactDetailsState.toast = "";
+            renderArtifactDetails();
+          }, duration);
+        }
+      };
+
+      const setArtifactDetailsNotice = (notice) => {
+        if (!notice) {
+          artifactDetailsState.notice = null;
+        } else if (typeof notice === "string") {
+          artifactDetailsState.notice = { message: notice, actions: [] };
+        } else {
+          artifactDetailsState.notice = {
+            message: notice.message || "",
+            actions: Array.isArray(notice.actions) ? notice.actions : [],
+          };
+        }
+        renderArtifactDetails();
+      };
+
+      const cloneTaskSpec = (taskSpec) => {
+        if (!taskSpec || typeof taskSpec !== "object") return null;
+        if (typeof structuredClone === "function") {
+          try {
+            return structuredClone(taskSpec);
+          } catch (_) {}
+        }
+        try {
+          return JSON.parse(JSON.stringify(taskSpec));
+        } catch (_) {
+          return null;
+        }
+      };
+
+      const loadArtifactDetails = async (taskId) => {
+        if (!taskId) return;
+        artifactDetailsState.loading = true;
+        artifactDetailsState.error = "";
+        artifactDetailsState.task = null;
+        artifactDetailsState.result = null;
+        artifactDetailsState.logs = [];
+        artifactDetailsState.exportSpec = null;
+        renderArtifactDetails();
+        try {
+          const taskRes = await fetch(`${RELAY_URL}/tasks/${encodeURIComponent(taskId)}`);
+          if (!taskRes.ok) {
+            throw new Error(`Task request failed: HTTP ${taskRes.status}`);
+          }
+          const taskData = await taskRes.json();
+          artifactDetailsState.task = taskData;
+          artifactDetailsState.logs = Array.isArray(taskData.logs)
+            ? taskData.logs.map((line) => String(line))
+            : [];
+          let resultPayload = null;
+          try {
+            const resultRes = await fetch(`${RELAY_URL}/tasks/${encodeURIComponent(taskId)}/result`);
+            if (resultRes.status === 404) {
+              resultPayload = null;
+            } else if (!resultRes.ok) {
+              throw new Error(`HTTP ${resultRes.status}`);
+            } else {
+              resultPayload = await resultRes.json();
+            }
+          } catch (resultErr) {
+            throw new Error(
+              `Result fetch failed: ${
+                resultErr && resultErr.message ? resultErr.message : resultErr
+              }`,
+            );
+          }
+          artifactDetailsState.result = resultPayload;
+          artifactDetailsState.exportSpec =
+            resultPayload && typeof resultPayload.exportSpec === "object"
+              ? resultPayload.exportSpec
+              : null;
+          artifactDetailsState.error = "";
+        } catch (err) {
+          artifactDetailsState.error = `Failed to load details: ${
+            err && err.message ? err.message : err
+          }`;
+        } finally {
+          artifactDetailsState.loading = false;
+          renderArtifactDetails();
+        }
+      };
+
+      const openArtifactDetails = (taskId) => {
+        if (!taskId) return;
+        artifactDetailsState.open = true;
+        artifactDetailsState.taskId = taskId;
+        artifactDetailsState.notice = null;
+        artifactDetailsState.toast = "";
+        artifactDetailsState.exportSearch = "";
+        artifactDetailsState.rerunPending = false;
+        artifactDetailsState.error = "";
+        artifactDetailsState.logs = [];
+        artifactDetailsState.exportSpec = null;
+        artifactDetailsState.task = null;
+        artifactDetailsState.result = null;
+        if (artifactDetailsElements.exportSearch) {
+          artifactDetailsElements.exportSearch.value = "";
+        }
+        clearTimeout(artifactDetailsToastTimer);
+        artifactDetailsToastTimer = null;
+        renderArtifactDetails();
+        loadArtifactDetails(taskId);
+        renderArtifactsTable();
+      };
+
+      const closeArtifactDetails = () => {
+        if (!artifactDetailsState.open) return;
+        artifactDetailsState.open = false;
+        artifactDetailsState.taskId = null;
+        artifactDetailsState.task = null;
+        artifactDetailsState.result = null;
+        artifactDetailsState.logs = [];
+        artifactDetailsState.exportSpec = null;
+        artifactDetailsState.exportSearch = "";
+        artifactDetailsState.notice = null;
+        artifactDetailsState.toast = "";
+        artifactDetailsState.error = "";
+        artifactDetailsState.loading = false;
+        artifactDetailsState.rerunPending = false;
+        if (artifactDetailsElements.exportSearch) {
+          artifactDetailsElements.exportSearch.value = "";
+        }
+        clearTimeout(artifactDetailsToastTimer);
+        artifactDetailsToastTimer = null;
+        renderArtifactDetails();
+        renderArtifactsTable();
+      };
+
+      const handleArtifactDetailsKeydown = (event) => {
+        if (event.key === "Escape" && artifactDetailsState.open) {
+          event.preventDefault();
+          closeArtifactDetails();
+        }
+      };
+
+      const rerunArtifactTask = async () => {
+        if (artifactDetailsState.rerunPending) return;
+        const task = artifactDetailsState.task;
+        if (!task || !task.taskSpec) {
+          setArtifactDetailsToast("TaskSpec is not available");
+          return;
+        }
+        const clonedSpec = cloneTaskSpec(task.taskSpec);
+        if (!clonedSpec) {
+          setArtifactDetailsToast("Failed to prepare TaskSpec");
+          return;
+        }
+        const originalMeta =
+          clonedSpec.meta && typeof clonedSpec.meta === "object" ? { ...clonedSpec.meta } : {};
+        const originalId = artifactDetailsState.taskId;
+        if (typeof originalMeta.id === "string" && originalMeta.id.trim()) {
+          const suffix = Math.floor(Date.now() / 1000).toString(36);
+          originalMeta.id = `${originalMeta.id}-rerun-${suffix}`;
+        }
+        if (originalId) {
+          originalMeta.rerunOf = originalId;
+        }
+        clonedSpec.meta = originalMeta;
+        artifactDetailsState.rerunPending = true;
+        setArtifactDetailsNotice(null);
+        renderArtifactDetails();
+        try {
+          const res = await fetch(`${RELAY_URL}/tasks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ taskSpec: clonedSpec }),
+          });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          const newTaskId = data && typeof data.taskId === "string" ? data.taskId : null;
+          if (!newTaskId) {
+            throw new Error("Unexpected response");
+          }
+          artifactDetailsState.rerunPending = false;
+          setArtifactDetailsNotice({
+            message: `Task re-queued: ${newTaskId}`,
+            actions: [
+              {
+                label: "Watch status",
+                onClick: () => openTaskWatch(newTaskId),
+              },
+              {
+                label: "Load in Builder",
+                onClick: () =>
+                  assignFetchedTask(
+                    newTaskId,
+                    clonedSpec,
+                    "Re-run",
+                    "Plugin: re-run queued from details",
+                  ),
+              },
+            ],
+          });
+          setArtifactDetailsToast("Task re-run created");
+        } catch (err) {
+          artifactDetailsState.rerunPending = false;
+          const message = err && err.message ? err.message : err;
+          setArtifactDetailsNotice({ message: `Re-run failed: ${message}` });
+        } finally {
+          renderArtifactDetails();
+        }
       };
 
       const updateBulkButtonState = () => {
@@ -475,11 +1515,42 @@
           for (const item of filtered) {
             const safeId = typeof item.id === "string" ? item.id : String(item.id ?? "");
             const row = document.createElement("tr");
+            row.dataset.clickable = "true";
+            row.tabIndex = 0;
+            if (artifactDetailsState.open && artifactDetailsState.taskId === safeId) {
+              row.dataset.selected = "true";
+            } else {
+              row.dataset.selected = "false";
+            }
+
+            row.addEventListener("click", (event) => {
+              if (event.target && event.target.closest("input, button, a")) {
+                return;
+              }
+              openArtifactDetails(safeId);
+            });
+            row.addEventListener("keydown", (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                if (event.target && event.target.closest("input, button, a")) {
+                  return;
+                }
+                event.preventDefault();
+                openArtifactDetails(safeId);
+              }
+            });
 
             const selectCell = document.createElement("td");
             const checkbox = document.createElement("input");
             checkbox.type = "checkbox";
             checkbox.checked = artifactsState.selection.has(safeId);
+            checkbox.addEventListener("click", (event) => {
+              event.stopPropagation();
+            });
+            checkbox.addEventListener("keydown", (event) => {
+              if (event.key === " " || event.key === "Enter") {
+                event.stopPropagation();
+              }
+            });
             checkbox.addEventListener("change", (event) => {
               if (event.target.checked) {
                 artifactsState.selection.add(safeId);
@@ -511,6 +1582,9 @@
             jsonLink.target = "_blank";
             jsonLink.rel = "noopener noreferrer";
             jsonLink.download = `${safeId}.json`;
+            jsonLink.addEventListener("click", (event) => {
+              event.stopPropagation();
+            });
             jsonCell.appendChild(jsonLink);
             row.appendChild(jsonCell);
 
@@ -522,6 +1596,9 @@
             zipLink.target = "_blank";
             zipLink.rel = "noopener noreferrer";
             zipLink.download = `${safeId}.zip`;
+            zipLink.addEventListener("click", (event) => {
+              event.stopPropagation();
+            });
             zipCell.appendChild(zipLink);
             row.appendChild(zipCell);
 
@@ -729,6 +1806,53 @@
           downloadSelectedArtifacts();
         });
       }
+
+      if (artifactDetailsElements.overlay) {
+        artifactDetailsElements.overlay.addEventListener("click", () => {
+          closeArtifactDetails();
+        });
+      }
+      if (artifactDetailsElements.closeButton) {
+        artifactDetailsElements.closeButton.addEventListener("click", () => {
+          closeArtifactDetails();
+        });
+      }
+      if (artifactDetailsElements.exportSearch) {
+        artifactDetailsElements.exportSearch.addEventListener("input", (event) => {
+          const value = typeof event.target.value === "string" ? event.target.value : "";
+          artifactDetailsState.exportSearch = value;
+          renderExportSpecViewer();
+        });
+      }
+      if (artifactDetailsElements.copyIdButton) {
+        artifactDetailsElements.copyIdButton.addEventListener("click", async () => {
+          if (!artifactDetailsState.taskId) return;
+          const ok = await copyTextToClipboard(artifactDetailsState.taskId);
+          setArtifactDetailsToast(ok ? "Task ID copied" : "Copy failed");
+        });
+      }
+      if (artifactDetailsElements.copyExportButton) {
+        artifactDetailsElements.copyExportButton.addEventListener("click", async () => {
+          if (!artifactDetailsState.exportSpec) return;
+          try {
+            const text = JSON.stringify(artifactDetailsState.exportSpec, null, 2);
+            const ok = await copyTextToClipboard(text);
+            setArtifactDetailsToast(ok ? "ExportSpec copied" : "Copy failed");
+          } catch (err) {
+            setArtifactDetailsToast(
+              `Copy failed: ${err && err.message ? err.message : "Unexpected error"}`,
+            );
+          }
+        });
+      }
+      if (artifactDetailsElements.rerunButton) {
+        artifactDetailsElements.rerunButton.addEventListener("click", () => {
+          rerunArtifactTask();
+        });
+      }
+
+      renderArtifactDetails();
+      document.addEventListener("keydown", handleArtifactDetailsKeydown);
 
       renderArtifactsTable();
       setActiveTab("panel-builder");
