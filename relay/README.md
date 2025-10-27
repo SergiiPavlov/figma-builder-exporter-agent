@@ -10,6 +10,11 @@ npm run dev   # http://localhost:3000
 # (опционально) ngrok http 3000
 ```
 
+## Запуск с .env
+
+Скопируйте `.env.example` → `.env` и заполните нужные переменные (например, `API_KEYS`, `CORS_ORIGIN`).
+Сервер автоматически подхватит файл при старте (`npm run dev`).
+
 ## Эндпоинты
 - `GET /health` → `{ ok: true }`
 - `POST /tasks` body: `{ taskSpec }` → `{ taskId }`
