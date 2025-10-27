@@ -57,8 +57,34 @@ function parseTrustProxy(value) {
   }
   if (Array.isArray(value)) {
     const entries = value
-      .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry).trim()))
-      .filter(Boolean);
+      .flatMap((entry) => {
+        if (entry == null) {
+          return [];
+        }
+        if (typeof entry === 'boolean') {
+          return [entry];
+        }
+        if (typeof entry === 'number' && Number.isFinite(entry) && entry >= 0) {
+          return [entry];
+        }
+        const strEntry = String(entry).trim();
+        if (!strEntry) {
+          return [];
+        }
+        return strEntry
+          .split(',')
+          .map((segment) => segment.trim())
+          .filter(Boolean);
+      })
+      .map((entry) => {
+        if (typeof entry === 'number') {
+          return entry;
+        }
+        if (typeof entry === 'boolean') {
+          return entry;
+        }
+        return /^\d+$/.test(entry) ? Number(entry) : entry;
+      });
     if (entries.length === 0) {
       return false;
     }
@@ -69,10 +95,16 @@ function parseTrustProxy(value) {
     return false;
   }
   const lower = str.toLowerCase();
-  if (lower === 'false' || lower === '0' || lower === 'no' || lower === 'off') {
+  if (lower === 'false' || lower === 'no' || lower === 'off') {
     return false;
   }
-  if (lower === 'true' || lower === '1' || lower === 'yes' || lower === 'on') {
+  if (/^\d+$/.test(str)) {
+    const num = Number(str);
+    if (num >= 0) {
+      return num;
+    }
+  }
+  if (lower === 'true' || lower === 'yes' || lower === 'on') {
     return true;
   }
   if (lower === 'loopback' || lower === 'uniquelocal') {
@@ -81,7 +113,8 @@ function parseTrustProxy(value) {
   const segments = str
     .split(',')
     .map((segment) => segment.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((segment) => (/^\d+$/.test(segment) ? Number(segment) : segment));
   if (segments.length === 0) {
     return false;
   }

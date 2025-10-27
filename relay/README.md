@@ -15,6 +15,16 @@ npm run dev   # http://localhost:3000
 Скопируйте `.env.example` → `.env` и заполните нужные переменные (например, `API_KEYS`, `CORS_ORIGIN`).
 Сервер автоматически подхватит файл при старте (`npm run dev`).
 
+Примеры значений `TRUST_PROXY` для `.env`:
+
+```
+TRUST_PROXY=false        # по умолчанию, без прокси
+TRUST_PROXY=1            # один доверенный прокси перед приложением
+TRUST_PROXY=loopback     # доверять локальному прокси
+```
+
+> Если у вас только один промежуточный хоп, не ставьте `TRUST_PROXY=true`: передайте точное количество или адреса, чтобы предотвратить спуф заголовков `X-Forwarded-For`.
+
 ## Эндпоинты
 - `GET /health` → `{ ok: true }`
 - `POST /tasks` body: `{ taskSpec }` → `{ taskId }`
