@@ -21,8 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true  # 👈 включает Pages (Source = GitHub Actions)
+        # без enablement: true — предпосылка: Pages включены вручную
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
