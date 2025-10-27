@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
+const https = require('https');
 const { v4: uuidv4 } = require('uuid');
 const Yazl = require('yazl');
 
@@ -18,9 +20,268 @@ const DEFAULT_TTL_DAYS = 30;
 const MAX_BULK_ARTIFACT_IDS = 50;
 const BULK_ZIP_MAX_SIZE_BYTES = 100 * 1024 * 1024;
 
+const DEFAULT_WEBHOOK_RETRIES = 3;
+const DEFAULT_WEBHOOK_TIMEOUT_MS = 5000;
+const WEBHOOK_BACKOFF_BASE_MS = 500;
+
+const DEFAULT_NOTIFICATION_BASE_URL = 'http://localhost:3000';
+
 const DEFAULT_DATA_DIR = path.join(__dirname, 'data');
 const TASK_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'taskSpec.schema.json');
 const EXPORT_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'exportSpec.schema.json');
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseWebhookEvents(value) {
+  const defaultEvents = new Set(['done', 'error']);
+  if (value == null) {
+    return defaultEvents;
+  }
+  const raw = typeof value === 'string' ? value : String(value);
+  if (!raw.trim()) {
+    return defaultEvents;
+  }
+  const normalized = raw
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  if (normalized.length === 0) {
+    return defaultEvents;
+  }
+  const allowed = new Set();
+  for (const item of normalized) {
+    if (item === 'done' || item === 'error') {
+      allowed.add(item);
+    }
+  }
+  return allowed.size > 0 ? allowed : defaultEvents;
+}
+
+function parsePositiveInteger(value, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) {
+    return fallback;
+  }
+  return Math.floor(num);
+}
+
+function sendJson(urlString, body, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try {
+      parsed = new URL(urlString);
+    } catch (err) {
+      reject(err);
+      return;
+    }
+
+    const isHttps = parsed.protocol === 'https:';
+    const transport = isHttps ? https : http;
+    const payload = typeof body === 'string' ? body : JSON.stringify(body);
+    const requestOptions = {
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port ? Number(parsed.port) : isHttps ? 443 : 80,
+      path: `${parsed.pathname}${parsed.search}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload, 'utf8'),
+      },
+    };
+
+    const req = transport.request(requestOptions, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => {
+        chunks.push(chunk);
+      });
+      res.on('end', () => {
+        const statusCode = res.statusCode || 0;
+        const responseBody = Buffer.concat(chunks).toString('utf8');
+        if (statusCode >= 200 && statusCode < 300) {
+          resolve({ statusCode, body: responseBody });
+        } else {
+          const error = new Error(`Unexpected status ${statusCode}`);
+          error.statusCode = statusCode;
+          error.body = responseBody;
+          reject(error);
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      reject(err);
+    });
+
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error('Request timed out'));
+      });
+    }
+
+    req.write(payload);
+    req.end();
+  });
+}
+
+function createNotificationDispatcher({
+  webhookUrl,
+  webhookEvents,
+  webhookRetries,
+  webhookTimeoutMs,
+  slackWebhookUrl,
+  defaultBaseUrl,
+  logger = console,
+} = {}) {
+  const normalizedWebhookUrl = typeof webhookUrl === 'string' ? webhookUrl.trim() : '';
+  const normalizedSlackUrl = typeof slackWebhookUrl === 'string' ? slackWebhookUrl.trim() : '';
+  const allowedEvents = webhookEvents instanceof Set && webhookEvents.size > 0 ? webhookEvents : parseWebhookEvents();
+  const maxAttempts = parsePositiveInteger(webhookRetries, DEFAULT_WEBHOOK_RETRIES);
+  const timeoutMs = parsePositiveInteger(webhookTimeoutMs, DEFAULT_WEBHOOK_TIMEOUT_MS);
+  const baseUrlFallback =
+    typeof defaultBaseUrl === 'string' && defaultBaseUrl.trim()
+      ? defaultBaseUrl.trim()
+      : DEFAULT_NOTIFICATION_BASE_URL;
+
+  function shouldSend(eventKey) {
+    return allowedEvents.has(eventKey);
+  }
+
+  async function dispatchHttp(targetUrl, payload, label) {
+    const attempts = Math.max(1, maxAttempts);
+    let attempt = 0;
+    while (attempt < attempts) {
+      if (attempt > 0) {
+        const delay = WEBHOOK_BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
+        await wait(delay);
+      }
+      try {
+        await sendJson(targetUrl, payload, timeoutMs);
+        return true;
+      } catch (err) {
+        const attemptNumber = attempt + 1;
+        if (logger && typeof logger.error === 'function') {
+          logger.error(`[relay] ${label} attempt ${attemptNumber} failed`, err);
+        }
+        if (attemptNumber >= attempts) {
+          if (logger && typeof logger.error === 'function') {
+            logger.error(`[relay] ${label} giving up after ${attemptNumber} attempts`, err);
+          }
+          return false;
+        }
+      }
+      attempt += 1;
+    }
+    return false;
+  }
+
+  function buildArtifactLinks(taskId) {
+    return {
+      json: `/tasks/${taskId}/artifact`,
+      zip: `/tasks/${taskId}/package.zip`,
+    };
+  }
+
+  function computeBaseUrl(candidate) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+    return baseUrlFallback;
+  }
+
+  function sendSlack(eventKey, taskId, baseUrl, errorMessage) {
+    if (!normalizedSlackUrl || !shouldSend(eventKey)) {
+      return Promise.resolve(false);
+    }
+    const origin = computeBaseUrl(baseUrl);
+    let text;
+    if (eventKey === 'done') {
+      text = `[task.done] ${taskId} ✅\nJSON: ${origin}/tasks/${taskId}/artifact\nZIP:  ${origin}/tasks/${taskId}/package.zip`;
+    } else {
+      text = `[task.error] ${taskId} ❌`;
+      if (errorMessage) {
+        text += `\nError: ${errorMessage}`;
+      }
+    }
+    const payload = JSON.stringify({ text });
+    return dispatchHttp(normalizedSlackUrl, payload, `slack webhook (${eventKey})`);
+  }
+
+  function sendWebhook(eventKey, payload) {
+    if (!normalizedWebhookUrl || !shouldSend(eventKey)) {
+      return Promise.resolve(false);
+    }
+    const label = `task webhook (${payload.event || eventKey})`;
+    return dispatchHttp(normalizedWebhookUrl, JSON.stringify(payload), label);
+  }
+
+  function taskDone({ task, artifactSize, baseUrl } = {}) {
+    if (!task || !shouldSend('done')) {
+      return Promise.resolve(false);
+    }
+    const payload = {
+      event: 'task.done',
+      taskId: task.id,
+      createdAt: task.createdAt ?? Date.now(),
+      status: 'done',
+      artifact: buildArtifactLinks(task.id),
+      summary: {
+        artifactSize: artifactSize ?? null,
+      },
+    };
+    const operations = [];
+    if (normalizedWebhookUrl) {
+      operations.push(sendWebhook('done', payload));
+    }
+    if (normalizedSlackUrl) {
+      operations.push(sendSlack('done', task.id, baseUrl, null));
+    }
+    if (operations.length === 0) {
+      return Promise.resolve(false);
+    }
+    return Promise.all(operations).then(() => true);
+  }
+
+  function taskError({ task, errorMessage, artifactSize, baseUrl } = {}) {
+    if (!task || !shouldSend('error')) {
+      return Promise.resolve(false);
+    }
+    const payload = {
+      event: 'task.error',
+      taskId: task.id,
+      createdAt: task.createdAt ?? Date.now(),
+      status: 'error',
+      artifact: buildArtifactLinks(task.id),
+      summary: {
+        artifactSize: artifactSize ?? null,
+      },
+    };
+    if (errorMessage) {
+      payload.errorMessage = errorMessage;
+    }
+    const operations = [];
+    if (normalizedWebhookUrl) {
+      operations.push(sendWebhook('error', payload));
+    }
+    if (normalizedSlackUrl) {
+      operations.push(sendSlack('error', task.id, baseUrl, errorMessage));
+    }
+    if (operations.length === 0) {
+      return Promise.resolve(false);
+    }
+    return Promise.all(operations).then(() => true);
+  }
+
+  return {
+    taskDone,
+    taskError,
+    allowedEvents,
+    hasWebhook: Boolean(normalizedWebhookUrl),
+    hasSlack: Boolean(normalizedSlackUrl),
+  };
+}
 
 function normalizeLogs(logs) {
   if (!Array.isArray(logs)) return [];
@@ -123,6 +384,51 @@ function createApp(options = {}) {
     dirty: true,
     lastResult: null,
   };
+
+  const defaultBaseUrl =
+    typeof options.notificationBaseUrl === 'string' && options.notificationBaseUrl.trim()
+      ? options.notificationBaseUrl.trim()
+      : DEFAULT_NOTIFICATION_BASE_URL;
+
+  const webhookEventsConfig =
+    options.webhookEvents != null ? options.webhookEvents : process.env.WEBHOOK_EVENTS;
+  const webhookEventsSet =
+    webhookEventsConfig instanceof Set
+      ? webhookEventsConfig
+      : parseWebhookEvents(webhookEventsConfig);
+
+  const notifications = createNotificationDispatcher({
+    webhookUrl:
+      options.webhookUrl != null ? options.webhookUrl : process.env.WEBHOOK_URL,
+    webhookEvents: webhookEventsSet,
+    webhookRetries:
+      options.webhookRetries != null ? options.webhookRetries : process.env.WEBHOOK_RETRIES,
+    webhookTimeoutMs:
+      options.webhookTimeoutMs != null
+        ? options.webhookTimeoutMs
+        : process.env.WEBHOOK_TIMEOUT_MS,
+    slackWebhookUrl:
+      options.slackWebhookUrl != null
+        ? options.slackWebhookUrl
+        : process.env.SLACK_WEBHOOK_URL,
+    defaultBaseUrl,
+  });
+
+  function deriveBaseUrl(req) {
+    if (!req || typeof req.get !== 'function') {
+      return defaultBaseUrl;
+    }
+    const forwardedHost = req.get('x-forwarded-host');
+    const host = forwardedHost && forwardedHost.trim() ? forwardedHost.trim() : req.get('host');
+    if (!host) {
+      return defaultBaseUrl;
+    }
+    const protoHeader = req.get('x-forwarded-proto');
+    const proto = protoHeader
+      ? protoHeader.split(',')[0].trim()
+      : req.protocol || (req.secure ? 'https' : 'http') || 'http';
+    return `${proto}://${host}`;
+  }
 
   const ajv = new Ajv({ allErrors: true, strict: false });
   const taskSchema = JSON.parse(fs.readFileSync(TASK_SCHEMA_PATH, 'utf8'));
@@ -332,6 +638,21 @@ function createApp(options = {}) {
     return { updated, appended };
   }
 
+  function finalizeTaskError(task, errorMessage, { logs: logEntries } = {}) {
+    const normalizedMessage =
+      typeof errorMessage === 'string' && errorMessage.trim() ? errorMessage.trim() : null;
+    const { logs, appended } = appendTaskLogs(task, logEntries);
+    const updated = {
+      ...task,
+      status: 'error',
+      finishedAt: Date.now(),
+      startedAt: task.startedAt ?? task.createdAt ?? Date.now(),
+      error: normalizedMessage,
+      logs,
+    };
+    return { updated, appended };
+  }
+
   function findLatestTaskByStatuses(statuses) {
     const allowed = new Set(statuses);
     const byId = readAll();
@@ -341,6 +662,37 @@ function createApp(options = {}) {
     }
     arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     return arr[0];
+  }
+
+  function markTaskError(taskId, errorMessage, { logs: logEntries, baseUrl } = {}) {
+    const current = readOne(taskId);
+    if (!current) {
+      return false;
+    }
+    const finalize = finalizeTaskError(current, errorMessage, { logs: logEntries });
+    writeOne(finalize.updated);
+    for (const entry of finalize.appended) {
+      broadcastTaskEvent(taskId, 'log', entry);
+    }
+    broadcastTaskEvent(
+      taskId,
+      'result',
+      {
+        status: 'error',
+        exportSpec: finalize.updated.result ?? null,
+        artifactPath: finalize.updated.artifactPath ?? null,
+        artifactSize: finalize.updated.artifactSize ?? null,
+        error: finalize.updated.error ?? null,
+      },
+      { closeAfterMs: 3000 },
+    );
+    notifications.taskError({
+      task: finalize.updated,
+      errorMessage: finalize.updated.error ?? null,
+      artifactSize: finalize.updated.artifactSize ?? null,
+      baseUrl: baseUrl ?? defaultBaseUrl,
+    });
+    return true;
   }
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -467,6 +819,11 @@ function createApp(options = {}) {
       },
       { closeAfterMs: 3000 },
     );
+    notifications.taskDone({
+      task: finalize.updated,
+      artifactSize: finalize.updated.artifactSize ?? null,
+      baseUrl: deriveBaseUrl(req),
+    });
     res.json({ ok: true });
   });
 
@@ -503,6 +860,11 @@ function createApp(options = {}) {
       },
       { closeAfterMs: 3000 },
     );
+    notifications.taskDone({
+      task: finalize.updated,
+      artifactSize: finalize.updated.artifactSize ?? null,
+      baseUrl: deriveBaseUrl(req),
+    });
     res.json({ ok: true });
   });
 
@@ -1007,6 +1369,9 @@ function createApp(options = {}) {
     ttlDays,
     state: cleanupState,
   };
+  app.locals.notifications = notifications;
+  app.locals.markTaskError = (taskId, errorMessage, options = {}) =>
+    markTaskError(taskId, errorMessage, options);
 
   return app;
 }
