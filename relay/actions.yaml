@@ -309,6 +309,72 @@ paths:
                 format: binary
         '404':
           description: No artifact
+  /tasks/{id}/share:
+    post:
+      operationId: shareArtifact
+      summary: Create a time-limited public link for an artifact
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [json, zip]
+                  default: zip
+                ttlMin:
+                  type: integer
+                  minimum: 1
+                  maximum: 1440
+                  default: 60
+      responses:
+        '200':
+          description: Public share link
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - url
+                  - expiresAt
+                properties:
+                  url:
+                    type: string
+                  expiresAt:
+                    type: number
+  /shared/{token}:
+    get:
+      operationId: resolveSharedArtifact
+      summary: Resolve a shared artifact token
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Artifact (JSON or ZIP)
+          content:
+            application/json:
+              schema:
+                type: object
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Not found
+        '410':
+          description: Gone (expired)
   /artifacts/bulk.zip:
     post:
       operationId: downloadArtifactsBulkZip

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const https = require('https');
+const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const Yazl = require('yazl');
 
@@ -25,6 +26,13 @@ const DEFAULT_WEBHOOK_TIMEOUT_MS = 5000;
 const WEBHOOK_BACKOFF_BASE_MS = 500;
 
 const DEFAULT_NOTIFICATION_BASE_URL = 'http://localhost:3000';
+
+const SHARE_STORE_FILENAME = 'shares.json';
+const DEFAULT_PUBLIC_TOKEN_TTL_MIN = 60;
+const MIN_PUBLIC_TOKEN_TTL_MIN = 1;
+const MAX_PUBLIC_TOKEN_TTL_MIN = 1440;
+const SHARE_CLEANUP_INTERVAL_MS = 60 * 1000;
+const EXPIRED_TOKEN_RETENTION_MS = 60 * 60 * 1000;
 
 const DEFAULT_DATA_DIR = path.join(__dirname, 'data');
 const TASK_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'taskSpec.schema.json');
@@ -65,6 +73,103 @@ function parsePositiveInteger(value, fallback) {
     return fallback;
   }
   return Math.floor(num);
+}
+
+function clampTtlMinutes(value, fallback = DEFAULT_PUBLIC_TOKEN_TTL_MIN) {
+  if (value == null) return fallback;
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    return fallback;
+  }
+  const normalized = Math.floor(num);
+  if (!Number.isFinite(normalized)) {
+    return fallback;
+  }
+  if (normalized < MIN_PUBLIC_TOKEN_TTL_MIN) {
+    return MIN_PUBLIC_TOKEN_TTL_MIN;
+  }
+  if (normalized > MAX_PUBLIC_TOKEN_TTL_MIN) {
+    return MAX_PUBLIC_TOKEN_TTL_MIN;
+  }
+  return normalized;
+}
+
+function sanitizeShareType(value) {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'json') {
+      return 'json';
+    }
+  }
+  return 'zip';
+}
+
+function generateShareToken(byteLength = 24) {
+  const size = Number.isFinite(byteLength) && byteLength >= 24 ? Math.floor(byteLength) : 24;
+  return crypto
+    .randomBytes(size)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function summarizeToken(token) {
+  if (typeof token !== 'string') return '';
+  if (token.length <= 6) return token;
+  return `${token.slice(0, 6)}…`;
+}
+
+function loadShareRecords(file, logger = console) {
+  if (!fs.existsSync(file)) {
+    return { active: [], expired: [] };
+  }
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    if (!raw.trim()) {
+      return { active: [], expired: [] };
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return { active: [], expired: [] };
+    }
+    const now = Date.now();
+    const active = [];
+    const expired = [];
+    for (const entry of parsed) {
+      const normalized = {
+        token: typeof entry.token === 'string' ? entry.token : '',
+        taskId: typeof entry.taskId === 'string' ? entry.taskId : '',
+        type: sanitizeShareType(entry.type),
+        expiresAt: Number(entry.expiresAt) || 0,
+      };
+      if (!normalized.token || !normalized.taskId || !Number.isFinite(normalized.expiresAt)) {
+        continue;
+      }
+      if (normalized.expiresAt > now) {
+        active.push(normalized);
+      } else if (now - normalized.expiresAt <= EXPIRED_TOKEN_RETENTION_MS) {
+        expired.push(normalized);
+      }
+    }
+    return { active, expired };
+  } catch (err) {
+    if (logger && typeof logger.error === 'function') {
+      logger.error('[relay] Failed to load share tokens', err);
+    }
+    return { active: [], expired: [] };
+  }
+}
+
+function persistShareRecords(file, records, logger = console) {
+  try {
+    const payload = JSON.stringify(records, null, 2);
+    fs.writeFileSync(file, payload, 'utf8');
+  } catch (err) {
+    if (logger && typeof logger.error === 'function') {
+      logger.error('[relay] Failed to persist share tokens', err);
+    }
+  }
 }
 
 function sendJson(urlString, body, timeoutMs) {
@@ -344,7 +449,11 @@ function ensureStorageStructure(dataDir) {
   }
   const resultsDir = path.join(dataDir, 'results');
   fs.mkdirSync(resultsDir, { recursive: true });
-  return { tasksFile, resultsDir };
+  const sharesFile = path.join(dataDir, SHARE_STORE_FILENAME);
+  if (!fs.existsSync(sharesFile)) {
+    fs.writeFileSync(sharesFile, '[]\n', 'utf8');
+  }
+  return { tasksFile, resultsDir, sharesFile };
 }
 
 function parseInteger(value) {
@@ -356,7 +465,7 @@ function parseInteger(value) {
 
 function createApp(options = {}) {
   const dataDir = resolveDataDir(options.dataDir);
-  const { tasksFile, resultsDir } = ensureStorageStructure(dataDir);
+  const { tasksFile, resultsDir, sharesFile } = ensureStorageStructure(dataDir);
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '5mb' }));
@@ -378,6 +487,69 @@ function createApp(options = {}) {
   );
   const ttlDays =
     configuredTtlDays != null && configuredTtlDays >= 0 ? configuredTtlDays : DEFAULT_TTL_DAYS;
+
+  const configuredPublicBaseUrl =
+    options.publicBaseUrl != null ? options.publicBaseUrl : process.env.PUBLIC_BASE_URL;
+  const normalizedPublicBaseUrl =
+    typeof configuredPublicBaseUrl === 'string' ? configuredPublicBaseUrl.trim() : '';
+  const publicBaseUrl = normalizedPublicBaseUrl || null;
+
+  const configuredDefaultShareTtl =
+    options.publicTokenTtlMin != null ? options.publicTokenTtlMin : process.env.PUBLIC_TOKEN_TTL_MIN;
+  const defaultShareTtlMin = clampTtlMinutes(
+    configuredDefaultShareTtl != null ? configuredDefaultShareTtl : DEFAULT_PUBLIC_TOKEN_TTL_MIN,
+    DEFAULT_PUBLIC_TOKEN_TTL_MIN,
+  );
+
+  const shareTokens = new Map();
+  const expiredShareTokens = new Map();
+
+  const loadedShares = loadShareRecords(sharesFile, console);
+  for (const entry of loadedShares.active) {
+    shareTokens.set(entry.token, entry);
+  }
+  for (const entry of loadedShares.expired) {
+    expiredShareTokens.set(entry.token, entry);
+  }
+
+  function persistShareTokens() {
+    persistShareRecords(sharesFile, Array.from(shareTokens.values()), console);
+  }
+
+  function pruneExpiredShares({ persist = false } = {}) {
+    const now = Date.now();
+    let removed = false;
+    for (const [token, entry] of shareTokens.entries()) {
+      if (!entry || entry.expiresAt <= now) {
+        if (entry && entry.expiresAt <= now) {
+          expiredShareTokens.set(token, entry);
+        }
+        shareTokens.delete(token);
+        removed = true;
+      }
+    }
+    for (const [token, entry] of expiredShareTokens.entries()) {
+      if (!entry || now - entry.expiresAt > EXPIRED_TOKEN_RETENTION_MS) {
+        expiredShareTokens.delete(token);
+      }
+    }
+    if (removed && persist) {
+      persistShareTokens();
+    }
+    return removed;
+  }
+
+  pruneExpiredShares({ persist: true });
+
+  const shareCleanupTimer = setInterval(() => {
+    const removed = pruneExpiredShares({ persist: true });
+    if (removed && console && typeof console.debug === 'function') {
+      console.debug(`[relay] Removed expired share tokens; active=${shareTokens.size}`);
+    }
+  }, SHARE_CLEANUP_INTERVAL_MS);
+  if (typeof shareCleanupTimer.unref === 'function') {
+    shareCleanupTimer.unref();
+  }
 
   const cleanupState = {
     lastRunAt: 0,
@@ -576,6 +748,124 @@ function createApp(options = {}) {
       relative: path.posix.join('data', 'results', filename),
       absolute,
     };
+  }
+
+  function ensureJsonArtifact(taskId) {
+    const artifactPaths = getArtifactPaths(taskId);
+    if (!artifactPaths) {
+      return { error: { status: 400, body: { error: 'Invalid task id' } } };
+    }
+    if (!fs.existsSync(artifactPaths.absolute)) {
+      return { error: { status: 404, body: { error: 'No artifact' } } };
+    }
+    return { artifactPaths };
+  }
+
+  function ensureZipArtifact(taskId) {
+    const ensured = ensureJsonArtifact(taskId);
+    if (ensured.error) {
+      return ensured;
+    }
+    const task = readOne(taskId);
+    if (!task) {
+      return { error: { status: 404, body: { error: 'not found' } } };
+    }
+    return { ...ensured, task };
+  }
+
+  function sendJsonArtifact(res, taskId) {
+    const ensured = ensureJsonArtifact(taskId);
+    if (ensured.error) {
+      return res.status(ensured.error.status).json(ensured.error.body);
+    }
+    const { artifactPaths } = ensured;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${taskId}.json"`);
+    return res.sendFile(artifactPaths.absolute);
+  }
+
+  function sendZipArtifact(res, taskId) {
+    const ensured = ensureZipArtifact(taskId);
+    if (ensured.error) {
+      return res.status(ensured.error.status).json(ensured.error.body);
+    }
+    const { artifactPaths, task } = ensured;
+    const { absolute: artifactFile, relative: artifactRelativePath } = artifactPaths;
+    const logs = normalizeLogs(task.logs);
+    const logsText = logs.map((entry) => formatLogLine(entry)).join('\n');
+    let artifactSize = task.artifactSize ?? null;
+    try {
+      const stat = fs.statSync(artifactFile);
+      artifactSize = stat.size;
+    } catch (err) {
+      console.error('Failed to stat artifact for zip', artifactFile, err);
+    }
+    const taskInfo = {
+      id: task.id,
+      createdAt: task.createdAt ?? null,
+      status: task.status ?? null,
+    };
+    const metaInfo = {
+      id: task.id,
+      createdAt: task.createdAt ?? null,
+      artifactPath: task.artifactPath ?? artifactRelativePath,
+      artifactSize,
+    };
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${taskId}.zip"`);
+
+    const zip = new Yazl.ZipFile();
+    let responseClosed = false;
+    let exportSpecStream = null;
+    let zipStarted = false;
+
+    const abortWithError = (err) => {
+      if (responseClosed) return;
+      responseClosed = true;
+      const reason = err || new Error('Artifact read error');
+      console.error('Failed to stream artifact zip', reason);
+      try {
+        if (exportSpecStream) {
+          exportSpecStream.destroy();
+        }
+      } catch {}
+      try {
+        zip.outputStream.unpipe(res);
+      } catch {}
+      if (!res.headersSent) {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.removeHeader('Content-Disposition');
+        res.status(500).json({ error: 'Artifact read error' });
+      } else {
+        res.destroy(reason);
+      }
+    };
+
+    zip.outputStream.on('error', abortWithError);
+    res.on('close', () => {
+      responseClosed = true;
+    });
+
+    const startZipStream = () => {
+      if (zipStarted || responseClosed) return;
+      zipStarted = true;
+      zip.addReadStream(exportSpecStream, 'exportSpec.json');
+      zip.addBuffer(Buffer.from(logsText, 'utf8'), 'logs.txt');
+      zip.addBuffer(Buffer.from(JSON.stringify(taskInfo, null, 2), 'utf8'), 'task.json');
+      zip.addBuffer(Buffer.from(JSON.stringify(metaInfo, null, 2), 'utf8'), 'meta.json');
+      zip.outputStream.pipe(res);
+      zip.end();
+    };
+
+    exportSpecStream = fs.createReadStream(artifactFile);
+    exportSpecStream.once('open', () => {
+      startZipStream();
+    });
+    exportSpecStream.on('error', (err) => {
+      console.error('Failed to read artifact for zip', artifactFile, err);
+      abortWithError(err);
+    });
   }
 
   function appendTaskLogs(task, newLogs) {
@@ -883,105 +1173,88 @@ function createApp(options = {}) {
   });
 
   app.get('/tasks/:id/artifact', (req, res) => {
-    const id = req.params.id;
-    const artifactPaths = getArtifactPaths(id);
-    if (!artifactPaths) {
-      return res.status(400).json({ error: 'Invalid task id' });
-    }
-    const { absolute: artifactFile } = artifactPaths;
-    if (!fs.existsSync(artifactFile)) {
-      return res.status(404).json({ error: 'No artifact' });
-    }
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${id}.json"`);
-    res.sendFile(artifactFile);
+    return sendJsonArtifact(res, req.params.id);
   });
 
   app.get('/tasks/:id/package.zip', (req, res) => {
-    const id = req.params.id;
-    const artifactPaths = getArtifactPaths(id);
-    if (!artifactPaths) {
-      return res.status(400).json({ error: 'Invalid task id' });
-    }
-    const { absolute: artifactFile, relative: artifactRelativePath } = artifactPaths;
-    if (!fs.existsSync(artifactFile)) {
-      return res.status(404).json({ error: 'No artifact' });
-    }
-    const task = readOne(id);
-    if (!task) {
-      return res.status(404).json({ error: 'not found' });
-    }
-    const logs = normalizeLogs(task.logs);
-    const logsText = logs.map((entry) => formatLogLine(entry)).join('\n');
-    let artifactSize = task.artifactSize ?? null;
-    try {
-      const stat = fs.statSync(artifactFile);
-      artifactSize = stat.size;
-    } catch (err) {
-      console.error('Failed to stat artifact for zip', artifactFile, err);
-    }
-    const taskInfo = {
-      id: task.id,
-      createdAt: task.createdAt ?? null,
-      status: task.status ?? null,
-    };
-    const metaInfo = {
-      id: task.id,
-      createdAt: task.createdAt ?? null,
-      artifactPath: task.artifactPath ?? artifactRelativePath,
-      artifactSize,
-    };
+    return sendZipArtifact(res, req.params.id);
+  });
 
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${id}.zip"`);
+  app.post('/tasks/:id/share', (req, res) => {
+    const taskId = req.params.id;
+    pruneExpiredShares({ persist: true });
 
-    const zip = new Yazl.ZipFile();
-    let responseClosed = false;
-    let exportSpecStream = null;
-    let zipStarted = false;
-    const abortWithError = (err) => {
-      if (responseClosed) return;
-      responseClosed = true;
-      const reason = err || new Error('Artifact read error');
-      console.error('Failed to stream artifact zip', reason);
-      try {
-        if (exportSpecStream) {
-          exportSpecStream.destroy();
+    const body = req.body || {};
+    const shareType = sanitizeShareType(body.type);
+    const ttlCandidate = body.ttlMin != null ? body.ttlMin : defaultShareTtlMin;
+    const ttlMinutes = clampTtlMinutes(ttlCandidate, defaultShareTtlMin);
+
+    const ensured = shareType === 'json' ? ensureJsonArtifact(taskId) : ensureZipArtifact(taskId);
+    if (ensured.error) {
+      return res.status(ensured.error.status).json(ensured.error.body);
+    }
+
+    const token = generateShareToken();
+    const expiresAt = Date.now() + ttlMinutes * 60 * 1000;
+    const entry = { token, taskId, type: shareType, expiresAt };
+    shareTokens.set(token, entry);
+    expiredShareTokens.delete(token);
+    persistShareTokens();
+
+    const requestBase = deriveBaseUrl(req);
+    const originCandidate = publicBaseUrl || requestBase || '';
+    let normalizedOrigin = '';
+    if (typeof originCandidate === 'string') {
+      normalizedOrigin = originCandidate.trim().replace(/\/+$/, '');
+    }
+    if (!normalizedOrigin && typeof requestBase === 'string') {
+      normalizedOrigin = requestBase.trim().replace(/\/+$/, '');
+    }
+    const shareUrlBase = normalizedOrigin || '';
+    const shareUrl = `${shareUrlBase}/shared/${encodeURIComponent(token)}`;
+
+    return res.json({ url: shareUrl, expiresAt });
+  });
+
+  app.get('/shared/:token', (req, res) => {
+    const rawToken = typeof req.params.token === 'string' ? req.params.token.trim() : '';
+    if (!rawToken) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const now = Date.now();
+    const entry = shareTokens.get(rawToken);
+    if (!entry) {
+      const expired = expiredShareTokens.get(rawToken);
+      if (expired) {
+        if (now - expired.expiresAt > EXPIRED_TOKEN_RETENTION_MS) {
+          expiredShareTokens.delete(rawToken);
         }
-      } catch {}
-      try {
-        zip.outputStream.unpipe(res);
-      } catch {}
-      if (!res.headersSent) {
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.removeHeader('Content-Disposition');
-        res.status(500).json({ error: 'Artifact read error' });
-      } else {
-        res.destroy(reason);
+        return res.status(410).json({ error: 'Expired' });
       }
-    };
-    zip.outputStream.on('error', abortWithError);
-    res.on('close', () => {
-      responseClosed = true;
-    });
-    const startZipStream = () => {
-      if (zipStarted || responseClosed) return;
-      zipStarted = true;
-      zip.addReadStream(exportSpecStream, 'exportSpec.json');
-      zip.addBuffer(Buffer.from(logsText, 'utf8'), 'logs.txt');
-      zip.addBuffer(Buffer.from(JSON.stringify(taskInfo, null, 2), 'utf8'), 'task.json');
-      zip.addBuffer(Buffer.from(JSON.stringify(metaInfo, null, 2), 'utf8'), 'meta.json');
-      zip.outputStream.pipe(res);
-      zip.end();
-    };
-    exportSpecStream = fs.createReadStream(artifactFile);
-    exportSpecStream.once('open', () => {
-      startZipStream();
-    });
-    exportSpecStream.on('error', (err) => {
-      console.error('Failed to read artifact for zip', artifactFile, err);
-      abortWithError(err);
-    });
+      pruneExpiredShares({ persist: true });
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    if (entry.expiresAt <= now) {
+      shareTokens.delete(rawToken);
+      expiredShareTokens.set(rawToken, entry);
+      persistShareTokens();
+      return res.status(410).json({ error: 'Expired' });
+    }
+
+    const type = sanitizeShareType(entry.type);
+    if (type === 'json') {
+      return sendJsonArtifact(res, entry.taskId);
+    }
+    if (type === 'zip') {
+      return sendZipArtifact(res, entry.taskId);
+    }
+
+    shareTokens.delete(rawToken);
+    persistShareTokens();
+    console.error('[relay] Unsupported share type for token', summarizeToken(rawToken), type);
+    return res.status(500).json({ error: 'Unsupported share type' });
   });
 
   app.post('/artifacts/bulk.zip', (req, res) => {

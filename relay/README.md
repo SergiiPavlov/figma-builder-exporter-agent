@@ -50,6 +50,18 @@ curl -s -X POST http://localhost:3000/artifacts/bulk.zip \
   -o artifacts-selected.zip
 ```
 
+## Public sharing
+
+- Публичные ссылки включаются опционально через переменные окружения (или аргументы `createApp`):
+  - `PUBLIC_BASE_URL` — базовый URL, который попадёт в ответы (`https://relay.company.com`). Если не задан, используется адрес запроса.
+  - `PUBLIC_TOKEN_TTL_MIN` — TTL токенов по умолчанию в минутах (1–1440, по умолчанию 60).
+- `POST /tasks/{id}/share` → `{ url, expiresAt }`
+  - Тело запроса (опционально): `{ "type": "json" | "zip", "ttlMin": <минуты> }`. По умолчанию выдаётся ZIP.
+  - Сервер генерирует криптостойкий токен и сохраняет его вместе с типом и сроком действия (in-memory + `data/shares.json`).
+- `GET /shared/{token}` — отдаёт JSON или ZIP артефакт. Заголовки совпадают с `/tasks/{id}/artifact` и `/tasks/{id}/package.zip`.
+  - Неверный токен → `404 Not Found`.
+  - Просроченный токен → `410 Gone`; записи очищаются по TTL.
+
 ## Notifications (Webhooks & Slack)
 
 ### Webhooks
