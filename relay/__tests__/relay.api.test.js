@@ -78,6 +78,8 @@ describe('Relay API', () => {
     expect(getTaskRes.status).toBe(200);
     expect(getTaskRes.body.status).toBe('pending');
     expect(getTaskRes.body.createdAt).toEqual(expect.any(Number));
+    expect(getTaskRes.body.hasPreview).toBe(false);
+    expect(getTaskRes.body.previewUrl).toBeNull();
 
     const latestRes = await request.get('/tasks/latest').query({ status: 'pending' });
     expect(latestRes.status).toBe(200);
@@ -112,6 +114,8 @@ describe('Relay API', () => {
     expect(doneTaskRes.body.status).toBe('done');
     expect(doneTaskRes.body.result).toEqual(SAMPLE_EXPORT_SPEC);
     expect(doneTaskRes.body.logs).toEqual(expect.arrayContaining(['build started', 'build done']));
+    expect(doneTaskRes.body.hasPreview).toBe(false);
+    expect(doneTaskRes.body.previewUrl).toBeNull();
 
     const latestDoneRes = await request.get('/tasks/latest').query({ status: 'done' });
     expect(latestDoneRes.status).toBe(200);
@@ -171,6 +175,7 @@ describe('Relay API', () => {
             createdAt: expect.any(Number),
             size: expect.any(Number),
             hasZip: true,
+            hasPreview: false,
           }),
         ],
         total: expect.any(Number),

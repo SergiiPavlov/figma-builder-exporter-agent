@@ -240,10 +240,47 @@
       .artifacts-table .actions {
         white-space: nowrap;
       }
+      .artifacts-table .preview-col {
+        width: 96px;
+      }
       .artifacts-table .muted {
         text-align: center;
         color: #64748b;
         font-style: italic;
+      }
+      .artifact-preview-thumb {
+        display: block;
+        max-width: 100%;
+        max-height: 80px;
+        border: 1px solid #cbd5f5;
+        border-radius: 4px;
+        background: #fff;
+      }
+      .artifact-details__preview {
+        margin: 16px 0;
+      }
+      .artifact-details__preview[data-visible='false'] {
+        display: none;
+      }
+      .artifact-details__preview-body {
+        max-height: 320px;
+        overflow: auto;
+      }
+      .artifact-details__preview-image {
+        width: 100%;
+        height: auto;
+        border: 1px solid #cbd5f5;
+        border-radius: 6px;
+        background: #fff;
+        display: block;
+      }
+      .artifact-details__preview-download {
+        margin-top: 8px;
+        display: inline-block;
+      }
+      .artifact-details__preview-download[aria-disabled='true'] {
+        opacity: 0.6;
+        pointer-events: none;
       }
       .artifacts-pagination {
         display: flex;
@@ -672,6 +709,7 @@
           <tr>
             <th>Select</th>
             <th>ID</th>
+            <th>Preview</th>
             <th>Created</th>
             <th>Size</th>
             <th class="actions">JSON</th>
@@ -680,7 +718,7 @@
         </thead>
         <tbody id="artifacts-tbody">
           <tr>
-            <td colspan="6" class="muted">No artifacts loaded</td>
+            <td colspan="7" class="muted">No artifacts loaded</td>
           </tr>
         </tbody>
       </table>
@@ -769,6 +807,29 @@
                 </button>
                 <button type="button" id="artifact-details-rerun">Re-run task</button>
               </div>
+              <section
+                class="artifact-details__preview"
+                id="artifact-details-preview-section"
+                data-visible="false"
+              >
+                <h5 class="artifact-details__section-title">Preview</h5>
+                <div class="artifact-details__preview-body">
+                  <img
+                    id="artifact-details-preview-image"
+                    class="artifact-details__preview-image"
+                    alt="Artifact preview"
+                  />
+                </div>
+                <a
+                  id="artifact-details-preview-download"
+                  class="button-link artifact-details__preview-download"
+                  href="#"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-disabled="true"
+                  >Download preview</a
+                >
+              </section>
               <div class="artifact-details__share">
                 <div class="artifact-details__share-actions">
                   <button type="button" id="artifact-details-share-json">Share JSON</button>
@@ -929,6 +990,9 @@
         copyIdButton: document.getElementById("artifact-details-copy-id"),
         copyExportButton: document.getElementById("artifact-details-copy-export"),
         rerunButton: document.getElementById("artifact-details-rerun"),
+        previewSection: document.getElementById("artifact-details-preview-section"),
+        previewImage: document.getElementById("artifact-details-preview-image"),
+        previewDownload: document.getElementById("artifact-details-preview-download"),
         shareJsonButton: document.getElementById("artifact-details-share-json"),
         shareZipButton: document.getElementById("artifact-details-share-zip"),
         shareFeedback: document.getElementById("artifact-details-share-feedback"),
@@ -1024,6 +1088,9 @@
         rerunPending: false,
         error: "",
         share: { info: null, pendingType: null, error: "" },
+        hasPreview: false,
+        previewUrl: null,
+        previewUpdatedAt: null,
       };
 
       let currentDetailsReqId = 0;
@@ -1457,6 +1524,18 @@
         }
 
         if (!hasData) {
+          if (artifactDetailsElements.previewSection) {
+            artifactDetailsElements.previewSection.dataset.visible = "false";
+          }
+          if (artifactDetailsElements.previewImage) {
+            artifactDetailsElements.previewImage.removeAttribute("src");
+            artifactDetailsElements.previewImage.alt = "No preview available";
+          }
+          if (artifactDetailsElements.previewDownload) {
+            artifactDetailsElements.previewDownload.href = "#";
+            artifactDetailsElements.previewDownload.setAttribute("aria-disabled", "true");
+            artifactDetailsElements.previewDownload.removeAttribute("download");
+          }
           renderArtifactDetailsLogs();
           renderExportSpecViewer();
           return;
@@ -1495,6 +1574,48 @@
           );
           artifactDetailsElements.zipLink.setAttribute("aria-disabled", "false");
           artifactDetailsElements.zipLink.tabIndex = 0;
+        }
+        if (artifactDetailsElements.previewSection) {
+          const hasPreview = Boolean(
+            artifactDetailsState.hasPreview && artifactDetailsState.previewUrl,
+          );
+          artifactDetailsElements.previewSection.dataset.visible = hasPreview ? "true" : "false";
+          if (artifactDetailsElements.previewImage) {
+            if (hasPreview) {
+              let previewUrl = buildRelayUrl(artifactDetailsState.previewUrl, {
+                includeApiKey: !!RELAY_API_KEY,
+              });
+              if (Number.isFinite(artifactDetailsState.previewUpdatedAt)) {
+                const version = Math.floor(artifactDetailsState.previewUpdatedAt);
+                previewUrl += previewUrl.includes("?") ? `&v=${version}` : `?v=${version}`;
+              }
+              artifactDetailsElements.previewImage.src = previewUrl;
+              artifactDetailsElements.previewImage.alt = taskId
+                ? `Preview of ${taskId}`
+                : "Artifact preview";
+            } else {
+              artifactDetailsElements.previewImage.removeAttribute("src");
+              artifactDetailsElements.previewImage.alt = "No preview available";
+            }
+          }
+          if (artifactDetailsElements.previewDownload) {
+            if (hasPreview) {
+              let downloadUrl = buildRelayUrl(artifactDetailsState.previewUrl, {
+                includeApiKey: !!RELAY_API_KEY,
+              });
+              if (Number.isFinite(artifactDetailsState.previewUpdatedAt)) {
+                const version = Math.floor(artifactDetailsState.previewUpdatedAt);
+                downloadUrl += downloadUrl.includes("?") ? `&v=${version}` : `?v=${version}`;
+              }
+              artifactDetailsElements.previewDownload.href = downloadUrl;
+              artifactDetailsElements.previewDownload.setAttribute("aria-disabled", "false");
+              artifactDetailsElements.previewDownload.download = `${taskId || 'preview'}.png`;
+            } else {
+              artifactDetailsElements.previewDownload.href = "#";
+              artifactDetailsElements.previewDownload.setAttribute("aria-disabled", "true");
+              artifactDetailsElements.previewDownload.removeAttribute("download");
+            }
+          }
         }
         if (artifactDetailsElements.copyIdButton) {
           artifactDetailsElements.copyIdButton.disabled = !taskId;
@@ -1654,6 +1775,13 @@
             artifactDetailsState.logs = Array.isArray(taskData.logs)
               ? taskData.logs.map((line) => String(line))
               : [];
+            artifactDetailsState.hasPreview = !!(taskData && taskData.hasPreview);
+            artifactDetailsState.previewUrl =
+              taskData && typeof taskData.previewUrl === "string" ? taskData.previewUrl : null;
+            artifactDetailsState.previewUpdatedAt =
+              taskData && Number.isFinite(taskData.previewUpdatedAt)
+                ? Number(taskData.previewUpdatedAt)
+                : null;
           });
 
           let resultPayload = null;
@@ -1678,6 +1806,15 @@
                 ? resultPayload.exportSpec
                 : null;
             artifactDetailsState.error = "";
+            if (resultPayload && typeof resultPayload.hasPreview === "boolean") {
+              artifactDetailsState.hasPreview = resultPayload.hasPreview;
+            }
+            if (resultPayload && typeof resultPayload.previewUrl === "string") {
+              artifactDetailsState.previewUrl = resultPayload.previewUrl;
+            }
+            if (resultPayload && Number.isFinite(resultPayload.previewUpdatedAt)) {
+              artifactDetailsState.previewUpdatedAt = Number(resultPayload.previewUpdatedAt);
+            }
           });
         } catch (err) {
           if (err.name !== "AbortError") {
@@ -1765,6 +1902,9 @@
         artifactDetailsState.exportSpec = null;
         artifactDetailsState.task = null;
         artifactDetailsState.result = null;
+        artifactDetailsState.hasPreview = false;
+        artifactDetailsState.previewUrl = null;
+        artifactDetailsState.previewUpdatedAt = null;
         artifactDetailsState.share = { info: null, pendingType: null, error: "" };
         if (artifactDetailsElements.exportSearch) {
           artifactDetailsElements.exportSearch.value = "";
@@ -1791,6 +1931,9 @@
         artifactDetailsState.loading = false;
         artifactDetailsState.rerunPending = false;
         artifactDetailsState.share = { info: null, pendingType: null, error: "" };
+        artifactDetailsState.hasPreview = false;
+        artifactDetailsState.previewUrl = null;
+        artifactDetailsState.previewUpdatedAt = null;
         if (artifactDetailsElements.exportSearch) {
           artifactDetailsElements.exportSearch.value = "";
         }
@@ -1927,7 +2070,7 @@
         if (filtered.length === 0) {
           const emptyRow = document.createElement("tr");
           const cell = document.createElement("td");
-          cell.colSpan = 6;
+          cell.colSpan = 7;
           cell.className = "muted";
           cell.textContent = artifactsState.items.length === 0 ? "No artifacts" : "No matches";
           emptyRow.appendChild(cell);
@@ -1986,6 +2129,28 @@
             const idCell = document.createElement("td");
             idCell.textContent = safeId;
             row.appendChild(idCell);
+
+            const previewCell = document.createElement("td");
+            previewCell.className = "preview-col";
+            if (item.hasPreview) {
+              const img = document.createElement("img");
+              img.className = "artifact-preview-thumb";
+              img.alt = `Preview for ${safeId}`;
+              img.loading = "lazy";
+              let previewUrl = buildRelayUrl(
+                `/tasks/${encodeURIComponent(safeId)}/preview.png`,
+                { includeApiKey: !!RELAY_API_KEY },
+              );
+              if (Number.isFinite(item.previewUpdatedAt)) {
+                const version = Math.floor(item.previewUpdatedAt);
+                previewUrl += previewUrl.includes("?") ? `&v=${version}` : `?v=${version}`;
+              }
+              img.src = previewUrl;
+              previewCell.appendChild(img);
+            } else {
+              previewCell.textContent = "—";
+            }
+            row.appendChild(previewCell);
 
             const createdCell = document.createElement("td");
             createdCell.textContent = formatDateTime(item.createdAt);
@@ -2076,7 +2241,16 @@
             throw new Error(`HTTP ${res.status}`);
           }
           const data = await res.json();
-          artifactsState.items = Array.isArray(data.items) ? data.items : [];
+          artifactsState.items = Array.isArray(data.items)
+            ? data.items.map((entry) => ({
+                ...entry,
+                hasPreview: !!(entry && entry.hasPreview),
+                previewUpdatedAt:
+                  entry && Number.isFinite(entry.previewUpdatedAt)
+                    ? Number(entry.previewUpdatedAt)
+                    : null,
+              }))
+            : [];
           const totalValue = Number(data.total);
           const offsetValue = Number(data.offset);
           const limitValue = Number(data.limit);
@@ -2523,6 +2697,36 @@
               );
             }
           });
+          source.addEventListener("preview", (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              appendStatusLogEntry({
+                message: "Preview updated",
+              });
+              if (!artifactsState.loading && artifactsState.initialized) {
+                fetchArtifacts();
+              }
+              if (artifactDetailsState.open && artifactDetailsState.taskId === taskId) {
+                if (typeof data.hasPreview === "boolean") {
+                  artifactDetailsState.hasPreview = data.hasPreview;
+                } else {
+                  artifactDetailsState.hasPreview = true;
+                }
+                if (typeof data.previewUrl === "string") {
+                  artifactDetailsState.previewUrl = data.previewUrl;
+                }
+                if (Number.isFinite(data.previewUpdatedAt)) {
+                  artifactDetailsState.previewUpdatedAt = Number(data.previewUpdatedAt);
+                }
+                renderArtifactDetails();
+              }
+            } catch (err) {
+              rlog(
+                "Failed to parse preview event: " +
+                  (err && err.message ? err.message : err)
+              );
+            }
+          });
           source.onerror = () => {
             if (source.readyState === EventSource.CLOSED) {
               setConnectionState("closed", "disconnected");
@@ -2712,6 +2916,8 @@
         }
         if (msg.type === "export:ok") {
           const exportSpec = msg.exportSpec;
+          const previewPayload = msg.preview;
+          const previewError = msg.previewError;
           let proceed = true;
           if (exportSpec) {
             try {
@@ -2777,6 +2983,64 @@
                   "Log append error: " +
                     (logErr && logErr.message ? logErr.message : logErr)
                 );
+              }
+              if (
+                previewPayload &&
+                typeof previewPayload.base64 === "string" &&
+                previewPayload.base64 &&
+                previewPayload.contentType === "image/png"
+              ) {
+                try {
+                  const response = await relayFetch(
+                    buildRelayUrl(`/tasks/${lastTaskId}/preview`),
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        contentType: "image/png",
+                        base64: previewPayload.base64,
+                      }),
+                    },
+                  );
+                  if (response.ok) {
+                    rlog(
+                      `Preview uploaded for task ${lastTaskId}` +
+                        (previewPayload.size ? ` (${previewPayload.size} bytes)` : ""),
+                    );
+                    if (artifactsState.initialized) {
+                      fetchArtifacts();
+                    }
+                    if (artifactDetailsState.open && artifactDetailsState.taskId === lastTaskId) {
+                      artifactDetailsState.hasPreview = true;
+                      artifactDetailsState.previewUrl = `/tasks/${lastTaskId}/preview.png`;
+                      artifactDetailsState.previewUpdatedAt = Date.now();
+                      renderArtifactDetails();
+                    }
+                  } else {
+                    let message = `HTTP ${response.status}`;
+                    try {
+                      const payload = await response.json();
+                      if (payload && typeof payload.error === "string" && payload.error.trim()) {
+                        message = payload.error.trim();
+                      }
+                    } catch (err) {
+                      try {
+                        const text = await response.text();
+                        if (text && text.trim()) {
+                          message = text.trim();
+                        }
+                      } catch (_) {}
+                    }
+                    rlog(`Preview upload failed: ${message}`);
+                  }
+                } catch (previewErr) {
+                  rlog(
+                    "Preview upload error: " +
+                      (previewErr && previewErr.message ? previewErr.message : previewErr)
+                  );
+                }
+              } else if (previewError) {
+                rlog(`Preview unavailable: ${previewError}`);
               }
             } catch (err) {
               rlog(

@@ -38,10 +38,44 @@ figma.ui.onmessage = async (msg) => {
           sections: Array.isArray(spec.sections) ? spec.sections.length : 0,
         },
       };
+      let previewPayload = null;
+      let previewError = null;
+      try {
+        const currentPage = figma.currentPage;
+        const selection =
+          currentPage && Array.isArray(currentPage.selection) ? currentPage.selection : [];
+        let exportNode = null;
+        for (const candidate of selection) {
+          if (candidate && typeof candidate.exportAsync === 'function') {
+            exportNode = candidate;
+            break;
+          }
+        }
+        if (!exportNode && currentPage && typeof currentPage.exportAsync === 'function') {
+          exportNode = currentPage;
+        }
+        if (exportNode && typeof exportNode.exportAsync === 'function') {
+          const bytes = await exportNode.exportAsync({
+            format: 'PNG',
+            constraint: { type: 'SCALE', value: 1 },
+          });
+          if (bytes && bytes.length > 0) {
+            previewPayload = {
+              contentType: 'image/png',
+              base64: figma.base64Encode(bytes),
+              size: bytes.length,
+            };
+          }
+        }
+      } catch (error) {
+        previewError = error && error.message ? error.message : String(error);
+      }
       figma.ui.postMessage({
         type: 'export:ok',
         exportSpec,
         filename: 'ExportSpec.json',
+        preview: previewPayload,
+        previewError,
       });
     } else if (msg.type === 'close') {
       figma.closePlugin();

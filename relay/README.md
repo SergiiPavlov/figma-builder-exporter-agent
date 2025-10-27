@@ -16,6 +16,8 @@ npm run dev   # http://localhost:3000
 - `GET /tasks/{id}` → `{ id, status, createdAt, taskSpec, logs[], result?, artifactPath?, artifactSize? }`
 - `GET /tasks/{id}/result` → `{ taskId, status, exportSpec, logs[], error?, artifactPath?, artifactSize? }`
 - `POST /tasks/{id}/result` body: `{ result }` → `{ ok: true }`
+- `POST /tasks/{id}/preview` body: `{ contentType: "image/png", base64 }` → `{ ok: true, size }`
+- `GET /tasks/{id}/preview.png` → binary `image/png`
 
 > Поддерживается повторный запуск задач: отправьте исходный `taskSpec` в `POST /tasks` (плагин добавляет суффикс `-rerun-<short_ts>` к `meta.id` и поле `meta.rerunOf`).
 
@@ -58,6 +60,13 @@ curl -s -X POST http://localhost:3000/artifacts/bulk.zip \
   -d '{"ids":["task-id-1","task-id-2"]}' \
   -o artifacts-selected.zip
 ```
+
+## Previews
+
+- PNG-превью хранятся в `relay/data/previews/{taskId}.png`.
+- Загрузка: `POST /tasks/{id}/preview` с телом `{ "contentType": "image/png", "base64": "..." }`. Лимит размера — 2 МБ; неверный тип или base64 → `400`, превышение лимита → `413`.
+- Получение: `GET /tasks/{id}/preview.png` (возвращает `image/png`, `404`, если файла нет).
+- Когда превью сохранено, `/artifacts` помечает записи `hasPreview=true`, детальные эндпоинты (`/tasks/{id}`, `/tasks/{id}/result`) додают `previewUrl`, а `package.zip` включает файл `preview.png`.
 
 ## Public sharing
 
