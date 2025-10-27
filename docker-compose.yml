@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: relay/Dockerfile
       target: production
-    image: ${RELAY_IMAGE:-figma-relay:local}
+    image: ${RELAY_IMAGE:-ghcr.io/sergiipavlov/figma-relay:latest}
     env_file:
       - relay/.env
     environment:
