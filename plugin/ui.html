@@ -9,6 +9,29 @@
           Helvetica, Arial;
         margin: 12px;
       }
+      .auth-settings {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: flex-end;
+        margin: 10px 0;
+      }
+      .auth-settings label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 11px;
+        color: #1e293b;
+      }
+      .auth-settings input {
+        padding: 4px 6px;
+        font-size: 12px;
+        min-width: 220px;
+      }
+      .auth-settings small {
+        font-size: 10px;
+        color: #64748b;
+      }
       .tabs {
         display: inline-flex;
         gap: 6px;
@@ -563,6 +586,19 @@
         Build/Export замените <code>REPLACE_WITH_FILE_ID</code> на свой fileId.
       </p>
       <textarea id="spec"></textarea>
+      <div class="auth-settings">
+        <label>
+          API key
+          <input
+            type="password"
+            id="api-key-input"
+            placeholder="Enter API key"
+            autocomplete="off"
+          />
+        </label>
+        <button type="button" id="api-key-clear">Clear</button>
+        <small>Stored locally (Figma plugin settings)</small>
+      </div>
       <label class="mode-toggle">
         <input type="checkbox" id="pull-mode" />
         <span>Pull mode</span>
@@ -814,12 +850,50 @@
     <script>
       const RELAY_URL = "http://localhost:3000";
       const PULL_PLUGIN_ID = "plugin-ui";
+      const API_KEY_STORAGE_KEY = "relay:api-key";
+      let RELAY_API_KEY = "";
       let lastTaskId = null;
       let statusSource = null;
       let currentWatchTaskId = null;
       let statusLogs = [];
       const STATUS_LOG_LIMIT = 200;
       let pullModeEnabled = false;
+
+      const buildRelayUrl = (path, { includeApiKey = false } = {}) => {
+        try {
+          const url = new URL(path, RELAY_URL);
+          if (includeApiKey && RELAY_API_KEY) {
+            url.searchParams.set("apiKey", RELAY_API_KEY);
+          }
+          return url.toString();
+        } catch (err) {
+          console.warn("Failed to build relay URL", err);
+          return `${RELAY_URL}${path}`;
+        }
+      };
+
+      const applyApiKeyToInit = (init = {}) => {
+        const finalInit = init ? { ...init } : {};
+        const headers = new Headers(init && init.headers ? init.headers : undefined);
+        if (RELAY_API_KEY) {
+          if (!headers.has("Authorization")) {
+            headers.set("Authorization", `Bearer ${RELAY_API_KEY}`);
+          }
+          if (!headers.has("X-API-Key")) {
+            headers.set("X-API-Key", RELAY_API_KEY);
+          }
+        }
+        finalInit.headers = headers;
+        return finalInit;
+      };
+
+      const relayFetch = (input, init = {}) => {
+        try {
+          return fetch(input, applyApiKeyToInit(init));
+        } catch (err) {
+          return Promise.reject(err);
+        }
+      };
 
       const artifactsPanelEl = document.getElementById("panel-artifacts");
       const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
@@ -868,6 +942,73 @@
         exportViewer: document.getElementById("artifact-details-export-viewer"),
         exportSearch: document.getElementById("artifact-details-export-search"),
       };
+
+      const apiKeyInput = document.getElementById("api-key-input");
+      const apiKeyClearButton = document.getElementById("api-key-clear");
+      const storage = (() => {
+        try {
+          return window.localStorage;
+        } catch (err) {
+          console.warn("localStorage unavailable", err);
+          return null;
+        }
+      })();
+
+      const persistApiKey = (value) => {
+        if (!storage) return;
+        if (value) {
+          storage.setItem(API_KEY_STORAGE_KEY, value);
+        } else {
+          storage.removeItem(API_KEY_STORAGE_KEY);
+        }
+      };
+
+      const loadStoredApiKey = () => {
+        if (!storage) return "";
+        try {
+          return storage.getItem(API_KEY_STORAGE_KEY) || "";
+        } catch (err) {
+          console.warn("Failed to read API key from storage", err);
+          return "";
+        }
+      };
+
+      const applyApiKeyChange = (value) => {
+        const normalized = typeof value === "string" ? value.trim() : "";
+        if (normalized === RELAY_API_KEY) {
+          return;
+        }
+        RELAY_API_KEY = normalized;
+        persistApiKey(normalized);
+        updateArtifactLinks();
+        renderArtifactDetails();
+        if (currentWatchTaskId) {
+          if (normalized) {
+            openTaskWatch(currentWatchTaskId);
+          } else {
+            closeStatusSource();
+          }
+        }
+      };
+
+      const storedKey = loadStoredApiKey();
+      if (storedKey) {
+        RELAY_API_KEY = storedKey;
+      }
+      if (apiKeyInput) {
+        apiKeyInput.value = RELAY_API_KEY;
+        apiKeyInput.addEventListener("input", (event) => {
+          applyApiKeyChange(event.target.value || "");
+        });
+      }
+      if (apiKeyClearButton) {
+        apiKeyClearButton.addEventListener("click", () => {
+          if (apiKeyInput) {
+            apiKeyInput.value = "";
+          }
+          applyApiKeyChange("");
+        });
+      }
 
       const artifactDetailsState = {
         open: false,
@@ -1340,12 +1481,18 @@
           artifactDetailsElements.status.textContent = statusText;
         }
         if (artifactDetailsElements.jsonLink && taskId) {
-          artifactDetailsElements.jsonLink.href = `${RELAY_URL}/tasks/${encodeURIComponent(taskId)}/artifact`;
+          artifactDetailsElements.jsonLink.href = buildRelayUrl(
+            `/tasks/${encodeURIComponent(taskId)}/artifact`,
+            { includeApiKey: !!RELAY_API_KEY },
+          );
           artifactDetailsElements.jsonLink.setAttribute("aria-disabled", "false");
           artifactDetailsElements.jsonLink.tabIndex = 0;
         }
         if (artifactDetailsElements.zipLink && taskId) {
-          artifactDetailsElements.zipLink.href = `${RELAY_URL}/tasks/${encodeURIComponent(taskId)}/package.zip`;
+          artifactDetailsElements.zipLink.href = buildRelayUrl(
+            `/tasks/${encodeURIComponent(taskId)}/package.zip`,
+            { includeApiKey: !!RELAY_API_KEY },
+          );
           artifactDetailsElements.zipLink.setAttribute("aria-disabled", "false");
           artifactDetailsElements.zipLink.tabIndex = 0;
         }
@@ -1492,9 +1639,12 @@
         renderArtifactDetails();
 
         try {
-          const taskRes = await fetch(`${RELAY_URL}/tasks/${encodeURIComponent(taskId)}`, {
-            signal,
-          });
+          const taskRes = await relayFetch(
+            buildRelayUrl(`/tasks/${encodeURIComponent(taskId)}`),
+            {
+              signal,
+            },
+          );
           if (!taskRes.ok) {
             throw new Error(`Task request failed: HTTP ${taskRes.status}`);
           }
@@ -1508,8 +1658,8 @@
 
           let resultPayload = null;
           try {
-            const resultRes = await fetch(
-              `${RELAY_URL}/tasks/${encodeURIComponent(taskId)}/result`,
+            const resultRes = await relayFetch(
+              buildRelayUrl(`/tasks/${encodeURIComponent(taskId)}/result`),
               { signal },
             );
             if (resultRes.status === 404) resultPayload = null;
@@ -1556,8 +1706,8 @@
         renderArtifactDetails();
 
         try {
-          const response = await fetch(
-            `${RELAY_URL}/tasks/${encodeURIComponent(taskId)}/share`,
+          const response = await relayFetch(
+            buildRelayUrl(`/tasks/${encodeURIComponent(taskId)}/share`),
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -1684,7 +1834,7 @@
         setArtifactDetailsNotice(null);
         renderArtifactDetails();
         try {
-          const res = await fetch(`${RELAY_URL}/tasks`, {
+          const res = await relayFetch(buildRelayUrl(`/tasks`), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ taskSpec: clonedSpec }),
@@ -1848,7 +1998,10 @@
             const jsonCell = document.createElement("td");
             jsonCell.className = "actions";
             const jsonLink = document.createElement("a");
-            jsonLink.href = `${RELAY_URL}/tasks/${encodeURIComponent(safeId)}/artifact`;
+            jsonLink.href = buildRelayUrl(
+              `/tasks/${encodeURIComponent(safeId)}/artifact`,
+              { includeApiKey: !!RELAY_API_KEY },
+            );
             jsonLink.textContent = "Download JSON";
             jsonLink.target = "_blank";
             jsonLink.rel = "noopener noreferrer";
@@ -1862,7 +2015,10 @@
             const zipCell = document.createElement("td");
             zipCell.className = "actions";
             const zipLink = document.createElement("a");
-            zipLink.href = `${RELAY_URL}/tasks/${encodeURIComponent(safeId)}/package.zip`;
+            zipLink.href = buildRelayUrl(
+              `/tasks/${encodeURIComponent(safeId)}/package.zip`,
+              { includeApiKey: !!RELAY_API_KEY },
+            );
             zipLink.textContent = "Download ZIP";
             zipLink.target = "_blank";
             zipLink.rel = "noopener noreferrer";
@@ -1913,7 +2069,9 @@
           params.set("offset", String(artifactsState.offset));
           params.set("limit", String(artifactsState.limit));
           params.set("order", artifactsState.order);
-          const res = await fetch(`${RELAY_URL}/artifacts?${params.toString()}`);
+          const res = await relayFetch(
+            buildRelayUrl(`/artifacts?${params.toString()}`),
+          );
           if (!res.ok) {
             throw new Error(`HTTP ${res.status}`);
           }
@@ -1964,7 +2122,7 @@
         button.dataset.loading = "true";
         try {
           const ids = Array.from(artifactsState.selection);
-          const res = await fetch(`${RELAY_URL}/artifacts/bulk.zip`, {
+          const res = await relayFetch(buildRelayUrl(`/artifacts/bulk.zip`), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ids }),
@@ -2176,10 +2334,13 @@
         });
       }
 
-      const updateArtifactLinks = () => {
+      function updateArtifactLinks() {
         if (artifactLinkEl) {
           if (lastTaskId) {
-            artifactLinkEl.href = `${RELAY_URL}/tasks/${lastTaskId}/artifact`;
+            artifactLinkEl.href = buildRelayUrl(
+              `/tasks/${lastTaskId}/artifact`,
+              { includeApiKey: !!RELAY_API_KEY },
+            );
             artifactLinkEl.setAttribute("aria-disabled", "false");
           } else {
             artifactLinkEl.href = "#";
@@ -2188,14 +2349,17 @@
         }
         if (artifactZipLinkEl) {
           if (lastTaskId) {
-            artifactZipLinkEl.href = `${RELAY_URL}/tasks/${lastTaskId}/package.zip`;
+            artifactZipLinkEl.href = buildRelayUrl(
+              `/tasks/${lastTaskId}/package.zip`,
+              { includeApiKey: !!RELAY_API_KEY },
+            );
             artifactZipLinkEl.setAttribute("aria-disabled", "false");
           } else {
             artifactZipLinkEl.href = "#";
             artifactZipLinkEl.setAttribute("aria-disabled", "true");
           }
         }
-      };
+      }
 
       const setTaskSpecTextarea = (taskSpec) => {
         const textarea = document.getElementById("spec");
@@ -2226,7 +2390,7 @@
         openTaskWatch(taskId);
         if (!logMessage) return;
         try {
-          await fetch(`${RELAY_URL}/tasks/${taskId}/log`, {
+          await relayFetch(buildRelayUrl(`/tasks/${taskId}/log`), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message: logMessage }),
@@ -2311,7 +2475,10 @@
         setStatusState("pending");
         setConnectionState("connecting", "connecting...");
         try {
-          const source = new EventSource(`${RELAY_URL}/tasks/${taskId}/watch`);
+          const watchUrl = buildRelayUrl(`/tasks/${taskId}/watch`, {
+            includeApiKey: !!RELAY_API_KEY,
+          });
+          const source = new EventSource(watchUrl);
           statusSource = source;
           source.onopen = () => {
             setConnectionState("connected", "connected");
@@ -2450,7 +2617,7 @@
         let shouldPost = true;
         if (!parseError) {
           try {
-            const res = await fetch(`${RELAY_URL}/validate/taskSpec`, {
+            const res = await relayFetch(buildRelayUrl(`/validate/taskSpec`), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ taskSpec: parsed }),
@@ -2487,11 +2654,11 @@
       document.getElementById("btn-fetch").onclick = async () => {
         try {
           if (pullModeEnabled) {
-            const url = new URL(`${RELAY_URL}/tasks/pull`);
+            const url = new URL(buildRelayUrl(`/tasks/pull`));
             if (PULL_PLUGIN_ID) {
               url.searchParams.set("pluginId", PULL_PLUGIN_ID);
             }
-            const res = await fetch(url.toString());
+            const res = await relayFetch(url.toString());
             if (!res.ok) {
               return rlog(`Pull failed: ${res.status}`);
             }
@@ -2503,7 +2670,9 @@
               "Plugin: pulled task into textarea"
             );
           } else {
-            const res = await fetch(`${RELAY_URL}/tasks/latest?status=pending`);
+            const res = await relayFetch(
+              buildRelayUrl(`/tasks/latest?status=pending`),
+            );
             if (!res.ok) {
               return rlog(`Fetch failed: ${res.status}`);
             }
@@ -2546,7 +2715,7 @@
           let proceed = true;
           if (exportSpec) {
             try {
-              const res = await fetch(`${RELAY_URL}/validate/exportSpec`, {
+              const res = await relayFetch(buildRelayUrl(`/validate/exportSpec`), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ exportSpec }),
@@ -2588,7 +2757,7 @@
           a.style.display = "inline-block";
           if (lastTaskId) {
             try {
-              await fetch(`${RELAY_URL}/tasks/${lastTaskId}/result`, {
+              await relayFetch(buildRelayUrl(`/tasks/${lastTaskId}/result`), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ result: exportSpec }),
@@ -2596,7 +2765,7 @@
               rlog(`Result posted for task ${lastTaskId}`);
               updateArtifactLinks();
               try {
-                await fetch(`${RELAY_URL}/tasks/${lastTaskId}/log`, {
+                await relayFetch(buildRelayUrl(`/tasks/${lastTaskId}/log`), {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({

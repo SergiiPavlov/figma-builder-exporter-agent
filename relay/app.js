@@ -34,6 +34,11 @@ const MAX_PUBLIC_TOKEN_TTL_MIN = 1440;
 const SHARE_CLEANUP_INTERVAL_MS = 60 * 1000;
 const EXPIRED_TOKEN_RETENTION_MS = 60 * 60 * 1000;
 
+const DEFAULT_API_FREE_ENDPOINTS = ['GET /health', 'GET /shared/:token'];
+const DEFAULT_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
+const DEFAULT_RATE_LIMIT_MAX = 100;
+const WATCH_PATH_REGEX = /^\/tasks\/[^/]+\/watch$/;
+
 const DEFAULT_DATA_DIR = path.join(__dirname, 'data');
 const TASK_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'taskSpec.schema.json');
 const EXPORT_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'exportSpec.schema.json');
@@ -118,6 +123,147 @@ function summarizeToken(token) {
   if (typeof token !== 'string') return '';
   if (token.length <= 6) return token;
   return `${token.slice(0, 6)}…`;
+}
+
+function splitCsv(value) {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => splitCsv(entry));
+  }
+  if (value instanceof Set) {
+    return splitCsv(Array.from(value));
+  }
+  const str = String(value);
+  if (!str.trim()) return [];
+  return str
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function normalizePathname(pathname) {
+  if (typeof pathname !== 'string') return '/';
+  const queryIndex = pathname.indexOf('?');
+  const base = queryIndex >= 0 ? pathname.slice(0, queryIndex) : pathname;
+  const trimmed = base.replace(/\s+/g, '');
+  if (!trimmed) return '/';
+  const normalized = trimmed.endsWith('/') && trimmed !== '/' ? trimmed.slice(0, -1) : trimmed;
+  return normalized || '/';
+}
+
+function escapeRegexSegment(segment) {
+  return segment.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
+function createPathMatcher(pattern) {
+  if (typeof pattern !== 'string') {
+    return () => false;
+  }
+  const trimmed = pattern.trim();
+  if (!trimmed) {
+    return () => false;
+  }
+  const ensured = trimmed.startsWith('/') ? trimmed : `/${trimmed.replace(/^\/+/, '')}`;
+  const withoutTrailing = ensured.endsWith('/') && ensured !== '/' ? ensured.slice(0, -1) : ensured;
+  const segments = withoutTrailing.split('/');
+  const regexParts = segments.map((segment, index) => {
+    if (index === 0 && segment === '') {
+      return '';
+    }
+    if (segment.startsWith(':')) {
+      return '[^/]+';
+    }
+    if (segment === '*') {
+      return '.*';
+    }
+    return escapeRegexSegment(segment);
+  });
+  const regex = new RegExp(`^${regexParts.join('/')}$`);
+  return (pathname) => regex.test(normalizePathname(pathname));
+}
+
+function parseFreeEndpointEntry(entry) {
+  if (!entry) return null;
+  if (typeof entry !== 'string') {
+    return parseFreeEndpointEntry(String(entry));
+  }
+  const trimmed = entry.trim();
+  if (!trimmed) return null;
+  const spaceIndex = trimmed.indexOf(' ');
+  let method = null;
+  let pathPart = trimmed;
+  if (spaceIndex > -1) {
+    method = trimmed.slice(0, spaceIndex).trim().toUpperCase();
+    pathPart = trimmed.slice(spaceIndex + 1);
+  }
+  const matcher = createPathMatcher(pathPart);
+  return {
+    method: method && method.length > 0 ? method : null,
+    matcher,
+  };
+}
+
+function parseFreeEndpoints(config, defaults = DEFAULT_API_FREE_ENDPOINTS) {
+  const entries = splitCsv(config);
+  const source = entries.length > 0 ? entries : defaults;
+  const result = [];
+  for (const entry of source) {
+    const parsed = parseFreeEndpointEntry(entry);
+    if (parsed) {
+      result.push(parsed);
+    }
+  }
+  return result;
+}
+
+function parseApiKeys(config) {
+  const entries = splitCsv(config);
+  const set = new Set();
+  for (const entry of entries) {
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim();
+      if (trimmed) {
+        set.add(trimmed);
+      }
+    }
+  }
+  return set;
+}
+
+function extractApiKeyFromRequest(req) {
+  if (!req || typeof req.get !== 'function') return null;
+  const authHeader = req.get('authorization');
+  if (typeof authHeader === 'string' && authHeader.trim()) {
+    const match = authHeader.trim().match(/^Bearer\s+(.+)$/i);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  const headerKey = req.get('x-api-key');
+  if (typeof headerKey === 'string' && headerKey.trim()) {
+    return headerKey.trim();
+  }
+  if (req.query && typeof req.query.apiKey === 'string' && req.query.apiKey.trim()) {
+    return req.query.apiKey.trim();
+  }
+  return null;
+}
+
+function parseCorsOrigins(config) {
+  if (config == null) return [];
+  if (Array.isArray(config)) {
+    return config.flatMap((entry) => parseCorsOrigins(entry));
+  }
+  if (config instanceof Set) {
+    return parseCorsOrigins(Array.from(config));
+  }
+  const str = String(config).trim();
+  if (!str) return [];
+  if (str === '*') return ['*'];
+  return str
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function loadShareRecords(file, logger = console) {
@@ -467,7 +613,131 @@ function createApp(options = {}) {
   const dataDir = resolveDataDir(options.dataDir);
   const { tasksFile, resultsDir, sharesFile } = ensureStorageStructure(dataDir);
   const app = express();
-  app.use(cors());
+  app.set('trust proxy', true);
+
+  const apiKeys = parseApiKeys(
+    options.apiKeys != null ? options.apiKeys : process.env.API_KEYS,
+  );
+  const freeEndpoints = parseFreeEndpoints(
+    options.apiFreeEndpoints != null ? options.apiFreeEndpoints : process.env.API_FREE_ENDPOINTS,
+  );
+  const requireApiKey = apiKeys.size > 0;
+
+  const corsOrigins = parseCorsOrigins(
+    options.corsOrigin != null ? options.corsOrigin : process.env.CORS_ORIGIN,
+  );
+  const allowAnyOrigin = corsOrigins.length === 0 || corsOrigins.includes('*');
+  const corsOptions = {
+    origin: allowAnyOrigin ? '*' : corsOrigins,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-API-Key'],
+    maxAge: 86400,
+  };
+
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
+
+  app.use((req, res, next) => {
+    if (!req.relayAuth) {
+      req.relayAuth = {};
+    }
+    if (req.method === 'OPTIONS') {
+      req.relayAuth.apiKey = null;
+      return next();
+    }
+
+    const providedKey = extractApiKeyFromRequest(req);
+    if (providedKey && apiKeys.has(providedKey)) {
+      req.relayAuth.apiKey = providedKey;
+    } else {
+      req.relayAuth.apiKey = null;
+    }
+
+    if (!requireApiKey) {
+      return next();
+    }
+
+    const method = typeof req.method === 'string' ? req.method.toUpperCase() : 'GET';
+    const pathname = normalizePathname(req.path || req.originalUrl || '/');
+    const isFree = freeEndpoints.some((entry) => {
+      if (entry.method && entry.method !== method) {
+        return false;
+      }
+      return entry.matcher(pathname);
+    });
+    if (isFree) {
+      return next();
+    }
+
+    if (req.relayAuth.apiKey) {
+      return next();
+    }
+
+    res.status(401).json({ error: 'Unauthorized' });
+  });
+
+  const rawRateLimitWindow =
+    options.rateLimitWindowMs != null
+      ? options.rateLimitWindowMs
+      : process.env.RATE_LIMIT_WINDOW_MS;
+  const rawRateLimitMax =
+    options.rateLimitMax != null ? options.rateLimitMax : process.env.RATE_LIMIT_MAX;
+  const hasCustomRateLimit =
+    rawRateLimitWindow != null || rawRateLimitMax != null || options.rateLimitWindowMs != null;
+  const configuredWindowMs =
+    Number(rawRateLimitWindow) === 0
+      ? 0
+      : parsePositiveInteger(rawRateLimitWindow, DEFAULT_RATE_LIMIT_WINDOW_MS);
+  const configuredMax =
+    Number(rawRateLimitMax) === 0
+      ? 0
+      : parsePositiveInteger(rawRateLimitMax, DEFAULT_RATE_LIMIT_MAX);
+  const rateLimitWindowMs =
+    configuredWindowMs === 0 ? 0 : configuredWindowMs || DEFAULT_RATE_LIMIT_WINDOW_MS;
+  const rateLimitMax = configuredMax === 0 ? 0 : configuredMax || DEFAULT_RATE_LIMIT_MAX;
+  const rateLimitEnabled =
+    rateLimitWindowMs > 0 && rateLimitMax > 0 && (requireApiKey || hasCustomRateLimit);
+  const rateLimitBuckets = new Map();
+
+  app.use((req, res, next) => {
+    if (!rateLimitEnabled) {
+      return next();
+    }
+    if (req.method === 'OPTIONS') {
+      return next();
+    }
+    const pathname = normalizePathname(req.path || req.originalUrl || '/');
+    if (WATCH_PATH_REGEX.test(pathname)) {
+      return next();
+    }
+    const key = req.relayAuth && req.relayAuth.apiKey
+      ? `key:${req.relayAuth.apiKey}`
+      : `ip:${req.ip || (req.socket && req.socket.remoteAddress) || 'unknown'}`;
+    const now = Date.now();
+    if (rateLimitBuckets.size > 1000) {
+      for (const [bucketKey, bucketValue] of rateLimitBuckets.entries()) {
+        if (!bucketValue || now - bucketValue.windowStart >= rateLimitWindowMs) {
+          rateLimitBuckets.delete(bucketKey);
+        }
+      }
+    }
+    const bucket = rateLimitBuckets.get(key);
+    if (!bucket || now - bucket.windowStart >= rateLimitWindowMs) {
+      rateLimitBuckets.set(key, { windowStart: now, count: 1 });
+      return next();
+    }
+    bucket.count += 1;
+    if (bucket.count > rateLimitMax) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((bucket.windowStart + rateLimitWindowMs - now) / 1000),
+      );
+      res.set('Retry-After', String(retryAfterSeconds));
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+    return next();
+  });
+
   app.use(express.json({ limit: '5mb' }));
 
   app.locals.dataDir = dataDir;
