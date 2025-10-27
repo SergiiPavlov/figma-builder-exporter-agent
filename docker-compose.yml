@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  relay:
+    build:
+      context: .
+      dockerfile: relay/Dockerfile
+      target: production
+    image: ${RELAY_IMAGE:-figma-relay:local}
+    env_file:
+      - relay/.env
+    environment:
+      PORT: ${RELAY_PORT:-3000}
+      DATA_DIR: ${RELAY_DATA_DIR:-/data}
+      PUBLIC_BASE_URL: ${RELAY_PUBLIC_BASE_URL:-http://localhost:3000}
+    ports:
+      - "${RELAY_PORT:-3000}:3000"
+    volumes:
+      - relay-data:/data
+    restart: unless-stopped
+    profiles:
+      - dev
+      - prod
+
+  webhook-echo:
+    image: mendhak/http-https-echo:30
+    environment:
+      HTTP_PORT: 7777
+      HTTPS_PORT: 0
+    ports:
+      - "7777:7777"
+    restart: unless-stopped
+    profiles:
+      - dev
+
+volumes:
+  relay-data:
+    driver: local

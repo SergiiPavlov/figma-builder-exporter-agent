@@ -158,8 +158,11 @@ describe('Artifacts compare endpoint', () => {
     expect(res.text).toContain('<section id="summary">');
     expect(res.text).toContain('<section id="changes">');
     expect(res.text).toContain('Download JSON diff');
+    expect(res.text).toContain('API key (optional for rerun)');
     expect(res.text).toMatch(/change-item/);
     expect(res.text).toMatch(/hero\.headline/);
+    expect(res.text.toLowerCase()).not.toContain('apikey=');
+    expect(res.text.toLowerCase()).not.toContain('x-api-key=');
   });
 
   test('serves ZIP report with diff.json and diff.html', async () => {
@@ -213,6 +216,8 @@ describe('Artifacts compare endpoint', () => {
     const normalize = (value) =>
       value.replace(/Generated at [^·<]+· Mode:/g, 'Generated at TIMESTAMP · Mode:');
     expect(normalize(zipHtml)).toBe(normalize(htmlRes.text));
+    expect(zipHtml.toLowerCase()).not.toContain('apikey=');
+    expect(zipHtml.toLowerCase()).not.toContain('x-api-key=');
 
     const metaFile = archive.file('meta.txt');
     expect(metaFile).toBeTruthy();

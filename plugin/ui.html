@@ -3724,7 +3724,7 @@
             return;
           }
           try {
-            const url = new URL(buildRelayUrl(`/artifacts/compare.zip`, { includeApiKey: true }));
+            const url = new URL(buildRelayUrl(`/artifacts/compare.zip`));
             url.searchParams.set("leftId", artifactCompareState.leftId);
             url.searchParams.set("rightId", artifactCompareState.rightId);
             url.searchParams.set("mode", artifactCompareState.mode === "summary" ? "summary" : "full");
@@ -3744,7 +3744,7 @@
             return;
           }
           try {
-            const url = new URL(buildRelayUrl(`/artifacts/compare.html`, { includeApiKey: true }));
+            const url = new URL(buildRelayUrl(`/artifacts/compare.html`));
             url.searchParams.set("leftId", artifactCompareState.leftId);
             url.searchParams.set("rightId", artifactCompareState.rightId);
             url.searchParams.set("mode", artifactCompareState.mode === "summary" ? "summary" : "full");
