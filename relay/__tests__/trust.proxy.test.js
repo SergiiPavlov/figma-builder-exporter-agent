@@ -13,6 +13,10 @@ function cleanupDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+function expectErrorBody(res, status, message) {
+  expect(res.body).toEqual({ error: { code: status, message } });
+}
+
 describe('trust proxy configuration', () => {
   const RATE_LIMIT_WINDOW_MS = 10_000;
   const RATE_LIMIT_MAX = 1;
@@ -65,7 +69,7 @@ describe('trust proxy configuration', () => {
         .get('/tasks/pull')
         .set('X-Forwarded-For', '198.51.100.7');
       expect(second.status).toBe(429);
-      expect(second.body).toEqual({ error: 'Too many requests' });
+      expectErrorBody(second, 429, 'Too many requests');
     } finally {
       if (typeof app.__webhooksIdle === 'function') {
         await app.__webhooksIdle();

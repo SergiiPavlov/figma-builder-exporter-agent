@@ -10,6 +10,76 @@ components:
       type: http
       scheme: bearer
       bearerFormat: API-Key
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+  responses:
+    UnauthorizedError:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: 401
+              message: Unauthorized
+    BadRequestError:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: 400
+              message: Bad request
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: 404
+              message: Not found
+    PayloadTooLargeError:
+      description: Payload too large
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: 413
+              message: Payload too large
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: 500
+              message: Internal Server Error
 paths:
   /health:
     get:
@@ -57,6 +127,12 @@ paths:
                           type: string
                         message:
                           type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /validate/exportSpec:
     post:
       operationId: validateExportSpec
@@ -96,6 +172,12 @@ paths:
                           type: string
                         message:
                           type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /tasks:
     post:
       operationId: postTask
@@ -381,13 +463,29 @@ paths:
                   description: Base64-encoded PNG
       responses:
         '200':
-          description: Ok
+          description: Preview stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - ok
+                  - size
+                properties:
+                  ok:
+                    type: boolean
+                  size:
+                    type: integer
         '400':
-          description: Invalid payload
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
         '404':
-          description: Task not found
+          $ref: '#/components/responses/NotFoundError'
         '413':
-          description: Preview too large
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /tasks/{id}/preview.png:
     get:
       operationId: getTaskPreview
@@ -545,10 +643,16 @@ paths:
                           {}
                         right:
                           {}
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
         '404':
-          description: One or both artifacts not found
+          $ref: '#/components/responses/NotFoundError'
         '413':
-          description: Payload too large
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /artifacts/compare.zip:
     get:
       operationId: getArtifactsCompareZip
@@ -580,10 +684,14 @@ paths:
               schema:
                 type: string
                 format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
         '404':
-          description: One or both artifacts not found
+          $ref: '#/components/responses/NotFoundError'
         '413':
-          description: Payload too large
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /artifacts/compare.html:
     get:
       operationId: getArtifactsCompareHtml
@@ -615,10 +723,14 @@ paths:
             text/html:
               schema:
                 type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
         '404':
-          description: One or both artifacts not found
+          $ref: '#/components/responses/NotFoundError'
         '413':
-          description: Payload too large
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /artifacts/bulk.zip:
     post:
       operationId: downloadArtifactsBulkZip

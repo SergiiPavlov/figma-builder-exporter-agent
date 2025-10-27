@@ -25,6 +25,10 @@ function cleanupDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+function expectErrorBody(res, status, message) {
+  expect(res.body).toEqual({ error: { code: status, message } });
+}
+
 describe('Auth & Protection middleware', () => {
   const API_KEY = 'test-key';
   let dataDir;
@@ -64,7 +68,7 @@ describe('Auth & Protection middleware', () => {
   test('rejects protected endpoints without API key', async () => {
     const res = await request.get('/tasks/latest');
     expect(res.status).toBe(401);
-    expect(res.body).toEqual({ error: 'Unauthorized' });
+    expectErrorBody(res, 401, 'Unauthorized');
   });
 
   test('allows public endpoints without API key', async () => {
@@ -74,7 +78,7 @@ describe('Auth & Protection middleware', () => {
 
     const sharedRes = await request.get('/shared/missing');
     expect(sharedRes.status).toBe(404);
-    expect(sharedRes.body.error).toBeDefined();
+    expect(sharedRes.body).toEqual({ error: { code: 404, message: 'Not found' } });
   });
 
   test('accepts valid API key and enforces rate limits', async () => {
@@ -87,7 +91,7 @@ describe('Auth & Protection middleware', () => {
     expect(second.status).toBe(200);
     expect(third.status).toBe(200);
     expect(fourth.status).toBe(429);
-    expect(fourth.body).toEqual({ error: 'Too many requests' });
+    expectErrorBody(fourth, 429, 'Too many requests');
     expect(fourth.headers['retry-after']).toBeDefined();
   });
 

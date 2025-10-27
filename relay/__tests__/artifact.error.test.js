@@ -40,6 +40,10 @@ function removeDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+function expectErrorBody(res, status, message) {
+  expect(res.body).toEqual({ error: { code: status, message } });
+}
+
 describe('artifact package error handling', () => {
   let dataDir;
   let app;
@@ -81,6 +85,6 @@ describe('artifact package error handling', () => {
     const res = await request.get(`/tasks/${taskId}/package.zip`);
     expect(res.status).toBeGreaterThanOrEqual(500);
     expect(res.headers['content-type']).toContain('application/json');
-    expect(res.body).toEqual({ error: 'Artifact read error' });
+    expectErrorBody(res, res.status, 'Artifact read error');
   });
 });
