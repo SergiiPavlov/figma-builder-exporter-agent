@@ -331,6 +331,60 @@
       .artifact-details__actions button {
         font-size: 12px;
       }
+      .artifact-details__share {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        background: #f8fafc;
+      }
+      .artifact-details__share-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .artifact-details__share-actions button {
+        font-size: 12px;
+      }
+      .artifact-details__share-feedback {
+        display: none;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 11px;
+        color: #0f172a;
+        word-break: break-word;
+      }
+      .artifact-details__share-feedback[data-visible='true'] {
+        display: flex;
+      }
+      .artifact-details__share-link {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .artifact-details__share-url {
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        font-weight: 600;
+        color: #1d4ed8;
+      }
+      .artifact-details__share-feedback button {
+        font-size: 11px;
+      }
+      .artifact-details__share-ttl {
+        color: #475569;
+      }
+      .artifact-details__share-error {
+        display: none;
+        font-size: 11px;
+        color: #b91c1c;
+      }
+      .artifact-details__share-error[data-visible='true'] {
+        display: block;
+      }
       .artifact-details__notice {
         font-size: 12px;
         background: #e0f2fe;
@@ -679,6 +733,38 @@
                 </button>
                 <button type="button" id="artifact-details-rerun">Re-run task</button>
               </div>
+              <div class="artifact-details__share">
+                <div class="artifact-details__share-actions">
+                  <button type="button" id="artifact-details-share-json">Share JSON</button>
+                  <button type="button" id="artifact-details-share-zip">Share ZIP</button>
+                </div>
+                <div
+                  class="artifact-details__share-feedback"
+                  id="artifact-details-share-feedback"
+                  data-visible="false"
+                >
+                  <div
+                    class="artifact-details__share-summary"
+                    id="artifact-details-share-summary"
+                  ></div>
+                  <div class="artifact-details__share-link">
+                    <a
+                      id="artifact-details-share-url"
+                      class="artifact-details__share-url"
+                      href="#"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    ></a>
+                    <button type="button" id="artifact-details-share-copy">Copy link</button>
+                  </div>
+                  <div class="artifact-details__share-ttl" id="artifact-details-share-ttl"></div>
+                </div>
+                <div
+                  class="artifact-details__share-error"
+                  id="artifact-details-share-error"
+                  data-visible="false"
+                ></div>
+              </div>
               <div
                 class="artifact-details__notice"
                 id="artifact-details-notice"
@@ -769,6 +855,14 @@
         copyIdButton: document.getElementById("artifact-details-copy-id"),
         copyExportButton: document.getElementById("artifact-details-copy-export"),
         rerunButton: document.getElementById("artifact-details-rerun"),
+        shareJsonButton: document.getElementById("artifact-details-share-json"),
+        shareZipButton: document.getElementById("artifact-details-share-zip"),
+        shareFeedback: document.getElementById("artifact-details-share-feedback"),
+        shareSummary: document.getElementById("artifact-details-share-summary"),
+        shareLink: document.getElementById("artifact-details-share-url"),
+        shareCopyButton: document.getElementById("artifact-details-share-copy"),
+        shareTtl: document.getElementById("artifact-details-share-ttl"),
+        shareError: document.getElementById("artifact-details-share-error"),
         notice: document.getElementById("artifact-details-notice"),
         logs: document.getElementById("artifact-details-logs"),
         exportViewer: document.getElementById("artifact-details-export-viewer"),
@@ -788,6 +882,7 @@
         toast: "",
         rerunPending: false,
         error: "",
+        share: { info: null, pendingType: null, error: "" },
       };
 
       let currentDetailsReqId = 0;
@@ -834,6 +929,31 @@
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return "—";
         return date.toLocaleString();
+      };
+
+      const formatShareSummary = (type) => {
+        return type === "json" ? "Public JSON link" : "Public ZIP link";
+      };
+
+      const formatShareTtl = (expiresAt) => {
+        if (!Number.isFinite(expiresAt)) return "";
+        const now = Date.now();
+        const diffMs = expiresAt - now;
+        if (diffMs <= 0) return "Expired";
+        const minutes = Math.floor(diffMs / 60000);
+        const seconds = Math.floor((diffMs % 60000) / 1000);
+        let remaining = "";
+        if (minutes >= 1) {
+          const minuteLabel = `${minutes} min${minutes === 1 ? "" : "s"}`;
+          if (minutes < 5 && seconds > 0) {
+            remaining = `${minuteLabel} ${seconds} sec`;
+          } else {
+            remaining = minuteLabel;
+          }
+        } else {
+          remaining = `${Math.max(seconds, 1)} sec`;
+        }
+        return `${remaining} left (until ${formatDateTime(expiresAt)})`;
       };
 
       const copyTextToClipboard = async (text) => {
@@ -1162,6 +1282,38 @@
         if (artifactDetailsElements.exportSearch) {
           artifactDetailsElements.exportSearch.value = artifactDetailsState.exportSearch;
         }
+        const shareState =
+          artifactDetailsState.share || { info: null, pendingType: null, error: "" };
+        if (artifactDetailsElements.shareJsonButton) {
+          artifactDetailsElements.shareJsonButton.disabled = true;
+          artifactDetailsElements.shareJsonButton.textContent =
+            shareState.pendingType === "json" ? "Sharing…" : "Share JSON";
+        }
+        if (artifactDetailsElements.shareZipButton) {
+          artifactDetailsElements.shareZipButton.disabled = true;
+          artifactDetailsElements.shareZipButton.textContent =
+            shareState.pendingType === "zip" ? "Sharing…" : "Share ZIP";
+        }
+        if (artifactDetailsElements.shareFeedback) {
+          artifactDetailsElements.shareFeedback.dataset.visible = "false";
+        }
+        if (artifactDetailsElements.shareSummary) {
+          artifactDetailsElements.shareSummary.textContent = "";
+        }
+        if (artifactDetailsElements.shareLink) {
+          artifactDetailsElements.shareLink.textContent = "";
+          artifactDetailsElements.shareLink.href = "#";
+        }
+        if (artifactDetailsElements.shareTtl) {
+          artifactDetailsElements.shareTtl.textContent = "";
+        }
+        if (artifactDetailsElements.shareCopyButton) {
+          artifactDetailsElements.shareCopyButton.disabled = true;
+        }
+        if (artifactDetailsElements.shareError) {
+          artifactDetailsElements.shareError.dataset.visible = "false";
+          artifactDetailsElements.shareError.textContent = "";
+        }
 
         if (!hasData) {
           renderArtifactDetailsLogs();
@@ -1209,6 +1361,40 @@
           artifactDetailsElements.rerunButton.textContent = artifactDetailsState.rerunPending
             ? "Re-running…"
             : "Re-run task";
+        }
+        if (artifactDetailsElements.shareJsonButton) {
+          const isPending = shareState.pendingType === "json";
+          artifactDetailsElements.shareJsonButton.disabled = !taskId || Boolean(shareState.pendingType);
+          artifactDetailsElements.shareJsonButton.textContent = isPending ? "Sharing…" : "Share JSON";
+        }
+        if (artifactDetailsElements.shareZipButton) {
+          const isPending = shareState.pendingType === "zip";
+          artifactDetailsElements.shareZipButton.disabled = !taskId || Boolean(shareState.pendingType);
+          artifactDetailsElements.shareZipButton.textContent = isPending ? "Sharing…" : "Share ZIP";
+        }
+        if (artifactDetailsElements.shareCopyButton) {
+          artifactDetailsElements.shareCopyButton.disabled =
+            !shareState.info || !shareState.info.url;
+        }
+        if (shareState.info && shareState.info.url) {
+          if (artifactDetailsElements.shareFeedback) {
+            artifactDetailsElements.shareFeedback.dataset.visible = "true";
+          }
+          if (artifactDetailsElements.shareSummary) {
+            artifactDetailsElements.shareSummary.textContent = formatShareSummary(shareState.info.type);
+          }
+          if (artifactDetailsElements.shareLink) {
+            artifactDetailsElements.shareLink.textContent = shareState.info.url;
+            artifactDetailsElements.shareLink.href = shareState.info.url;
+          }
+          if (artifactDetailsElements.shareTtl) {
+            artifactDetailsElements.shareTtl.textContent = formatShareTtl(shareState.info.expiresAt);
+          }
+        }
+        if (artifactDetailsElements.shareError) {
+          const shareError = shareState.error ? String(shareState.error) : "";
+          artifactDetailsElements.shareError.dataset.visible = shareError ? "true" : "false";
+          artifactDetailsElements.shareError.textContent = shareError;
         }
 
         renderArtifactDetailsLogs();
@@ -1359,6 +1545,63 @@
         }
       };
 
+      const shareArtifactLink = async (type) => {
+        const taskId = artifactDetailsState.taskId;
+        if (!taskId) return;
+        if (!artifactDetailsState.share) {
+          artifactDetailsState.share = { info: null, pendingType: null, error: "" };
+        }
+        artifactDetailsState.share.pendingType = type;
+        artifactDetailsState.share.error = "";
+        renderArtifactDetails();
+
+        try {
+          const response = await fetch(
+            `${RELAY_URL}/tasks/${encodeURIComponent(taskId)}/share`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type }),
+            },
+          );
+          if (!response.ok) {
+            let message = `HTTP ${response.status}`;
+            try {
+              const payload = await response.json();
+              if (payload && typeof payload.error === "string" && payload.error.trim()) {
+                message = payload.error.trim();
+              }
+            } catch (_) {
+              try {
+                const text = await response.text();
+                if (text && text.trim()) {
+                  message = text.trim();
+                }
+              } catch (_) {}
+            }
+            throw new Error(message);
+          }
+
+          const payload = await response.json();
+          const url = typeof payload.url === "string" ? payload.url : "";
+          const expiresAtRaw = Number(payload.expiresAt);
+          if (!url) {
+            throw new Error("Invalid share response");
+          }
+          artifactDetailsState.share.info = {
+            type,
+            url,
+            expiresAt: Number.isFinite(expiresAtRaw) ? expiresAtRaw : null,
+          };
+          artifactDetailsState.share.error = "";
+        } catch (err) {
+          artifactDetailsState.share.error = `Share failed: ${err?.message || err}`;
+        } finally {
+          artifactDetailsState.share.pendingType = null;
+          renderArtifactDetails();
+        }
+      };
+
       const openArtifactDetails = (taskId) => {
         if (!taskId) return;
         artifactDetailsState.open = true;
@@ -1372,6 +1615,7 @@
         artifactDetailsState.exportSpec = null;
         artifactDetailsState.task = null;
         artifactDetailsState.result = null;
+        artifactDetailsState.share = { info: null, pendingType: null, error: "" };
         if (artifactDetailsElements.exportSearch) {
           artifactDetailsElements.exportSearch.value = "";
         }
@@ -1396,6 +1640,7 @@
         artifactDetailsState.error = "";
         artifactDetailsState.loading = false;
         artifactDetailsState.rerunPending = false;
+        artifactDetailsState.share = { info: null, pendingType: null, error: "" };
         if (artifactDetailsElements.exportSearch) {
           artifactDetailsElements.exportSearch.value = "";
         }
@@ -1869,6 +2114,24 @@
               `Copy failed: ${err && err.message ? err.message : "Unexpected error"}`,
             );
           }
+        });
+      }
+      if (artifactDetailsElements.shareJsonButton) {
+        artifactDetailsElements.shareJsonButton.addEventListener("click", () => {
+          shareArtifactLink("json");
+        });
+      }
+      if (artifactDetailsElements.shareZipButton) {
+        artifactDetailsElements.shareZipButton.addEventListener("click", () => {
+          shareArtifactLink("zip");
+        });
+      }
+      if (artifactDetailsElements.shareCopyButton) {
+        artifactDetailsElements.shareCopyButton.addEventListener("click", async () => {
+          const info = artifactDetailsState.share && artifactDetailsState.share.info;
+          if (!info || !info.url) return;
+          const ok = await copyTextToClipboard(info.url);
+          setArtifactDetailsToast(ok ? "Link copied" : "Copy failed");
         });
       }
       if (artifactDetailsElements.rerunButton) {
