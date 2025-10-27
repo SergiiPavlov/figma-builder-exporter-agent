@@ -85,6 +85,8 @@
 
 - [API Reference (OpenAPI)](docs/openapi.html)
 
+Если это первый запуск, Pages будут включены автоматически этим workflow (требуются права `pages: write`).
+
 ## Release notes
 
 - Подготовка к релизу `v1.0.0`: актуальный список изменений в [CHANGELOG.md](CHANGELOG.md).
