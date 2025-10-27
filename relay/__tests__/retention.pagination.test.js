@@ -78,7 +78,10 @@ describe('Artifacts retention and pagination', () => {
   let app;
   let request;
 
-  afterEach(() => {
+  afterEach(async () => {
+    if (app && typeof app.__webhooksIdle === 'function') {
+      await app.__webhooksIdle();
+    }
     if (dataDir) {
       removeDir(dataDir);
       dataDir = null;

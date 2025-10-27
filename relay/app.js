@@ -45,6 +45,46 @@ const DEFAULT_DATA_DIR = path.join(__dirname, 'data');
 const TASK_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'taskSpec.schema.json');
 const EXPORT_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'exportSpec.schema.json');
 
+function parseTrustProxy(value) {
+  if (value == null) {
+    return false;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const entries = value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry).trim()))
+      .filter(Boolean);
+    if (entries.length === 0) {
+      return false;
+    }
+    return entries.length === 1 ? entries[0] : entries;
+  }
+  const str = String(value).trim();
+  if (!str) {
+    return false;
+  }
+  const lower = str.toLowerCase();
+  if (lower === 'false' || lower === '0' || lower === 'no' || lower === 'off') {
+    return false;
+  }
+  if (lower === 'true' || lower === '1' || lower === 'yes' || lower === 'on') {
+    return true;
+  }
+  if (lower === 'loopback' || lower === 'uniquelocal') {
+    return lower;
+  }
+  const segments = str
+    .split(',')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments.length === 0) {
+    return false;
+  }
+  return segments.length === 1 ? segments[0] : segments;
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -387,6 +427,8 @@ function createNotificationDispatcher({
   slackWebhookUrl,
   defaultBaseUrl,
   logger = console,
+  onDispatchStart,
+  onDispatchEnd,
 } = {}) {
   const normalizedWebhookUrl = typeof webhookUrl === 'string' ? webhookUrl.trim() : '';
   const normalizedSlackUrl = typeof slackWebhookUrl === 'string' ? slackWebhookUrl.trim() : '';
@@ -405,29 +447,46 @@ function createNotificationDispatcher({
   async function dispatchHttp(targetUrl, payload, label) {
     const attempts = Math.max(1, maxAttempts);
     let attempt = 0;
-    while (attempt < attempts) {
-      if (attempt > 0) {
-        const delay = WEBHOOK_BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
-        await wait(delay);
-      }
+    if (typeof onDispatchStart === 'function') {
       try {
-        await sendJson(targetUrl, payload, timeoutMs);
-        return true;
-      } catch (err) {
-        const attemptNumber = attempt + 1;
-        if (logger && typeof logger.error === 'function') {
-          logger.error(`[relay] ${label} attempt ${attemptNumber} failed`, err);
+        onDispatchStart(label);
+      } catch {
+        // ignore logger errors
+      }
+    }
+    try {
+      while (attempt < attempts) {
+        if (attempt > 0) {
+          const delay = WEBHOOK_BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
+          await wait(delay);
         }
-        if (attemptNumber >= attempts) {
+        try {
+          await sendJson(targetUrl, payload, timeoutMs);
+          return true;
+        } catch (err) {
+          const attemptNumber = attempt + 1;
           if (logger && typeof logger.error === 'function') {
-            logger.error(`[relay] ${label} giving up after ${attemptNumber} attempts`, err);
+            logger.error(`[relay] ${label} attempt ${attemptNumber} failed`, err);
           }
-          return false;
+          if (attemptNumber >= attempts) {
+            if (logger && typeof logger.error === 'function') {
+              logger.error(`[relay] ${label} giving up after ${attemptNumber} attempts`, err);
+            }
+            return false;
+          }
+        }
+        attempt += 1;
+      }
+      return false;
+    } finally {
+      if (typeof onDispatchEnd === 'function') {
+        try {
+          onDispatchEnd(label);
+        } catch {
+          // ignore errors from callbacks
         }
       }
-      attempt += 1;
     }
-    return false;
   }
 
   function buildArtifactLinks(taskId) {
@@ -616,8 +675,51 @@ function parseInteger(value) {
 function createApp(options = {}) {
   const dataDir = resolveDataDir(options.dataDir);
   const { tasksFile, resultsDir, previewsDir, sharesFile } = ensureStorageStructure(dataDir);
+  const trustProxyConfig =
+    options.trustProxy != null ? options.trustProxy : process.env.TRUST_PROXY;
+  const trustProxySetting = parseTrustProxy(trustProxyConfig);
   const app = express();
-  app.set('trust proxy', true);
+  app.set('trust proxy', trustProxySetting);
+
+  let activeWebhookRequests = 0;
+  const webhookIdleWaiters = new Set();
+
+  function resolveWebhookIdle() {
+    app.emit('webhooks:idle');
+    if (webhookIdleWaiters.size > 0) {
+      for (const resolver of webhookIdleWaiters) {
+        try {
+          resolver();
+        } catch {
+          // ignore resolver errors
+        }
+      }
+      webhookIdleWaiters.clear();
+    }
+  }
+
+  function onWebhookDispatchStart() {
+    activeWebhookRequests += 1;
+  }
+
+  function onWebhookDispatchEnd() {
+    if (activeWebhookRequests > 0) {
+      activeWebhookRequests -= 1;
+    }
+    if (activeWebhookRequests === 0) {
+      resolveWebhookIdle();
+    }
+  }
+
+  app.__webhooksIdle = () => {
+    if (activeWebhookRequests === 0) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      const resolver = () => resolve();
+      webhookIdleWaiters.add(resolver);
+    });
+  };
 
   const apiKeys = parseApiKeys(
     options.apiKeys != null ? options.apiKeys : process.env.API_KEYS,
@@ -714,9 +816,13 @@ function createApp(options = {}) {
     if (WATCH_PATH_REGEX.test(pathname)) {
       return next();
     }
-    const key = req.relayAuth && req.relayAuth.apiKey
+    const behindProxy = Boolean(app.get('trust proxy'));
+    const ipRaw = behindProxy ? req.ip : req.socket && req.socket.remoteAddress;
+    const identity = req.relayAuth && req.relayAuth.apiKey
       ? `key:${req.relayAuth.apiKey}`
-      : `ip:${req.ip || (req.socket && req.socket.remoteAddress) || 'unknown'}`;
+      : `ip:${ipRaw || 'unknown'}`;
+    const keyHash = crypto.createHash('sha256').update(identity).digest('hex');
+    const key = `sha256:${keyHash}`;
     const now = Date.now();
     if (rateLimitBuckets.size > 1000) {
       for (const [bucketKey, bucketValue] of rateLimitBuckets.entries()) {
@@ -858,6 +964,8 @@ function createApp(options = {}) {
         ? options.slackWebhookUrl
         : process.env.SLACK_WEBHOOK_URL,
     defaultBaseUrl,
+    onDispatchStart: onWebhookDispatchStart,
+    onDispatchEnd: onWebhookDispatchEnd,
   });
 
   function deriveBaseUrl(req) {
