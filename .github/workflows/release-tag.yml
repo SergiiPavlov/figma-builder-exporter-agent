@@ -1,0 +1,145 @@
+name: Release Tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+          cache-dependency-path: relay/package-lock.json
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          OWNER_LC="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "image_repo=ghcr.io/$OWNER_LC/figma-relay" >> "$GITHUB_OUTPUT"
+
+      - name: Install relay dependencies
+        run: npm ci --prefix relay
+
+      - name: Run lint
+        run: npm --prefix relay run lint
+
+      - name: Run tests (CI)
+        run: npm run test:ci
+
+      - name: Start relay server
+        run: |
+          API_KEYS=release_tag \
+          TRUST_PROXY=false \
+          JSON_BODY_LIMIT=1mb \
+          PREVIEW_MAX_BYTES=2000000 \
+          npm run dev --prefix relay &
+          echo $! > relay.pid
+        env:
+          NODE_ENV: development
+
+      - name: Wait for relay health endpoint
+        run: |
+          for i in {1..40}; do
+            if curl -fsS http://localhost:3000/health >/dev/null; then
+              echo "Relay is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Relay failed to start" >&2
+          exit 1
+
+      - name: Run E2E suite
+        run: RELAY_URL=http://localhost:3000 API_KEY=release_tag npm run e2e:ci
+
+      - name: Stop relay server
+        if: always()
+        run: |
+          if [ -f relay.pid ]; then
+            RELAY_PID=$(cat relay.pid)
+            if kill "$RELAY_PID" 2>/dev/null; then
+              wait "$RELAY_PID" 2>/dev/null || true
+            fi
+            rm relay.pid
+          fi
+
+      - name: Build plugin ZIP
+        run: |
+          mkdir -p dist
+          zip -r "dist/figma-plugin-${{ github.ref_name }}.zip" plugin/ \
+            -x "**/.DS_Store" "**/*.map" "plugin/node_modules/**"
+
+      - name: Snapshot OpenAPI yaml for tag
+        run: |
+          mkdir -p schemas
+          cp relay/actions.yaml "schemas/openapi.${{ github.ref_name }}.yaml"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build release image (load)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: relay/Dockerfile
+          target: production
+          load: true
+          tags: |
+            ${{ steps.meta.outputs.image_repo }}:${{ github.ref_name }}
+            ${{ steps.meta.outputs.image_repo }}:latest
+
+      - name: Smoke test release image
+        run: |
+          set -euo pipefail
+          docker run -d --rm -p 3000:3000 --name relay-release ${{ steps.meta.outputs.image_repo }}:${{ github.ref_name }}
+          trap 'docker rm -f relay-release >/dev/null 2>&1 || true' EXIT
+          for i in {1..30}; do
+            if curl -fsS http://localhost:3000/health >/dev/null; then
+              echo "Container is healthy"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:3000/health >/dev/null
+
+      - name: Build and push release image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: relay/Dockerfile
+          target: production
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_repo }}:${{ github.ref_name }}
+            ${{ steps.meta.outputs.image_repo }}:latest
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            dist/figma-plugin-${{ github.ref_name }}.zip
+            schemas/openapi.${{ github.ref_name }}.yaml
+          draft: false
+          prerelease: false

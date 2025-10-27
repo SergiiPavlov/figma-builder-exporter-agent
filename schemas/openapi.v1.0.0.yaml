@@ -1,0 +1,941 @@
+openapi: 3.0.1
+info:
+  title: Figma Relay (Local)
+  version: '0.1'
+servers:
+  - url: http://localhost:3000
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API-Key
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+  responses:
+    UnauthorizedError:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: 401
+              message: Unauthorized
+    BadRequestError:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: 400
+              message: Bad request
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: 404
+              message: Not found
+    PayloadTooLargeError:
+      description: Payload too large
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: 413
+              message: Payload too large
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: 500
+              message: Internal Server Error
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Health check
+      responses:
+        '200':
+          description: ok
+  /validate/taskSpec:
+    post:
+      operationId: validateTaskSpec
+      summary: Validate TaskSpec against JSON Schema
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - taskSpec
+              properties:
+                taskSpec:
+                  type: object
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - valid
+                  - errors
+                properties:
+                  valid:
+                    type: boolean
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        instancePath:
+                          type: string
+                        message:
+                          type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /validate/exportSpec:
+    post:
+      operationId: validateExportSpec
+      summary: Validate ExportSpec against JSON Schema
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - exportSpec
+              properties:
+                exportSpec:
+                  type: object
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - valid
+                  - errors
+                properties:
+                  valid:
+                    type: boolean
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        instancePath:
+                          type: string
+                        message:
+                          type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /tasks:
+    post:
+      operationId: postTask
+      summary: Create a build task
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                taskSpec:
+                  type: object
+      responses:
+        '200':
+          description: Created
+  /tasks/pull:
+    get:
+      operationId: pullTask
+      summary: Pull next pending task and mark it as running
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: pluginId
+          schema:
+            type: string
+          required: false
+      responses:
+        '200':
+          description: Task payload
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - taskId
+                  - taskSpec
+                properties:
+                  taskId:
+                    type: string
+                    nullable: true
+                  taskSpec:
+                    type: object
+                    nullable: true
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      summary: Get task status/result
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Task entry
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - status
+                  - createdAt
+                  - taskSpec
+                  - logs
+                  - hasPreview
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, queued, running, done, error]
+                  createdAt:
+                    type: integer
+                    format: int64
+                  taskSpec:
+                    type: object
+                  logs:
+                    type: array
+                    items:
+                      type: string
+                  result:
+                    type: object
+                    nullable: true
+                  artifactPath:
+                    type: string
+                    nullable: true
+                  artifactSize:
+                    type: integer
+                    nullable: true
+                  hasPreview:
+                    type: boolean
+                  previewUrl:
+                    type: string
+                    nullable: true
+                  previewUpdatedAt:
+                    type: integer
+                    nullable: true
+                  error:
+                    type: string
+                    nullable: true
+  /tasks/{id}/result:
+    get:
+      operationId: getTaskResult
+      summary: Get task result (ExportSpec), status and logs
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Result envelope
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - taskId
+                  - status
+                  - exportSpec
+                  - logs
+                  - error
+                  - hasPreview
+                properties:
+                  taskId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, queued, running, done, error]
+                  exportSpec:
+                    type: object
+                    nullable: true
+                  logs:
+                    type: array
+                    items:
+                      type: string
+                  error:
+                    type: string
+                    nullable: true
+                  artifactPath:
+                    type: string
+                    nullable: true
+                  artifactSize:
+                    type: integer
+                    nullable: true
+                  hasPreview:
+                    type: boolean
+                  previewUrl:
+                    type: string
+                    nullable: true
+                  previewUpdatedAt:
+                    type: integer
+                    nullable: true
+        '404':
+          description: Not found
+    post:
+      operationId: postTaskResult
+      summary: Post exported result (ExportSpec) for a task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                result:
+                  type: object
+      responses:
+        '200':
+          description: Ok
+  /results:
+    post:
+      operationId: postResults
+      summary: Post ExportSpec and logs (compat API)
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - taskId
+                - exportSpec
+              properties:
+                taskId:
+                  type: string
+                exportSpec:
+                  type: object
+                logs:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Ok
+  /tasks/{id}/artifact:
+    get:
+      operationId: getTaskArtifact
+      summary: Download task artifact (ExportSpec JSON)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Artifact JSON file
+          content:
+            application/json:
+              schema:
+                type: object
+  /tasks/{id}/package.zip:
+    get:
+      operationId: getTaskArtifactZip
+      summary: Download artifact ZIP package for task
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ZIP package containing exportSpec.json, logs.txt, task.json, meta.json
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: No artifact
+  /tasks/{id}/preview:
+    post:
+      operationId: uploadTaskPreview
+      summary: Upload PNG preview for task
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - contentType
+                - base64
+              properties:
+                contentType:
+                  type: string
+                  enum: [image/png]
+                base64:
+                  type: string
+                  description: Base64-encoded PNG
+      responses:
+        '200':
+          description: Preview stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - ok
+                  - size
+                properties:
+                  ok:
+                    type: boolean
+                  size:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /tasks/{id}/preview.png:
+    get:
+      operationId: getTaskPreview
+      summary: Get PNG preview for task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: PNG preview
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Not found
+  /tasks/{id}/share:
+    post:
+      operationId: shareArtifact
+      summary: Create a time-limited public link for an artifact
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [json, zip]
+                  default: zip
+                ttlMin:
+                  type: integer
+                  minimum: 1
+                  maximum: 1440
+                  default: 60
+      responses:
+        '200':
+          description: Public share link
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - url
+                  - expiresAt
+                properties:
+                  url:
+                    type: string
+                  expiresAt:
+                    type: number
+  /shared/{token}:
+    get:
+      operationId: resolveSharedArtifact
+      summary: Resolve a shared artifact token
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Artifact (JSON or ZIP)
+          content:
+            application/json:
+              schema:
+                type: object
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Not found
+        '410':
+          description: Gone (expired)
+  /artifacts/compare:
+    post:
+      operationId: compareArtifacts
+      summary: Compare two artifact ExportSpecs and return JSON diff
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - leftId
+                - rightId
+              properties:
+                leftId:
+                  type: string
+                rightId:
+                  type: string
+                mode:
+                  type: string
+                  enum: [summary, full]
+                  default: summary
+      responses:
+        '200':
+          description: Diff between artifacts
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - leftId
+                  - rightId
+                  - summary
+                  - diff
+                properties:
+                  leftId:
+                    type: string
+                  rightId:
+                    type: string
+                  summary:
+                    type: object
+                    properties:
+                      added:
+                        type: integer
+                      removed:
+                        type: integer
+                      changed:
+                        type: integer
+                      unchanged:
+                        type: integer
+                  diff:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - path
+                        - type
+                      properties:
+                        path:
+                          type: string
+                        type:
+                          type: string
+                          enum: [added, removed, changed, unchanged]
+                        left:
+                          {}
+                        right:
+                          {}
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /artifacts/compare.zip:
+    get:
+      operationId: getArtifactsCompareZip
+      summary: Download ZIP with diff.json and diff.html
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: leftId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: rightId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: mode
+          schema:
+            type: string
+            enum: [summary, full]
+            default: summary
+      responses:
+        '200':
+          description: ZIP with diff artifacts
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /artifacts/compare.html:
+    get:
+      operationId: getArtifactsCompareHtml
+      summary: Get HTML report for comparison
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: leftId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: rightId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: mode
+          required: false
+          schema:
+            type: string
+            enum: [summary, full]
+            default: summary
+      responses:
+        '200':
+          description: HTML diff report
+          content:
+            text/html:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /artifacts/bulk.zip:
+    post:
+      operationId: downloadArtifactsBulkZip
+      summary: Download multiple artifacts as a ZIP (by ids)
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ids
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: ZIP with multiple artifacts
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Bad request (ids empty/too many/too large)
+        '413':
+          description: Payload too large (size cap exceeded)
+  /artifacts:
+    get:
+      operationId: listArtifacts
+      summary: List artifacts with pagination
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          required: false
+          description: Number of items to skip
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+          required: false
+          description: Page size (max 200)
+        - in: query
+          name: order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          required: false
+          description: Sort order by createdAt
+      responses:
+        '200':
+          description: Paginated artifacts
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                  - total
+                  - offset
+                  - limit
+                properties:
+                  items:
+                    type: array
+                    description: List of artifacts in the current page
+                    items:
+                      type: object
+                      required:
+                        - id
+                        - createdAt
+                        - size
+                        - hasZip
+                        - hasPreview
+                      properties:
+                        id:
+                          type: string
+                        createdAt:
+                          type: number
+                        size:
+                          type: number
+                        hasZip:
+                          type: boolean
+                        hasPreview:
+                          type: boolean
+                        previewUpdatedAt:
+                          type: integer
+                          nullable: true
+                  total:
+                    type: integer
+                    description: Total number of artifacts available across all pages
+                  offset:
+                    type: integer
+                    description: Offset used for the current page of results
+                  limit:
+                    type: integer
+                    description: Maximum number of artifacts returned in the current page
+  /tasks/{id}/log:
+    post:
+      operationId: appendTaskLog
+      summary: Append a log message to the task
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+      responses:
+        '200':
+          description: Ok
+  /tasks/{id}/watch:
+    get:
+      operationId: watchTaskSSE
+      summary: Subscribe to task status via Server-Sent Events
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: text/event-stream with task events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE stream. Events:
+                    - event: status  data: {"status","logs","exportSpec","artifactPath","artifactSize"}
+                    - event: log     data: {"message","ts"}
+                    - event: result  data: {"status","exportSpec","artifactPath","artifactSize"}
+        '404':
+          description: Not found
+  /tasks/latest:
+    get:
+      operationId: getLatestTask
+      summary: Get most recent task by status
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending
+              - running
+              - done
+            default: pending
+      responses:
+        '200':
+          description: Latest task by createdAt
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - status
+                  - createdAt
+                  - taskSpec
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - running
+                      - done
+                  createdAt:
+                    type: number
+                  taskSpec:
+                    type: object
+        '404':
+          description: No tasks for given status
