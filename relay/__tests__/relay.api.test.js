@@ -60,7 +60,11 @@ describe('Relay API', () => {
     request = supertest(app);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    if (app && typeof app.__webhooksIdle === 'function') {
+      await app.__webhooksIdle();
+    }
+    app = null;
     if (dataDir) {
       removeDir(dataDir);
       dataDir = null;

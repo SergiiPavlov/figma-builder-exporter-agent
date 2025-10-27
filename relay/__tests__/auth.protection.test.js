@@ -42,7 +42,11 @@ describe('Auth & Protection middleware', () => {
     request = supertest(app);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    if (app && typeof app.__webhooksIdle === 'function') {
+      await app.__webhooksIdle();
+    }
+    app = null;
     if (dataDir) {
       cleanupDir(dataDir);
       dataDir = null;
@@ -159,5 +163,8 @@ describe('Auth & Protection middleware', () => {
     expect(allowHeaders).toContain('authorization');
     expect(allowHeaders).toContain('content-type');
     expect(allowHeaders).toContain('x-api-key');
+    if (typeof corsApp.__webhooksIdle === 'function') {
+      await corsApp.__webhooksIdle();
+    }
   });
 });

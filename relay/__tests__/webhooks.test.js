@@ -68,12 +68,17 @@ async function waitForCondition(predicate, { timeout = 4000, interval = 50 } = {
 
 describe('Relay webhook notifications', () => {
   let dataDir;
+  let app;
 
   beforeEach(() => {
     dataDir = createTempDataDir();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    if (app && typeof app.__webhooksIdle === 'function') {
+      await app.__webhooksIdle();
+    }
+    app = null;
     if (dataDir) {
       removeDir(dataDir);
       dataDir = null;
@@ -86,7 +91,7 @@ describe('Relay webhook notifications', () => {
     try {
       const webhookUrl = `http://127.0.0.1:${receiver.port}/hook`;
 
-      const app = createApp({
+      app = createApp({
         dataDir,
         webhookUrl,
         webhookTimeoutMs: 1000,
@@ -130,7 +135,7 @@ describe('Relay webhook notifications', () => {
     try {
       const webhookUrl = `http://127.0.0.1:${receiver.port}/fail`;
 
-      const app = createApp({ dataDir, webhookUrl, webhookTimeoutMs: 1000 });
+      app = createApp({ dataDir, webhookUrl, webhookTimeoutMs: 1000 });
       const request = supertest(app);
 
       const createRes = await request.post('/tasks').send({ taskSpec: { meta: { id: 'err', specVersion: '0.1' } } });
@@ -156,7 +161,7 @@ describe('Relay webhook notifications', () => {
   test('no webhook is sent when webhookUrl is not configured', async () => {
     const receiver = await startWebhookReceiver();
     try {
-      const app = createApp({ dataDir });
+      app = createApp({ dataDir });
       const request = supertest(app);
 
       const createRes = await request.post('/tasks').send({ taskSpec: { meta: { id: 'no-hook', specVersion: '0.1' } } });
@@ -183,7 +188,7 @@ describe('Relay webhook notifications', () => {
     try {
       const webhookUrl = `http://127.0.0.1:${receiver.port}/retry`;
 
-      const app = createApp({
+      app = createApp({
         dataDir,
         webhookUrl,
         webhookRetries: 3,
