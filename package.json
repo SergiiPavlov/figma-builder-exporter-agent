@@ -7,6 +7,8 @@
     "test:ci": "npm --prefix relay test -- --runInBand",
     "lint": "npm --prefix relay run lint",
     "format": "prettier -w .",
+    "e2e": "node e2e/run.js",
+    "e2e:ci": "node e2e/run.js --ci",
     "docker:build": "docker build -f relay/Dockerfile -t ${RELAY_IMAGE:-figma-relay:local} .",
     "docker:up": "docker compose --profile prod up -d",
     "docker:up:dev": "docker compose --profile dev up -d",
