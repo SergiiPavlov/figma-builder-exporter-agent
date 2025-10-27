@@ -8,6 +8,8 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const Yazl = require('yazl');
 
+const { diffExportSpecs } = require('./jsonDiff');
+
 const AjvModule = require('ajv/dist/2020');
 const Ajv = typeof AjvModule === 'function' ? AjvModule : AjvModule.default;
 
@@ -20,6 +22,7 @@ const DEFAULT_MAX_ARTIFACTS = 200;
 const DEFAULT_TTL_DAYS = 30;
 const MAX_BULK_ARTIFACT_IDS = 50;
 const BULK_ZIP_MAX_SIZE_BYTES = 100 * 1024 * 1024;
+const COMPARE_MAX_ARTIFACT_SIZE_BYTES = 5 * 1024 * 1024;
 const PREVIEW_MAX_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
 const PREVIEW_CONTENT_TYPE = 'image/png';
 
@@ -1190,6 +1193,44 @@ function createApp(options = {}) {
     return { ...ensured, task };
   }
 
+  function readExportSpecForCompare(taskId) {
+    const ensured = ensureJsonArtifact(taskId);
+    if (ensured.error) {
+      return ensured;
+    }
+    const { artifactPaths } = ensured;
+    let stat = null;
+    try {
+      stat = fs.statSync(artifactPaths.absolute);
+    } catch (err) {
+      console.error('Failed to stat artifact for compare', artifactPaths.absolute, err);
+      return { error: { status: 500, body: { error: 'Failed to read artifact' } } };
+    }
+    if (stat && stat.size > COMPARE_MAX_ARTIFACT_SIZE_BYTES) {
+      return {
+        error: {
+          status: 413,
+          body: { error: 'Artifact too large for comparison' },
+        },
+      };
+    }
+    let text;
+    try {
+      text = fs.readFileSync(artifactPaths.absolute, 'utf8');
+    } catch (err) {
+      console.error('Failed to read artifact for compare', artifactPaths.absolute, err);
+      return { error: { status: 500, body: { error: 'Failed to read artifact' } } };
+    }
+    let exportSpec;
+    try {
+      exportSpec = JSON.parse(text);
+    } catch (err) {
+      console.error('Failed to parse artifact JSON for compare', artifactPaths.absolute, err);
+      return { error: { status: 500, body: { error: 'Failed to parse artifact' } } };
+    }
+    return { exportSpec, size: stat ? stat.size : null };
+  }
+
   function sendJsonArtifact(res, taskId) {
     const ensured = ensureJsonArtifact(taskId);
     if (ensured.error) {
@@ -1992,6 +2033,44 @@ function createApp(options = {}) {
 
     zip.outputStream.pipe(res);
     zip.end();
+  });
+
+  app.post('/artifacts/compare', (req, res) => {
+    const body = req.body || {};
+    const leftId = typeof body.leftId === 'string' ? body.leftId.trim() : '';
+    const rightId = typeof body.rightId === 'string' ? body.rightId.trim() : '';
+    const requestedMode = typeof body.mode === 'string' ? body.mode.trim().toLowerCase() : '';
+    const mode = requestedMode === 'full' ? 'full' : 'summary';
+
+    if (!leftId || !rightId) {
+      return res.status(400).json({ error: 'leftId and rightId are required' });
+    }
+
+    const left = readExportSpecForCompare(leftId);
+    if (left.error) {
+      return res.status(left.error.status).json(left.error.body);
+    }
+
+    const right = readExportSpecForCompare(rightId);
+    if (right.error) {
+      return res.status(right.error.status).json(right.error.body);
+    }
+
+    const includeUnchanged = mode === 'full';
+    const diffResult = diffExportSpecs(left.exportSpec, right.exportSpec, {
+      includeUnchanged,
+    });
+
+    const responseDiff = includeUnchanged
+      ? diffResult.diff
+      : diffResult.diff.filter((entry) => entry.type !== 'unchanged');
+
+    res.json({
+      leftId,
+      rightId,
+      summary: diffResult.summary,
+      diff: responseDiff,
+    });
   });
 
   function cleanupArtifacts({ max = maxArtifacts, ttlDays: ttl = ttlDays } = {}) {

@@ -293,11 +293,17 @@
       .artifacts-pagination button {
         margin-left: 0;
       }
-      #artifacts-bulk-download {
+      .artifacts-pagination-actions {
+        display: inline-flex;
+        gap: 8px;
         margin-left: auto;
+      }
+      #artifacts-compare,
+      #artifacts-bulk-download {
         padding: 6px 10px;
         font-weight: 600;
       }
+      #artifacts-compare[disabled],
       #artifacts-bulk-download[disabled] {
         opacity: 0.6;
         cursor: not-allowed;
@@ -605,6 +611,279 @@
         flex-direction: column;
         gap: 10px;
       }
+      .artifact-compare {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        justify-content: flex-end;
+        pointer-events: none;
+        z-index: 60;
+      }
+      .artifact-compare[data-open='true'] {
+        pointer-events: auto;
+      }
+      .artifact-compare__overlay {
+        flex: 1;
+        background: rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(2px);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      .artifact-compare[data-open='true'] .artifact-compare__overlay {
+        opacity: 1;
+      }
+      .artifact-compare__panel {
+        width: min(520px, 100%);
+        max-width: 100%;
+        background: #ffffff;
+        border-left: 1px solid #cbd5f5;
+        box-shadow: -4px 0 18px rgba(15, 23, 42, 0.16);
+        padding: 18px;
+        overflow-y: auto;
+        transform: translateX(100%);
+        transition: transform 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .artifact-compare[data-open='true'] .artifact-compare__panel {
+        transform: translateX(0);
+      }
+      .artifact-compare__header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .artifact-compare__title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .artifact-compare__close {
+        margin-left: auto;
+        border: none;
+        background: transparent;
+        color: #0f172a;
+        font-size: 18px;
+        line-height: 1;
+        padding: 2px 6px;
+        cursor: pointer;
+      }
+      .artifact-compare__pair {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        font-size: 12px;
+      }
+      .artifact-compare__id {
+        font-family: ui-monospace, Consolas, Menlo, monospace;
+        background: #f1f5f9;
+        border: 1px solid #cbd5f5;
+        border-radius: 4px;
+        padding: 4px 6px;
+        color: #0f172a;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+      }
+      .artifact-compare__vs {
+        font-weight: 600;
+        color: #475569;
+      }
+      .artifact-compare__swap {
+        margin-left: auto;
+        padding: 4px 8px;
+        font-size: 11px;
+        border-radius: 4px;
+        border: 1px solid #cbd5f5;
+        background: #f8fafc;
+        cursor: pointer;
+      }
+      .artifact-compare__swap:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .artifact-compare__loading,
+      .artifact-compare__error {
+        font-size: 12px;
+      }
+      .artifact-compare__loading {
+        color: #1d4ed8;
+      }
+      .artifact-compare__error {
+        color: #b91c1c;
+        background: #fee2e2;
+        border: 1px solid #fecaca;
+        border-radius: 4px;
+        padding: 8px;
+      }
+      .artifact-compare__content {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .artifact-compare__controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .artifact-compare__tabs {
+        display: inline-flex;
+        gap: 6px;
+      }
+      .artifact-compare__tab {
+        padding: 6px 12px;
+        border: 1px solid #cbd5f5;
+        border-radius: 4px;
+        background: #f8fafc;
+        color: #0f172a;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .artifact-compare__tab.is-active {
+        background: #2563eb;
+        border-color: #1d4ed8;
+        color: #ffffff;
+      }
+      .artifact-compare__download {
+        margin-left: auto;
+        padding: 6px 12px;
+        border-radius: 4px;
+        border: 1px solid #0f172a;
+        background: #0f172a;
+        color: #e2e8f0;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .artifact-compare__download[aria-disabled='true'] {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .artifact-compare__section {
+        display: none;
+      }
+      .artifact-compare__section[data-active='true'] {
+        display: block;
+      }
+      .artifact-compare__summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 10px;
+      }
+      .artifact-compare__summary-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 10px;
+        background: #f8fafc;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .artifact-compare__summary-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        color: #475569;
+        letter-spacing: 0.04em;
+      }
+      .artifact-compare__summary-value {
+        font-size: 20px;
+        font-weight: 700;
+        color: #0f172a;
+      }
+      .artifact-compare__search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .artifact-compare__search input {
+        width: 100%;
+        padding: 6px 8px;
+        font-size: 12px;
+      }
+      .artifact-compare__empty {
+        font-size: 12px;
+        color: #64748b;
+        font-style: italic;
+      }
+      .artifact-compare__diff-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .artifact-compare__diff-item {
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 8px;
+        background: #ffffff;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .artifact-compare__diff-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: ui-monospace, Consolas, Menlo, monospace;
+        font-size: 12px;
+        color: #0f172a;
+        overflow-wrap: anywhere;
+      }
+      .artifact-compare__badge {
+        padding: 2px 6px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .artifact-compare__badge--added {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .artifact-compare__badge--removed {
+        background: #fee2e2;
+        color: #b91c1c;
+      }
+      .artifact-compare__badge--changed {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+      .artifact-compare__badge--unchanged {
+        background: #e2e8f0;
+        color: #475569;
+      }
+      .artifact-compare__diff-body {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+        font-size: 12px;
+      }
+      .artifact-compare__diff-column {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .artifact-compare__diff-column strong {
+        font-size: 11px;
+        text-transform: uppercase;
+        color: #475569;
+      }
+      .artifact-compare__diff-value {
+        font-family: ui-monospace, Consolas, Menlo, monospace;
+        background: #f1f5f9;
+        border: 1px solid #cbd5f5;
+        border-radius: 4px;
+        padding: 6px;
+        min-height: 28px;
+        overflow-wrap: anywhere;
+      }
     </style>
   </head>
   <body>
@@ -724,9 +1003,12 @@
       </table>
       <div class="artifacts-pagination">
         <div id="artifacts-pagination-info">No artifacts</div>
-        <button type="button" id="artifacts-bulk-download" disabled>
-          Download selected as ZIP
-        </button>
+        <div class="artifacts-pagination-actions">
+          <button type="button" id="artifacts-compare" disabled>Compare selected</button>
+          <button type="button" id="artifacts-bulk-download" disabled>
+            Download selected as ZIP
+          </button>
+        </div>
       </div>
       <div
         id="artifact-details"
@@ -906,6 +1188,118 @@
           </div>
         </aside>
       </div>
+      <div
+        id="artifact-compare"
+        class="artifact-compare"
+        data-open="false"
+        aria-hidden="true"
+      >
+        <div class="artifact-compare__overlay" id="artifact-compare-overlay"></div>
+        <aside
+          class="artifact-compare__panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="artifact-compare-title"
+        >
+          <div class="artifact-compare__header">
+            <h4 class="artifact-compare__title" id="artifact-compare-title">Compare artifacts</h4>
+            <button
+              type="button"
+              class="artifact-compare__close"
+              id="artifact-compare-close"
+              aria-label="Close compare panel"
+            >
+              ×
+            </button>
+          </div>
+          <div class="artifact-compare__loading" id="artifact-compare-loading" hidden>
+            Comparing artifacts…
+          </div>
+          <div class="artifact-compare__error" id="artifact-compare-error" hidden></div>
+          <div class="artifact-compare__content" id="artifact-compare-content" hidden>
+            <div class="artifact-compare__pair">
+              <span class="artifact-compare__id" id="artifact-compare-left-id">—</span>
+              <span class="artifact-compare__vs">vs</span>
+              <span class="artifact-compare__id" id="artifact-compare-right-id">—</span>
+              <button type="button" class="artifact-compare__swap" id="artifact-compare-swap">
+                Swap
+              </button>
+            </div>
+            <div class="artifact-compare__controls">
+              <div class="artifact-compare__tabs" role="tablist">
+                <button
+                  type="button"
+                  class="artifact-compare__tab is-active"
+                  data-tab="summary"
+                  id="artifact-compare-tab-summary"
+                >
+                  Summary
+                </button>
+                <button
+                  type="button"
+                  class="artifact-compare__tab"
+                  data-tab="changes"
+                  id="artifact-compare-tab-changes"
+                >
+                  Changes
+                </button>
+              </div>
+              <button
+                type="button"
+                class="artifact-compare__download"
+                id="artifact-compare-download"
+                aria-disabled="true"
+              >
+                Download diff.json
+              </button>
+            </div>
+            <div class="artifact-compare__section" data-tab-panel="summary" data-active="true">
+              <div class="artifact-compare__summary-grid">
+                <div class="artifact-compare__summary-card">
+                  <span class="artifact-compare__summary-label">Added</span>
+                  <span class="artifact-compare__summary-value" id="artifact-compare-summary-added"
+                    >0</span
+                  >
+                </div>
+                <div class="artifact-compare__summary-card">
+                  <span class="artifact-compare__summary-label">Removed</span>
+                  <span class="artifact-compare__summary-value" id="artifact-compare-summary-removed"
+                    >0</span
+                  >
+                </div>
+                <div class="artifact-compare__summary-card">
+                  <span class="artifact-compare__summary-label">Changed</span>
+                  <span class="artifact-compare__summary-value" id="artifact-compare-summary-changed"
+                    >0</span
+                  >
+                </div>
+                <div class="artifact-compare__summary-card">
+                  <span class="artifact-compare__summary-label">Unchanged</span>
+                  <span
+                    class="artifact-compare__summary-value"
+                    id="artifact-compare-summary-unchanged"
+                    >0</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="artifact-compare__section" data-tab-panel="changes">
+              <div class="artifact-compare__search">
+                <input
+                  type="search"
+                  id="artifact-compare-search"
+                  placeholder="Search by path"
+                  aria-label="Search diff by path"
+                />
+              </div>
+              <div class="artifact-compare__empty" id="artifact-compare-empty" hidden>
+                No differences for current filter
+              </div>
+              <ul class="artifact-compare__diff-list" id="artifact-compare-list"></ul>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
 
     <script>
@@ -971,6 +1365,7 @@
         nextButton: document.getElementById("artifacts-next"),
         paginationInfo: document.getElementById("artifacts-pagination-info"),
         bulkButton: document.getElementById("artifacts-bulk-download"),
+        compareButton: document.getElementById("artifacts-compare"),
         errorBox: document.getElementById("artifacts-error"),
       };
 
@@ -1006,6 +1401,36 @@
         exportViewer: document.getElementById("artifact-details-export-viewer"),
         exportSearch: document.getElementById("artifact-details-export-search"),
       };
+
+      const artifactCompareElements = {
+        container: document.getElementById("artifact-compare"),
+        overlay: document.getElementById("artifact-compare-overlay"),
+        closeButton: document.getElementById("artifact-compare-close"),
+        loading: document.getElementById("artifact-compare-loading"),
+        error: document.getElementById("artifact-compare-error"),
+        content: document.getElementById("artifact-compare-content"),
+        leftId: document.getElementById("artifact-compare-left-id"),
+        rightId: document.getElementById("artifact-compare-right-id"),
+        swapButton: document.getElementById("artifact-compare-swap"),
+        tabSummary: document.getElementById("artifact-compare-tab-summary"),
+        tabChanges: document.getElementById("artifact-compare-tab-changes"),
+        downloadButton: document.getElementById("artifact-compare-download"),
+        summaryAdded: document.getElementById("artifact-compare-summary-added"),
+        summaryRemoved: document.getElementById("artifact-compare-summary-removed"),
+        summaryChanged: document.getElementById("artifact-compare-summary-changed"),
+        summaryUnchanged: document.getElementById("artifact-compare-summary-unchanged"),
+        summarySection: null,
+        changesSection: null,
+        searchInput: document.getElementById("artifact-compare-search"),
+        emptyState: document.getElementById("artifact-compare-empty"),
+        diffList: document.getElementById("artifact-compare-list"),
+      };
+      if (artifactCompareElements.container) {
+        artifactCompareElements.summarySection =
+          artifactCompareElements.container.querySelector('[data-tab-panel="summary"]');
+        artifactCompareElements.changesSection =
+          artifactCompareElements.container.querySelector('[data-tab-panel="changes"]');
+      }
 
       const apiKeyInput = document.getElementById("api-key-input");
       const apiKeyClearButton = document.getElementById("api-key-clear");
@@ -1091,6 +1516,19 @@
         hasPreview: false,
         previewUrl: null,
         previewUpdatedAt: null,
+      };
+
+      const artifactCompareState = {
+        open: false,
+        loading: false,
+        leftId: null,
+        rightId: null,
+        summary: { added: 0, removed: 0, changed: 0, unchanged: 0 },
+        diff: [],
+        response: null,
+        searchTerm: "",
+        activeTab: "summary",
+        error: "",
       };
 
       let currentDetailsReqId = 0;
@@ -1724,6 +2162,328 @@
         renderArtifactDetails();
       };
 
+      const stringifyCompareValue = (value) => {
+        if (
+          value === null ||
+          value === undefined ||
+          typeof value === "string" ||
+          typeof value === "number" ||
+          typeof value === "boolean" ||
+          typeof value === "bigint"
+        ) {
+          return formatJsonPrimitive(value);
+        }
+        if (Array.isArray(value) || (value && typeof value === "object")) {
+          try {
+            return JSON.stringify(value, null, 2);
+          } catch (_) {
+            return String(value);
+          }
+        }
+        return String(value);
+      };
+
+      const renderArtifactCompare = () => {
+        const container = artifactCompareElements.container;
+        if (!container) return;
+        container.dataset.open = artifactCompareState.open ? "true" : "false";
+        container.setAttribute("aria-hidden", artifactCompareState.open ? "false" : "true");
+
+        if (!artifactCompareState.open) {
+          if (artifactCompareElements.loading) {
+            artifactCompareElements.loading.hidden = true;
+          }
+          if (artifactCompareElements.error) {
+            artifactCompareElements.error.hidden = true;
+            artifactCompareElements.error.textContent = "";
+          }
+          if (artifactCompareElements.content) {
+            artifactCompareElements.content.hidden = true;
+          }
+          return;
+        }
+
+        if (artifactCompareElements.loading) {
+          artifactCompareElements.loading.hidden = !artifactCompareState.loading;
+        }
+        if (artifactCompareElements.error) {
+          const hasError = Boolean(artifactCompareState.error);
+          artifactCompareElements.error.hidden = !hasError;
+          artifactCompareElements.error.textContent = hasError ? artifactCompareState.error : "";
+        }
+
+        const showContent = !artifactCompareState.loading && !artifactCompareState.error;
+        if (artifactCompareElements.content) {
+          artifactCompareElements.content.hidden = !showContent;
+        }
+
+        if (artifactCompareElements.leftId) {
+          artifactCompareElements.leftId.textContent = artifactCompareState.leftId || "—";
+        }
+        if (artifactCompareElements.rightId) {
+          artifactCompareElements.rightId.textContent = artifactCompareState.rightId || "—";
+        }
+        if (artifactCompareElements.swapButton) {
+          artifactCompareElements.swapButton.disabled =
+            artifactCompareState.loading ||
+            !artifactCompareState.leftId ||
+            !artifactCompareState.rightId;
+        }
+
+        const activeTab = artifactCompareState.activeTab === "changes" ? "changes" : "summary";
+        if (artifactCompareElements.tabSummary) {
+          artifactCompareElements.tabSummary.classList.toggle("is-active", activeTab === "summary");
+        }
+        if (artifactCompareElements.tabChanges) {
+          artifactCompareElements.tabChanges.classList.toggle("is-active", activeTab === "changes");
+        }
+        if (artifactCompareElements.summarySection) {
+          artifactCompareElements.summarySection.dataset.active = activeTab === "summary" ? "true" : "false";
+        }
+        if (artifactCompareElements.changesSection) {
+          artifactCompareElements.changesSection.dataset.active = activeTab === "changes" ? "true" : "false";
+        }
+
+        if (artifactCompareElements.summaryAdded) {
+          artifactCompareElements.summaryAdded.textContent = String(
+            Number(artifactCompareState.summary.added) || 0,
+          );
+        }
+        if (artifactCompareElements.summaryRemoved) {
+          artifactCompareElements.summaryRemoved.textContent = String(
+            Number(artifactCompareState.summary.removed) || 0,
+          );
+        }
+        if (artifactCompareElements.summaryChanged) {
+          artifactCompareElements.summaryChanged.textContent = String(
+            Number(artifactCompareState.summary.changed) || 0,
+          );
+        }
+        if (artifactCompareElements.summaryUnchanged) {
+          artifactCompareElements.summaryUnchanged.textContent = String(
+            Number(artifactCompareState.summary.unchanged) || 0,
+          );
+        }
+
+        if (artifactCompareElements.searchInput) {
+          if (artifactCompareElements.searchInput.value !== artifactCompareState.searchTerm) {
+            artifactCompareElements.searchInput.value = artifactCompareState.searchTerm;
+          }
+          artifactCompareElements.searchInput.disabled = artifactCompareState.loading;
+        }
+
+        if (artifactCompareElements.downloadButton) {
+          const hasResponse = Boolean(artifactCompareState.response);
+          artifactCompareElements.downloadButton.setAttribute(
+            "aria-disabled",
+            hasResponse ? "false" : "true",
+          );
+          artifactCompareElements.downloadButton.disabled = !hasResponse;
+        }
+
+        const rawEntries = Array.isArray(artifactCompareState.diff)
+          ? artifactCompareState.diff.filter((entry) => entry && typeof entry === "object")
+          : [];
+        const normalizedSearch = (artifactCompareState.searchTerm || "").trim().toLowerCase();
+        const filteredEntries = rawEntries.filter((entry) => {
+          const type = typeof entry.type === "string" ? entry.type.toLowerCase() : "changed";
+          if (type === "unchanged") {
+            return false;
+          }
+          if (!normalizedSearch) {
+            return true;
+          }
+          const pathText = typeof entry.path === "string" ? entry.path.toLowerCase() : "";
+          return pathText.includes(normalizedSearch);
+        });
+
+        if (artifactCompareElements.diffList) {
+          artifactCompareElements.diffList.innerHTML = "";
+          if (showContent && filteredEntries.length > 0) {
+            for (const entry of filteredEntries) {
+              const type = typeof entry.type === "string" ? entry.type.toLowerCase() : "changed";
+              const badgeType = type === "added" || type === "removed" || type === "unchanged" ? type : "changed";
+              const item = document.createElement("li");
+              item.className = "artifact-compare__diff-item";
+
+              const header = document.createElement("div");
+              header.className = "artifact-compare__diff-header";
+              const badge = document.createElement("span");
+              badge.className = `artifact-compare__badge artifact-compare__badge--${badgeType}`;
+              badge.textContent = badgeType.toUpperCase();
+              header.appendChild(badge);
+              const pathSpan = document.createElement("span");
+              const pathText = typeof entry.path === "string" && entry.path ? entry.path : "(root)";
+              pathSpan.textContent = pathText;
+              header.appendChild(pathSpan);
+              item.appendChild(header);
+
+              const body = document.createElement("div");
+              body.className = "artifact-compare__diff-body";
+
+              const leftColumn = document.createElement("div");
+              leftColumn.className = "artifact-compare__diff-column";
+              const leftLabel = document.createElement("strong");
+              leftLabel.textContent = "Left";
+              const leftValue = document.createElement("pre");
+              leftValue.className = "artifact-compare__diff-value";
+              leftValue.textContent = stringifyCompareValue(entry.left);
+              leftColumn.appendChild(leftLabel);
+              leftColumn.appendChild(leftValue);
+
+              const rightColumn = document.createElement("div");
+              rightColumn.className = "artifact-compare__diff-column";
+              const rightLabel = document.createElement("strong");
+              rightLabel.textContent = "Right";
+              const rightValue = document.createElement("pre");
+              rightValue.className = "artifact-compare__diff-value";
+              rightValue.textContent = stringifyCompareValue(entry.right);
+              rightColumn.appendChild(rightLabel);
+              rightColumn.appendChild(rightValue);
+
+              body.appendChild(leftColumn);
+              body.appendChild(rightColumn);
+              item.appendChild(body);
+              artifactCompareElements.diffList.appendChild(item);
+            }
+          }
+        }
+
+        if (artifactCompareElements.emptyState) {
+          const showEmpty = showContent && filteredEntries.length === 0;
+          artifactCompareElements.emptyState.hidden = !showEmpty;
+          if (showEmpty) {
+            artifactCompareElements.emptyState.textContent = normalizedSearch
+              ? "No differences for current filter"
+              : "No differences";
+          }
+        }
+      };
+
+      const fetchArtifactCompareDiff = async () => {
+        if (!artifactCompareState.leftId || !artifactCompareState.rightId) {
+          artifactCompareState.loading = false;
+          renderArtifactCompare();
+          return;
+        }
+        try {
+          const res = await relayFetch(buildRelayUrl(`/artifacts/compare`), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              leftId: artifactCompareState.leftId,
+              rightId: artifactCompareState.rightId,
+              mode: "full",
+            }),
+          });
+          let payload = null;
+          try {
+            payload = await res.json();
+          } catch (_) {}
+          if (!res.ok) {
+            const message = payload && payload.error ? payload.error : `HTTP ${res.status}`;
+            throw new Error(message);
+          }
+          const data = payload && typeof payload === "object" ? payload : {};
+          const summary = data.summary && typeof data.summary === "object" ? data.summary : {};
+          artifactCompareState.summary = {
+            added: Number(summary.added) || 0,
+            removed: Number(summary.removed) || 0,
+            changed: Number(summary.changed) || 0,
+            unchanged: Number(summary.unchanged) || 0,
+          };
+          artifactCompareState.diff = Array.isArray(data.diff)
+            ? data.diff
+                .filter((entry) => entry && typeof entry === "object")
+                .map((entry) => ({
+                  path: typeof entry.path === "string" ? entry.path : "",
+                  type: typeof entry.type === "string" ? entry.type.toLowerCase() : "changed",
+                  left: Object.prototype.hasOwnProperty.call(entry, "left") ? entry.left : null,
+                  right: Object.prototype.hasOwnProperty.call(entry, "right") ? entry.right : null,
+                }))
+            : [];
+          artifactCompareState.response = {
+            leftId: typeof data.leftId === "string" ? data.leftId : artifactCompareState.leftId,
+            rightId: typeof data.rightId === "string" ? data.rightId : artifactCompareState.rightId,
+            summary: artifactCompareState.summary,
+            diff: Array.isArray(data.diff) ? data.diff : [],
+          };
+          artifactCompareState.error = "";
+        } catch (err) {
+          artifactCompareState.error = `Failed to compare artifacts: ${
+            err && err.message ? err.message : err
+          }`;
+          artifactCompareState.diff = [];
+          artifactCompareState.response = null;
+        } finally {
+          artifactCompareState.loading = false;
+          renderArtifactCompare();
+        }
+      };
+
+      const openArtifactCompare = (leftId, rightId) => {
+        const normalizedLeft = typeof leftId === "string" ? leftId : String(leftId ?? "");
+        const normalizedRight = typeof rightId === "string" ? rightId : String(rightId ?? "");
+        artifactCompareState.open = true;
+        artifactCompareState.leftId = normalizedLeft;
+        artifactCompareState.rightId = normalizedRight;
+        artifactCompareState.activeTab = "summary";
+        artifactCompareState.searchTerm = "";
+        artifactCompareState.summary = { added: 0, removed: 0, changed: 0, unchanged: 0 };
+        artifactCompareState.diff = [];
+        artifactCompareState.response = null;
+        artifactCompareState.error = "";
+        artifactCompareState.loading = true;
+        renderArtifactCompare();
+        fetchArtifactCompareDiff();
+      };
+
+      const closeArtifactCompare = () => {
+        if (!artifactCompareState.open) return;
+        artifactCompareState.open = false;
+        artifactCompareState.loading = false;
+        artifactCompareState.leftId = null;
+        artifactCompareState.rightId = null;
+        artifactCompareState.summary = { added: 0, removed: 0, changed: 0, unchanged: 0 };
+        artifactCompareState.diff = [];
+        artifactCompareState.response = null;
+        artifactCompareState.searchTerm = "";
+        artifactCompareState.activeTab = "summary";
+        artifactCompareState.error = "";
+        renderArtifactCompare();
+      };
+
+      const setArtifactCompareTab = (tab) => {
+        const normalized = tab === "changes" ? "changes" : "summary";
+        if (artifactCompareState.activeTab === normalized) return;
+        artifactCompareState.activeTab = normalized;
+        renderArtifactCompare();
+      };
+
+      const swapArtifactCompareSides = () => {
+        if (
+          !artifactCompareState.open ||
+          artifactCompareState.loading ||
+          !artifactCompareState.leftId ||
+          !artifactCompareState.rightId
+        ) {
+          return;
+        }
+        const nextLeft = artifactCompareState.rightId;
+        const nextRight = artifactCompareState.leftId;
+        artifactCompareState.leftId = nextLeft;
+        artifactCompareState.rightId = nextRight;
+        artifactCompareState.loading = true;
+        artifactCompareState.summary = { added: 0, removed: 0, changed: 0, unchanged: 0 };
+        artifactCompareState.diff = [];
+        artifactCompareState.response = null;
+        artifactCompareState.error = "";
+        renderArtifactCompare();
+        fetchArtifactCompareDiff();
+      };
+
       const cloneTaskSpec = (taskSpec) => {
         if (!taskSpec || typeof taskSpec !== "object") return null;
         if (typeof structuredClone === "function") {
@@ -1944,7 +2704,15 @@
       };
 
       const handleArtifactDetailsKeydown = (event) => {
-        if (event.key === "Escape" && artifactDetailsState.open) {
+        if (event.key !== "Escape") {
+          return;
+        }
+        if (artifactCompareState.open) {
+          event.preventDefault();
+          closeArtifactCompare();
+          return;
+        }
+        if (artifactDetailsState.open) {
           event.preventDefault();
           closeArtifactDetails();
         }
@@ -2020,6 +2788,17 @@
         }
       };
 
+      const updateCompareButtonState = () => {
+        const button = artifactsElements.compareButton;
+        if (!button) return;
+        const count = artifactsState.selection.size;
+        if (artifactsState.loading || count !== 2) {
+          button.setAttribute("disabled", "true");
+        } else {
+          button.removeAttribute("disabled");
+        }
+      };
+
       const updateBulkButtonState = () => {
         const button = artifactsElements.bulkButton;
         if (!button) return;
@@ -2033,6 +2812,7 @@
         } else {
           button.removeAttribute("disabled");
         }
+        updateCompareButtonState();
       };
 
       const updatePaginationControls = () => {
@@ -2404,6 +3184,17 @@
           fetchArtifacts();
         });
       }
+      if (artifactsElements.compareButton) {
+        artifactsElements.compareButton.addEventListener("click", () => {
+          if (artifactsState.loading) return;
+          const ids = Array.from(artifactsState.selection);
+          if (ids.length !== 2) return;
+          if (typeof closeArtifactDetails === "function") {
+            closeArtifactDetails();
+          }
+          openArtifactCompare(ids[0], ids[1]);
+        });
+      }
       if (artifactsElements.bulkButton) {
         artifactsElements.bulkButton.addEventListener("click", () => {
           downloadSelectedArtifacts();
@@ -2418,6 +3209,67 @@
       if (artifactDetailsElements.closeButton) {
         artifactDetailsElements.closeButton.addEventListener("click", () => {
           closeArtifactDetails();
+        });
+      }
+      if (artifactCompareElements.overlay) {
+        artifactCompareElements.overlay.addEventListener("click", () => {
+          closeArtifactCompare();
+        });
+      }
+      if (artifactCompareElements.closeButton) {
+        artifactCompareElements.closeButton.addEventListener("click", () => {
+          closeArtifactCompare();
+        });
+      }
+      if (artifactCompareElements.swapButton) {
+        artifactCompareElements.swapButton.addEventListener("click", () => {
+          swapArtifactCompareSides();
+        });
+      }
+      if (artifactCompareElements.tabSummary) {
+        artifactCompareElements.tabSummary.addEventListener("click", () => {
+          setArtifactCompareTab("summary");
+        });
+      }
+      if (artifactCompareElements.tabChanges) {
+        artifactCompareElements.tabChanges.addEventListener("click", () => {
+          setArtifactCompareTab("changes");
+        });
+      }
+      if (artifactCompareElements.searchInput) {
+        artifactCompareElements.searchInput.addEventListener("input", (event) => {
+          const value = typeof event.target.value === "string" ? event.target.value : "";
+          artifactCompareState.searchTerm = value;
+          renderArtifactCompare();
+        });
+      }
+      if (artifactCompareElements.downloadButton) {
+        artifactCompareElements.downloadButton.addEventListener("click", () => {
+          if (
+            artifactCompareElements.downloadButton.getAttribute("aria-disabled") === "true" ||
+            !artifactCompareState.response
+          ) {
+            return;
+          }
+          try {
+            const payload = artifactCompareState.response;
+            const text = JSON.stringify(payload, null, 2);
+            const blob = new Blob([text], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            const sanitize = (value) => (value || "").toString().replace(/[^A-Za-z0-9._-]+/g, "-");
+            const leftSegment = sanitize(payload.leftId || artifactCompareState.leftId || "left");
+            const rightSegment = sanitize(payload.rightId || artifactCompareState.rightId || "right");
+            const filename = `diff-${leftSegment}-vs-${rightSegment}.json`;
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+          } catch (err) {
+            console.error("Failed to download diff", err);
+          }
         });
       }
       if (artifactDetailsElements.exportSearch) {
@@ -2473,6 +3325,8 @@
       }
 
       renderArtifactDetails();
+      renderArtifactCompare();
+      updateCompareButtonState();
       document.addEventListener("keydown", handleArtifactDetailsKeydown);
 
       renderArtifactsTable();

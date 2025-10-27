@@ -476,6 +476,79 @@ paths:
           description: Not found
         '410':
           description: Gone (expired)
+  /artifacts/compare:
+    post:
+      operationId: compareArtifacts
+      summary: Compare two artifact ExportSpecs and return JSON diff
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - leftId
+                - rightId
+              properties:
+                leftId:
+                  type: string
+                rightId:
+                  type: string
+                mode:
+                  type: string
+                  enum: [summary, full]
+                  default: summary
+      responses:
+        '200':
+          description: Diff between artifacts
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - leftId
+                  - rightId
+                  - summary
+                  - diff
+                properties:
+                  leftId:
+                    type: string
+                  rightId:
+                    type: string
+                  summary:
+                    type: object
+                    properties:
+                      added:
+                        type: integer
+                      removed:
+                        type: integer
+                      changed:
+                        type: integer
+                      unchanged:
+                        type: integer
+                  diff:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - path
+                        - type
+                      properties:
+                        path:
+                          type: string
+                        type:
+                          type: string
+                          enum: [added, removed, changed, unchanged]
+                        left:
+                          {}
+                        right:
+                          {}
+        '404':
+          description: One or both artifacts not found
+        '413':
+          description: Payload too large
   /artifacts/bulk.zip:
     post:
       operationId: downloadArtifactsBulkZip
