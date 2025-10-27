@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "specVersion": "0.1",
+    "id": "experiment-2024-05-iteration",
+    "rerunOf": "experiment-2024-05",
+    "requestPreview": true,
+    "notes": "Trigger PNG preview upload after export"
+  },
+  "target": {
+    "fileId": "FILE0123",
+    "pageName": "Experiments",
+    "frameName": "Pricing Experiment",
+    "frameSize": { "w": 1280, "h": 960 },
+    "frameId": "123:456"
+  },
+  "grid": {
+    "container": 1100,
+    "columns": 10,
+    "gap": 20,
+    "margins": 32
+  },
+  "sections": [
+    {
+      "type": "hero",
+      "name": "Pricing hero",
+      "testVariant": "B"
+    },
+    {
+      "type": "features",
+      "name": "Plan cards",
+      "variants": [
+        {
+          "name": "Pro",
+          "price": "$29",
+          "cta": "Choose Pro"
+        },
+        {
+          "name": "Enterprise",
+          "price": "Contact",
+          "cta": "Talk to sales"
+        }
+      ]
+    },
+    {
+      "type": "gallery",
+      "name": "Testimonials",
+      "assets": [
+        { "kind": "quote", "author": "Design Lead", "text": "Export diff saved us days." }
+      ]
+    },
+    {
+      "type": "cta",
+      "name": "Checkout CTA",
+      "primaryAction": "Start free trial",
+      "metrics": { "kpi": "signup", "target": 0.12 }
+    }
+  ],
+  "preview": {
+    "format": "png",
+    "scale": 2
+  }
+}

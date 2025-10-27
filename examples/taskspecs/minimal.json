@@ -1,0 +1,21 @@
+{
+  "meta": {
+    "specVersion": "0.1",
+    "id": "landing-minimal"
+  },
+  "target": {
+    "fileId": "ABC123",
+    "pageName": "Landing",
+    "frameName": "Hero",
+    "frameSize": { "w": 1440, "h": 900 }
+  },
+  "grid": {
+    "container": 1200,
+    "columns": 12,
+    "gap": 24,
+    "margins": 24
+  },
+  "sections": [
+    { "type": "hero", "name": "Hero" }
+  ]
+}

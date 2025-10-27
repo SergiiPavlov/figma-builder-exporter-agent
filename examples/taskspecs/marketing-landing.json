@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "specVersion": "0.1",
+    "id": "marketing-landing",
+    "labels": ["marketing", "launch"],
+    "requestedAt": "2024-05-01T10:00:00Z"
+  },
+  "target": {
+    "fileId": "XYZ789",
+    "pageName": "Website",
+    "frameName": "Landing v2",
+    "frameSize": { "w": 1440, "h": 1024 },
+    "theme": "light",
+    "fonts": ["Inter", "Roboto"]
+  },
+  "grid": {
+    "container": 1280,
+    "columns": 12,
+    "gap": 32,
+    "margins": 40,
+    "baseline": 8
+  },
+  "sections": [
+    {
+      "type": "hero",
+      "name": "Hero",
+      "headline": "Collaborate faster",
+      "subheading": "Ship experiments without hand-off friction",
+      "primaryAction": "Get started"
+    },
+    {
+      "type": "features",
+      "name": "Highlights",
+      "items": [
+        { "title": "Real-time previews", "description": "Auto-sync to Relay." },
+        { "title": "Component diffs", "description": "Visual + JSON compare." },
+        { "title": "Share tokens", "description": "One-click review links." }
+      ]
+    },
+    {
+      "type": "gallery",
+      "name": "Case studies",
+      "assets": [
+        { "kind": "image", "url": "https://example.com/case-study-1.png" },
+        { "kind": "image", "url": "https://example.com/case-study-2.png" }
+      ],
+      "caption": "Library of shipped experiments"
+    },
+    {
+      "type": "cta",
+      "name": "Signup",
+      "ctaText": "Create workspace",
+      "secondaryAction": "Talk to us"
+    },
+    {
+      "type": "footer",
+      "name": "Footer",
+      "links": [
+        { "label": "Docs", "href": "https://example.com/docs" },
+        { "label": "Status", "href": "https://status.example.com" }
+      ]
+    }
+  ]
+}
