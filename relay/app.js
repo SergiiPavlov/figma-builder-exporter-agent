@@ -48,6 +48,46 @@ const DEFAULT_DATA_DIR = path.join(__dirname, 'data');
 const TASK_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'taskSpec.schema.json');
 const EXPORT_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'exportSpec.schema.json');
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatDiffValueForHtml(value, maxLength = 120) {
+  let text;
+  if (value === undefined) {
+    text = 'undefined';
+  } else if (value === null) {
+    text = 'null';
+  } else if (typeof value === 'string') {
+    try {
+      text = JSON.stringify(value);
+    } catch (err) {
+      text = value;
+    }
+  } else if (typeof value === 'number') {
+    text = Number.isFinite(value) ? String(value) : JSON.stringify(value);
+  } else if (typeof value === 'boolean') {
+    text = value ? 'true' : 'false';
+  } else if (typeof value === 'bigint') {
+    text = `${value.toString()}n`;
+  } else {
+    try {
+      text = JSON.stringify(value);
+    } catch (err) {
+      text = String(value);
+    }
+  }
+  if (text.length > maxLength) {
+    text = `${text.slice(0, Math.max(0, maxLength - 1))}…`;
+  }
+  return escapeHtml(text);
+}
+
 function parseTrustProxy(value) {
   if (value == null) {
     return false;
@@ -2066,6 +2106,377 @@ function createApp(options = {}) {
 
     zip.outputStream.pipe(res);
     zip.end();
+  });
+
+  app.get('/artifacts/compare.html', (req, res) => {
+    const leftId = typeof req.query.leftId === 'string' ? req.query.leftId.trim() : '';
+    const rightId = typeof req.query.rightId === 'string' ? req.query.rightId.trim() : '';
+    const requestedMode =
+      typeof req.query.mode === 'string' ? req.query.mode.trim().toLowerCase() : '';
+    const apiKeyQuery = typeof req.query.apiKey === 'string' ? req.query.apiKey.trim() : '';
+    const mode = requestedMode === 'full' ? 'full' : 'summary';
+
+    if (!leftId || !rightId) {
+      return res.status(400).json({ error: 'leftId and rightId are required' });
+    }
+
+    const left = readExportSpecForCompare(leftId);
+    if (left.error) {
+      return res.status(left.error.status).json(left.error.body);
+    }
+
+    const right = readExportSpecForCompare(rightId);
+    if (right.error) {
+      return res.status(right.error.status).json(right.error.body);
+    }
+
+    const includeUnchanged = mode === 'full';
+    const diffResult = diffExportSpecs(left.exportSpec, right.exportSpec, {
+      includeUnchanged,
+    });
+
+    const summary = diffResult.summary || {
+      added: 0,
+      removed: 0,
+      changed: 0,
+      unchanged: 0,
+    };
+
+    const diffEntries = Array.isArray(diffResult.diff) ? diffResult.diff : [];
+    const filteredEntries = includeUnchanged
+      ? diffEntries
+      : diffEntries.filter((entry) => entry && entry.type !== 'unchanged');
+
+    const summaryItems = [
+      { key: 'added', label: 'Added' },
+      { key: 'removed', label: 'Removed' },
+      { key: 'changed', label: 'Changed' },
+      { key: 'unchanged', label: 'Unchanged' },
+    ];
+
+    const summaryHtml = summaryItems
+      .map((item) => {
+        const value = Number(summary[item.key]) || 0;
+        return `
+          <div class="summary-card">
+            <span class="summary-label">${escapeHtml(item.label)}</span>
+            <span class="summary-value">${escapeHtml(String(value))}</span>
+          </div>
+        `;
+      })
+      .join('');
+
+    const changeItemsHtml = filteredEntries
+      .map((entry, index) => {
+        if (!entry || typeof entry !== 'object') {
+          return '';
+        }
+        const anchorId = `change-${index + 1}`;
+        const rawType = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+        const normalizedType =
+          rawType === 'added' || rawType === 'removed' || rawType === 'unchanged'
+            ? rawType
+            : 'changed';
+        const badgeLabel = normalizedType.toUpperCase();
+        const pathText = entry.path ? String(entry.path) : '(root)';
+        const leftValue = formatDiffValueForHtml(
+          Object.prototype.hasOwnProperty.call(entry, 'left') ? entry.left : undefined,
+        );
+        const rightValue = formatDiffValueForHtml(
+          Object.prototype.hasOwnProperty.call(entry, 'right') ? entry.right : undefined,
+        );
+        return `
+          <li id="${anchorId}" class="change-item change-item--${normalizedType}">
+            <div class="change-item__header">
+              <span class="change-item__badge">${escapeHtml(badgeLabel)}</span>
+              <a class="change-item__path" href="#${anchorId}">${escapeHtml(pathText)}</a>
+            </div>
+            <div class="change-item__values">
+              <div class="change-item__value">
+                <span class="change-item__label">Left</span>
+                <code>${leftValue}</code>
+              </div>
+              <div class="change-item__value">
+                <span class="change-item__label">Right</span>
+                <code>${rightValue}</code>
+              </div>
+            </div>
+          </li>
+        `;
+      })
+      .filter(Boolean)
+      .join('');
+
+    const changesHtml = changeItemsHtml
+      ? `<ol class="changes-list">${changeItemsHtml}</ol>`
+      : '<p class="no-changes">No changes detected.</p>';
+
+    const generatedAt = new Date().toISOString();
+    const compareAction = apiKeyQuery
+      ? `/artifacts/compare?apiKey=${encodeURIComponent(apiKeyQuery)}`
+      : '/artifacts/compare';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diff: ${escapeHtml(leftId)} vs ${escapeHtml(rightId)}</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background-color: #f5f6f8;
+        color: #111827;
+        line-height: 1.5;
+      }
+      header,
+      footer {
+        background: #ffffff;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 24px 32px;
+      }
+      footer {
+        border-top: 1px solid #e5e7eb;
+        border-bottom: none;
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 24px 32px 48px;
+        display: grid;
+        gap: 24px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.75rem;
+      }
+      h2 {
+        margin-top: 0;
+        font-size: 1.25rem;
+      }
+      .header-meta {
+        margin-top: 8px;
+        color: #4b5563;
+        font-size: 0.95rem;
+      }
+      section {
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+      }
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 16px;
+      }
+      .summary-card {
+        background: #f3f4f6;
+        border-radius: 10px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .summary-label {
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.08em;
+        color: #6b7280;
+      }
+      .summary-value {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #111827;
+      }
+      .changes-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 16px;
+      }
+      .change-item {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 16px;
+        background: #ffffff;
+      }
+      .change-item__header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .change-item__badge {
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #1d4ed8;
+        color: #ffffff;
+      }
+      .change-item--added .change-item__badge {
+        background: #047857;
+      }
+      .change-item--removed .change-item__badge {
+        background: #dc2626;
+      }
+      .change-item--unchanged .change-item__badge {
+        background: #6b7280;
+      }
+      .change-item__path {
+        font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+          monospace;
+        color: #1f2937;
+        text-decoration: none;
+        word-break: break-all;
+      }
+      .change-item__path:hover,
+      .change-item__path:focus {
+        text-decoration: underline;
+      }
+      .change-item__values {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 16px;
+      }
+      .change-item__value {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: #f9fafb;
+        border-radius: 8px;
+        padding: 12px;
+      }
+      .change-item__label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: #6b7280;
+        letter-spacing: 0.08em;
+      }
+      code {
+        display: block;
+        font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+          monospace;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #111827;
+      }
+      .no-changes {
+        margin: 0;
+        color: #4b5563;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+      }
+      .actions form {
+        margin: 0;
+      }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 10px 18px;
+        font-weight: 600;
+        border: none;
+        cursor: pointer;
+        background: #1d4ed8;
+        color: #ffffff;
+        text-decoration: none;
+        transition: background 0.2s ease;
+      }
+      .button:focus,
+      .button:hover {
+        background: #1e40af;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          background-color: #0f172a;
+          color: #e2e8f0;
+        }
+        header,
+        footer,
+        section {
+          background: #111c34;
+          border-color: #1e293b;
+          color: inherit;
+        }
+        .summary-card {
+          background: #1f2a44;
+        }
+        .change-item {
+          background: #16213b;
+          border-color: #1e293b;
+        }
+        .change-item__value {
+          background: #1e293b;
+        }
+        .change-item__path {
+          color: #cbd5f5;
+        }
+        .no-changes {
+          color: #94a3b8;
+        }
+        .button {
+          background: #2563eb;
+        }
+        .button:focus,
+        .button:hover {
+          background: #1d4ed8;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>${escapeHtml(leftId)} vs ${escapeHtml(rightId)}</h1>
+      <div class="header-meta">
+        Generated at ${escapeHtml(generatedAt)} · Mode: ${escapeHtml(mode)}
+      </div>
+    </header>
+    <main>
+      <section id="summary">
+        <h2>Summary</h2>
+        <div class="summary-grid">
+          ${summaryHtml}
+        </div>
+      </section>
+      <section id="changes">
+        <h2>Changes (${filteredEntries.length})</h2>
+        ${changesHtml}
+      </section>
+    </main>
+    <footer>
+      <div class="actions">
+        <form method="post" action="${escapeHtml(compareAction)}" target="_blank">
+          <input type="hidden" name="leftId" value="${escapeHtml(leftId)}" />
+          <input type="hidden" name="rightId" value="${escapeHtml(rightId)}" />
+          <input type="hidden" name="mode" value="${escapeHtml(mode)}" />
+          <button type="submit" class="button">Download JSON diff</button>
+        </form>
+      </div>
+    </footer>
+  </body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
   });
 
   app.post('/artifacts/compare', (req, res) => {

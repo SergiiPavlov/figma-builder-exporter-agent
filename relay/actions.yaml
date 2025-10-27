@@ -549,6 +549,41 @@ paths:
           description: One or both artifacts not found
         '413':
           description: Payload too large
+  /artifacts/compare.html:
+    get:
+      operationId: getArtifactsCompareHtml
+      summary: Get HTML report for comparison
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: leftId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: rightId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: mode
+          required: false
+          schema:
+            type: string
+            enum: [summary, full]
+            default: summary
+      responses:
+        '200':
+          description: HTML diff report
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: One or both artifacts not found
+        '413':
+          description: Payload too large
   /artifacts/bulk.zip:
     post:
       operationId: downloadArtifactsBulkZip
