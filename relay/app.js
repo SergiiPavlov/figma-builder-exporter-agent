@@ -119,6 +119,7 @@ function createApp(options = {}) {
   const cleanupState = {
     lastRunAt: 0,
     dirty: true,
+    lastResult: null,
   };
 
   const ajv = new Ajv({ allErrors: true, strict: false });
@@ -685,10 +686,11 @@ function createApp(options = {}) {
 
     cleanupState.lastRunAt = now;
     cleanupState.dirty = false;
-    return {
+    cleanupState.lastResult = {
       total: artifacts.length,
       removed: removals.size,
     };
+    return cleanupState.lastResult;
   }
 
   function maybeRunCleanup(force = false) {

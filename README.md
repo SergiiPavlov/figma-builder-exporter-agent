@@ -39,3 +39,4 @@ curl http://localhost:3000/health
 ## Документация для агента
 
 Актуальные задачи, чек-листы и плейбуки находятся в каталоге [`agent-md/`](./agent-md/).
+Подробности про хранение артефактов и пагинацию — в [описании задач Relay](./agent-md/tasks/relay.md#retention--pagination).
