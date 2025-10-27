@@ -15,6 +15,8 @@ const CLEANUP_MIN_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_ARTIFACTS = 200;
 const DEFAULT_TTL_DAYS = 30;
+const MAX_BULK_ARTIFACT_IDS = 50;
+const BULK_ZIP_MAX_SIZE_BYTES = 100 * 1024 * 1024;
 
 const DEFAULT_DATA_DIR = path.join(__dirname, 'data');
 const TASK_SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'taskSpec.schema.json');
@@ -617,6 +619,198 @@ function createApp(options = {}) {
       console.error('Failed to read artifact for zip', artifactFile, err);
       abortWithError(err);
     });
+  });
+
+  app.post('/artifacts/bulk.zip', (req, res) => {
+    const body = req.body || {};
+    const { ids } = body;
+
+    if (!Array.isArray(ids)) {
+      return res.status(400).json({ error: 'ids must be an array' });
+    }
+    if (ids.length === 0) {
+      return res.status(400).json({ error: 'ids must not be empty' });
+    }
+    if (ids.length > MAX_BULK_ARTIFACT_IDS) {
+      return res
+        .status(400)
+        .json({ error: `Too many ids (max ${MAX_BULK_ARTIFACT_IDS})` });
+    }
+
+    const normalizedIds = [];
+    const invalidIds = [];
+    const duplicateIds = [];
+    const seen = new Set();
+
+    for (const raw of ids) {
+      if (typeof raw !== 'string') {
+        invalidIds.push(String(raw));
+        continue;
+      }
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        invalidIds.push(raw);
+        continue;
+      }
+      if (!SAFE_TASK_ID_RE.test(trimmed)) {
+        invalidIds.push(trimmed);
+        continue;
+      }
+      if (seen.has(trimmed)) {
+        duplicateIds.push(trimmed);
+        continue;
+      }
+      seen.add(trimmed);
+      normalizedIds.push(trimmed);
+    }
+
+    if (normalizedIds.length === 0) {
+      return res.status(400).json({ error: 'no valid ids provided' });
+    }
+
+    const tasks = readAll(true);
+    const entries = [];
+    const missingIds = [];
+    let totalSize = 0;
+
+    for (const id of normalizedIds) {
+      const artifactPaths = getArtifactPaths(id);
+      if (!artifactPaths) {
+        missingIds.push(id);
+        continue;
+      }
+      const { absolute: artifactFile, relative: artifactRelative } = artifactPaths;
+      if (!fs.existsSync(artifactFile)) {
+        missingIds.push(id);
+        continue;
+      }
+      let stat;
+      try {
+        stat = fs.statSync(artifactFile);
+      } catch (err) {
+        console.error('Failed to stat artifact for bulk zip', artifactFile, err);
+        missingIds.push(id);
+        continue;
+      }
+      const task = tasks.get(id);
+      if (!task || task.deleted) {
+        missingIds.push(id);
+        continue;
+      }
+      const logs = normalizeLogs(task.logs);
+      const logsText = logs.map((entry) => formatLogLine(entry)).join('\n');
+      const logsBuffer = Buffer.from(logsText, 'utf8');
+      const taskInfo = {
+        id: task.id,
+        createdAt: task.createdAt ?? null,
+        status: task.status ?? null,
+      };
+      const taskBuffer = Buffer.from(JSON.stringify(taskInfo, null, 2), 'utf8');
+      const metaInfo = {
+        id: task.id,
+        createdAt: task.createdAt ?? null,
+        artifactPath: task.artifactPath ?? artifactRelative,
+        artifactSize: stat.size,
+      };
+      const metaBuffer = Buffer.from(JSON.stringify(metaInfo, null, 2), 'utf8');
+
+      totalSize += stat.size + logsBuffer.length + taskBuffer.length + metaBuffer.length;
+      if (totalSize > BULK_ZIP_MAX_SIZE_BYTES) {
+        return res.status(413).json({ error: 'Bulk payload too large' });
+      }
+
+      entries.push({
+        id,
+        artifactFile,
+        logsBuffer,
+        taskBuffer,
+        metaBuffer,
+      });
+    }
+
+    const logLines = [];
+    for (const value of invalidIds) {
+      logLines.push(`invalid: ${value}`);
+    }
+    for (const value of duplicateIds) {
+      logLines.push(`duplicate: ${value}`);
+    }
+    for (const value of missingIds) {
+      logLines.push(`missing: ${value}`);
+    }
+    let logBuffer = null;
+    if (logLines.length > 0) {
+      logBuffer = Buffer.from(logLines.join('\n') + '\n', 'utf8');
+      if (totalSize + logBuffer.length > BULK_ZIP_MAX_SIZE_BYTES) {
+        return res.status(413).json({ error: 'Bulk payload too large' });
+      }
+    }
+
+    if (entries.length === 0 && !logBuffer) {
+      return res.status(404).json({ error: 'No artifacts found for provided ids' });
+    }
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="artifacts-bulk.zip"');
+
+    const zip = new Yazl.ZipFile();
+    const activeStreams = new Set();
+    let responseClosed = false;
+
+    const abort = (err) => {
+      if (responseClosed) return;
+      responseClosed = true;
+      const reason = err || new Error('Artifact read error');
+      console.error('Failed to stream bulk artifacts zip', reason);
+      for (const stream of Array.from(activeStreams)) {
+        try {
+          stream.destroy(reason);
+        } catch {}
+      }
+      try {
+        zip.outputStream.unpipe(res);
+      } catch {}
+      if (!res.headersSent) {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.removeHeader('Content-Disposition');
+        res.status(500).json({ error: 'Artifact read error' });
+      } else {
+        res.destroy(reason);
+      }
+    };
+
+    zip.outputStream.on('error', abort);
+    res.on('close', () => {
+      responseClosed = true;
+      for (const stream of Array.from(activeStreams)) {
+        try {
+          stream.destroy();
+        } catch {}
+      }
+    });
+
+    for (const entry of entries) {
+      const stream = fs.createReadStream(entry.artifactFile);
+      activeStreams.add(stream);
+      stream.on('error', abort);
+      stream.on('close', () => {
+        activeStreams.delete(stream);
+      });
+      stream.on('end', () => {
+        activeStreams.delete(stream);
+      });
+      zip.addReadStream(stream, `${entry.id}/exportSpec.json`);
+      zip.addBuffer(entry.logsBuffer, `${entry.id}/logs.txt`);
+      zip.addBuffer(entry.taskBuffer, `${entry.id}/task.json`);
+      zip.addBuffer(entry.metaBuffer, `${entry.id}/meta.json`);
+    }
+
+    if (logBuffer) {
+      zip.addBuffer(logBuffer, 'bulk.log.txt');
+    }
+
+    zip.outputStream.pipe(res);
+    zip.end();
   });
 
   function cleanupArtifacts({ max = maxArtifacts, ttlDays: ttl = ttlDays } = {}) {
