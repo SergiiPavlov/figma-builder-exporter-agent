@@ -430,71 +430,269 @@
         .filter(Boolean);
     };
 
+    const clamp01 = (value) => {
+      if (!Number.isFinite(value)) return 0;
+      if (value < 0) return 0;
+      if (value > 1) return 1;
+      return value;
+    };
+
     const determineSectionType = (section, index, total) => {
       const name = ensureString(section && section.name);
       const normalizedName = name ? name.toLowerCase() : "";
       const layoutMode = ensureString(section && section.layoutMode);
+      const upperLayout = layoutMode ? layoutMode.toUpperCase() : null;
       const grid = section && isObject(section.grid) ? section.grid : null;
+      const texts = collectTextSamples(section);
+      const fontSizes = texts
+        .map((sample) => (Number.isFinite(sample.fontSize) ? sample.fontSize : null))
+        .filter((value) => value != null && value > 0);
+      const maxFontSize = fontSizes.length ? Math.max(...fontSizes) : null;
+      const minFontSize = fontSizes.length ? Math.min(...fontSizes) : null;
+      const avgFontSize = fontSizes.length
+        ? fontSizes.reduce((sum, value) => sum + value, 0) / fontSizes.length
+        : null;
+      const largeTextCount = fontSizes.filter((value) => value >= 36).length;
+      const mediumTextCount = fontSizes.filter((value) => value >= 24).length;
+      const shortTextCount = texts.filter(
+        (sample) => sample.characters && sample.characters.length <= 24,
+      ).length;
+      const longTextCount = texts.filter(
+        (sample) => sample.characters && sample.characters.length >= 60,
+      ).length;
+      const normalizedTexts = texts.map((sample) => sample.characters.toLowerCase());
+
+      const backgroundHex = normalizeHexColor(section && section.fill && section.fill.hex);
+      const backgroundColor = backgroundHex ? parseHexColor(backgroundHex) : null;
+      const backgroundLuminance = backgroundColor
+        ? computeRelativeLuminance(backgroundColor)
+        : null;
+      let maxContrast = null;
+      if (backgroundLuminance != null) {
+        normalizedTexts.forEach((_, idx) => {
+          const sample = texts[idx];
+          const textHex = normalizeHexColor(sample.fill);
+          if (!textHex) return;
+          const textColor = parseHexColor(textHex);
+          if (!textColor) return;
+          const luminance = computeRelativeLuminance(textColor);
+          const ratio = computeContrastRatio(luminance, backgroundLuminance);
+          if (!Number.isFinite(ratio)) return;
+          if (maxContrast == null || ratio > maxContrast) {
+            maxContrast = ratio;
+          }
+        });
+      }
+      const hasHighContrast = maxContrast != null && maxContrast >= 4.5;
+      const hasMediumContrast = maxContrast != null && maxContrast >= 3;
+
+      const actionWords = [
+        "sign",
+        "start",
+        "join",
+        "buy",
+        "try",
+        "book",
+        "order",
+        "contact",
+        "talk",
+        "get",
+        "learn",
+        "download",
+        "subscribe",
+        "регист",
+        "купи",
+        "закаж",
+        "узна",
+        "начни",
+        "начать",
+        "присоед",
+        "подпиш",
+        "связ",
+        "оформ",
+        "получ",
+        "запиш",
+      ];
+      const hasActionWord = normalizedTexts.some((text) =>
+        actionWords.some((word) => text.includes(word)),
+      );
+
+      const footerWords = [
+        "privacy",
+        "terms",
+        "policy",
+        "контакт",
+        "связь",
+        "адрес",
+        "почта",
+        "email",
+        "тел",
+        "copyright",
+        "©",
+        "faq",
+      ];
+      const hasFooterWord = normalizedTexts.some((text) =>
+        footerWords.some((word) => text.includes(word)),
+      );
+
+      const byName = (keywords) => keywords.some((keyword) => normalizedName.includes(keyword));
+
+      const heroNameMatch = byName(["hero", "header", "top", "intro", "главная"]);
+      const featuresNameMatch = byName([
+        "feature",
+        "benefit",
+        "service",
+        "услуг",
+        "преимущ",
+        "advantages",
+      ]);
+      const ctaNameMatch = byName([
+        "cta",
+        "call to action",
+        "call-to-action",
+        "signup",
+        "button",
+        "призыв",
+      ]);
+      const footerNameMatch = byName([
+        "footer",
+        "подвал",
+        "contacts",
+        "contact",
+        "support",
+      ]);
+
+      const heroLayout = upperLayout === "HORIZONTAL" ? "row" : "stack";
+      const candidates = [];
+
       if (grid && Number.isFinite(grid.columns) && grid.columns >= 2) {
         const columns = Math.max(2, Math.round(grid.columns));
-        return {
+        let featuresConfidence = 0.65 + Math.min(0.25, (columns - 2) * 0.05);
+        if (upperLayout === "HORIZONTAL") {
+          featuresConfidence += 0.05;
+        }
+        if (avgFontSize != null && avgFontSize <= 24) {
+          featuresConfidence += 0.03;
+        }
+        if (featuresNameMatch) {
+          featuresConfidence = Math.max(featuresConfidence, 0.75);
+        }
+        candidates.push({
           type: "features",
           layout: `grid-${columns}`,
-          confidence: 0.9,
-          columns,
-        };
-      }
-      const byName = (keywords) => keywords.some((keyword) => normalizedName.includes(keyword));
-      if (byName(["hero", "header", "top", "intro"])) {
-        return {
-          type: "hero",
-          layout: layoutMode && layoutMode.toUpperCase() === "HORIZONTAL" ? "row" : "stack",
-          confidence: 0.9,
-        };
-      }
-      if (byName(["cta", "call to action", "call-to-action", "signup", "button"])) {
-        return {
-          type: "cta",
-          layout: "stack",
-          confidence: 0.8,
-        };
-      }
-      if (byName(["footer", "подвал", "contacts", "contact"])) {
-        return {
-          type: "footer",
-          layout: "stack",
-          confidence: 0.9,
-        };
-      }
-      if (byName(["feature", "benefit", "service", "услуг", "преимущ", "advantages"])) {
-        return {
+          confidence: clamp01(featuresConfidence),
+        });
+      } else if (featuresNameMatch) {
+        candidates.push({
           type: "features",
           layout: "stack",
-          confidence: 0.6,
-          warning: "Секция помечена как features по названию, проверьте layout.",
-        };
+          confidence: 0.55,
+        });
       }
-      if (index === 0) {
-        return {
-          type: "hero",
-          layout: layoutMode && layoutMode.toUpperCase() === "HORIZONTAL" ? "row" : "stack",
-          confidence: 0.6,
-          warning: "Первая секция классифицирована как hero по позиции.",
-        };
+
+      let heroConfidence = 0;
+      if (index === 0 || heroNameMatch) {
+        heroConfidence = index === 0 ? 0.4 : 0.25;
+        if (maxFontSize != null && maxFontSize >= 44) {
+          heroConfidence += 0.25;
+        } else if (maxFontSize != null && maxFontSize >= 34) {
+          heroConfidence += 0.18;
+        }
+        if (mediumTextCount >= 2 || longTextCount > 0) {
+          heroConfidence += 0.1;
+        }
+        if (hasActionWord) {
+          heroConfidence += 0.1;
+        }
+        if (upperLayout === "HORIZONTAL") {
+          heroConfidence += 0.05;
+        }
+        if (heroNameMatch) {
+          heroConfidence = Math.max(heroConfidence, 0.7);
+        }
+        heroConfidence = clamp01(heroConfidence);
+        candidates.push({ type: "hero", layout: heroLayout, confidence: heroConfidence });
       }
-      if (total > 1 && index === total - 1) {
+
+      let ctaConfidence = 0;
+      if (hasActionWord || ctaNameMatch) {
+        ctaConfidence = hasActionWord ? 0.45 : 0.35;
+        if (maxFontSize != null && maxFontSize >= 26) {
+          ctaConfidence += 0.12;
+        }
+        if (mediumTextCount <= 2) {
+          ctaConfidence += 0.05;
+        }
+        if (texts.length <= 3) {
+          ctaConfidence += 0.05;
+        }
+        if (hasHighContrast) {
+          ctaConfidence += 0.15;
+        } else if (hasMediumContrast) {
+          ctaConfidence += 0.05;
+        }
+        if (ctaNameMatch) {
+          ctaConfidence = Math.max(ctaConfidence, 0.65);
+        }
+        ctaConfidence = clamp01(ctaConfidence);
+        candidates.push({ type: "cta", layout: "stack", confidence: ctaConfidence });
+      }
+
+      let footerConfidence = 0;
+      if ((total > 1 && index === total - 1) || footerNameMatch || hasFooterWord) {
+        footerConfidence = total > 1 && index === total - 1 ? 0.45 : 0.3;
+        if (maxFontSize != null && maxFontSize <= 16) {
+          footerConfidence += 0.18;
+        }
+        if (minFontSize != null && minFontSize <= 13) {
+          footerConfidence += 0.05;
+        }
+        if (shortTextCount >= 2) {
+          footerConfidence += 0.05;
+        }
+        if (hasFooterWord) {
+          footerConfidence += 0.15;
+        }
+        if (footerNameMatch) {
+          footerConfidence = Math.max(footerConfidence, 0.7);
+        }
+        footerConfidence = clamp01(footerConfidence);
+        candidates.push({ type: "footer", layout: "stack", confidence: footerConfidence });
+      }
+
+      if (!candidates.length) {
         return {
-          type: "footer",
+          type: "custom",
           layout: "stack",
-          confidence: 0.6,
-          warning: "Последняя секция классифицирована как footer по позиции.",
+          confidence: 0.35,
+          warnings: ["Тип секции не распознан автоматически — проверьте вручную."],
         };
       }
+
+      candidates.sort((a, b) => b.confidence - a.confidence);
+      const best = candidates[0];
+      const warnings = [];
+      if (best.type === "features" && (!grid || !Number.isFinite(grid.columns))) {
+        warnings.push("Секция отмечена как features по названию. Убедитесь, что layout корректен.");
+      }
+
+      if (best.confidence < 0.6 && best.type !== "custom") {
+        warnings.push(
+          `Секция распознана как ${best.type}, но уверенность низкая — проверьте вручную.`,
+        );
+        return {
+          type: "custom",
+          layout: best.layout || "stack",
+          confidence: clamp01(best.confidence),
+          warnings,
+        };
+      }
+
       return {
-        type: "custom",
-        layout: "stack",
-        confidence: 0.4,
-        warning: "Тип секции не распознан, используется custom.",
+        type: best.type,
+        layout: best.layout || "stack",
+        confidence: clamp01(best.confidence),
+        warnings,
       };
     };
 
@@ -648,28 +846,32 @@
       });
 
       const colorEntries = Array.from(colorStats.values());
+      const byCountDescDarkestFirst = (entries) =>
+        entries.slice().sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          if (a.luminance !== b.luminance) return a.luminance - b.luminance;
+          return a.hex.localeCompare(b.hex);
+        });
+      const byLightnessDesc = (entries) =>
+        entries.slice().sort((a, b) => {
+          if (b.luminance !== a.luminance) return b.luminance - a.luminance;
+          if (b.count !== a.count) return b.count - a.count;
+          return a.hex.localeCompare(b.hex);
+        });
+
       const selectTextColor = () => {
         if (!colorEntries.length) return null;
-        const textCandidates = colorEntries
-          .filter((entry) => entry.sources.has("text"))
-          .sort((a, b) => {
-            if (b.count !== a.count) return b.count - a.count;
-            return a.luminance - b.luminance;
-          });
-        if (textCandidates.length) {
-          return textCandidates[0];
-        }
-        const darkest = colorEntries
-          .slice()
-          .sort((a, b) => {
-            if (a.luminance !== b.luminance) return a.luminance - b.luminance;
-            return b.count - a.count;
-          });
-        if (darkest.length) {
-          pushWarning("Цвет текста определён эвристикой по самому тёмному цвету.");
-          return darkest[0];
-        }
-        return null;
+        const textSources = colorEntries.filter((entry) => entry.sources.has("text"));
+        const pool = textSources.length ? textSources : colorEntries;
+        const sortedByCount = byCountDescDarkestFirst(pool);
+        const topCount = sortedByCount.length ? sortedByCount[0].count : null;
+        if (topCount == null) return null;
+        const topByCount = sortedByCount.filter((entry) => entry.count === topCount);
+        const darkest = topByCount.sort((a, b) => {
+          if (a.luminance !== b.luminance) return a.luminance - b.luminance;
+          return a.hex.localeCompare(b.hex);
+        });
+        return darkest.length ? darkest[0] : null;
       };
 
       const textColor = selectTextColor();
@@ -679,25 +881,10 @@
 
       const selectPrimaryColor = () => {
         if (!colorEntries.length) return null;
-        const candidates = colorEntries
-          .filter((entry) => !textColor || entry.hex !== textColor.hex)
-          .map((entry) => {
-            const contrast = textColor
-              ? computeContrastRatio(entry.luminance, textColor.luminance)
-              : 1;
-            const hasSection = entry.sources.has("section") || entry.sources.has("frame");
-            return { entry, contrast, hasSection };
-          })
-          .sort((a, b) => {
-            if (a.hasSection !== b.hasSection) return a.hasSection ? -1 : 1;
-            if (b.contrast !== a.contrast) return b.contrast - a.contrast;
-            if (b.entry.count !== a.entry.count) return b.entry.count - a.entry.count;
-            return b.entry.luminance - a.entry.luminance;
-          });
-        if (candidates.length && candidates[0].contrast >= 2) {
-          return candidates[0].entry;
-        }
-        return candidates.length ? candidates[0].entry : null;
+        const pool = colorEntries.filter((entry) => !textColor || entry.hex !== textColor.hex);
+        if (!pool.length) return null;
+        const sorted = byCountDescDarkestFirst(pool);
+        return sorted.length ? sorted[0] : null;
       };
 
       const primaryColor = selectPrimaryColor();
@@ -707,13 +894,22 @@
 
       const selectNeutralColor = () => {
         if (!colorEntries.length) return null;
-        const candidates = colorEntries
-          .filter((entry) => !textColor || entry.hex !== textColor.hex)
-          .sort((a, b) => {
-            if (b.luminance !== a.luminance) return b.luminance - a.luminance;
-            return b.count - a.count;
-          });
-        return candidates.length ? candidates[0] : null;
+        const pool = colorEntries.filter((entry) => !textColor || entry.hex !== textColor.hex);
+        if (!pool.length) return null;
+        const sorted = byLightnessDesc(pool);
+        if (!sorted.length) return null;
+        const [first] = sorted;
+        if (
+          primaryColor &&
+          primaryColor.hex === first.hex &&
+          sorted.length > 1
+        ) {
+          const alternative = sorted.find((entry) => entry.hex !== primaryColor.hex);
+          if (alternative) {
+            return alternative;
+          }
+        }
+        return first;
       };
 
       const neutralColor = selectNeutralColor();
@@ -744,9 +940,13 @@
         const detection = determineSectionType(section, index, total);
         const name = ensureString(section.name) || `Section ${index + 1}`;
         const sectionWarnings = [];
-        if (detection.warning) {
-          sectionWarnings.push(detection.warning);
-          pushWarning(detection.warning);
+        if (Array.isArray(detection.warnings)) {
+          detection.warnings.forEach((warning) => {
+            const normalized = ensureString(warning);
+            if (!normalized) return;
+            sectionWarnings.push(normalized);
+            pushWarning(normalized);
+          });
         }
         const padding = normalizePadding(section.padding);
         const spacing = toInt(section.itemSpacing);
@@ -814,55 +1014,21 @@
       const frameSlug = slugify(normalizedFrameName || "frame");
       const inferredId = `${pageSlug}-${frameSlug}-draft`;
 
-      const colorCandidates = [];
-      if (textColor) {
-        colorCandidates.push({ key: "text", entry: textColor });
-      }
-      if (primaryColor) {
-        colorCandidates.push({ key: "primary", entry: primaryColor });
-      }
-      if (neutralColor) {
-        colorCandidates.push({ key: "neutral", entry: neutralColor });
-      }
-
-      let selectedColors = [];
-      if (colorCandidates.length) {
-        const take = (candidate) => {
-          if (!candidate) return;
-          if (selectedColors.some((item) => item.key === candidate.key)) return;
-          if (selectedColors.length >= 2) return;
-          selectedColors = selectedColors.concat(candidate);
-        };
-        const findByKey = (key) => colorCandidates.find((item) => item.key === key) || null;
-        take(findByKey("text"));
-        take(findByKey("primary"));
-        take(findByKey("neutral"));
-        if (selectedColors.length === 0) {
-          take(colorCandidates[0]);
-        }
-        if (selectedColors.length < 2) {
-          const remaining = colorCandidates.filter(
-            (item) => !selectedColors.some((entry) => entry.key === item.key),
-          );
-          if (remaining.length) {
-            take(remaining[0]);
-          }
-        }
-        const droppedKeys = colorCandidates
-          .filter((item) => !selectedColors.some((entry) => entry.key === item.key))
-          .map((item) => item.key);
-        if (droppedKeys.length) {
-          pushWarning(
-            `tokens.colors ограничены двумя значениями. Добавьте вручную: ${droppedKeys.join(", ")}.`,
-          );
-        }
-      }
-
       const colorTokens = {};
-      selectedColors.forEach((item) => {
-        if (!item || !item.entry || !item.entry.hex) return;
-        colorTokens[item.key] = item.entry.hex;
-      });
+      if (textColor && textColor.hex) {
+        colorTokens.text = textColor.hex;
+        pushWarning("tokens.colors.text выбрано эвристикой: самый тёмный частотный цвет.");
+      }
+      if (primaryColor && primaryColor.hex) {
+        colorTokens.primary = primaryColor.hex;
+        pushWarning(
+          "tokens.colors.primary выбрано эвристикой: наиболее частый цвет, отличный от текста.",
+        );
+      }
+      if (neutralColor && neutralColor.hex) {
+        colorTokens.neutral = neutralColor.hex;
+        pushWarning("tokens.colors.neutral выбрано эвристикой: самый светлый доступный цвет.");
+      }
 
       const tokens = {};
       if (fontFamily) tokens.fontFamily = fontFamily;
@@ -891,7 +1057,7 @@
         },
         sections,
         acceptance: {
-          maxSpacingDeviation: Math.max(2, Math.round(gap * 0.1) || 2),
+          maxSpacingDeviation: Math.max(2, Math.round(gap * 0.1)),
           checkAutoLayout: true,
         },
       };

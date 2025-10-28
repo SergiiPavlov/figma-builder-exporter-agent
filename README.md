@@ -126,6 +126,11 @@
 6. **Export / Results** — Runner или плагин вручную отправляет `POST /results`, после чего доступен `GET /tasks/{id}/result` и артефакты (`/compare`, `/artifacts`).
 7. **Artifacts** — `GET /artifacts?offset=0&limit=50&order=desc` позволяет просматривать историю экспортов и скачивать compare HTML/ZIP.
 
+## Acceptance сценарии (Import/Infer)
+
+- **AT-07 — Import ExportSpec.** Выделите фрейм в Figma и нажмите **Import**. Панель должна отобразить `ExportSpec` с типами секций, `meta.typeConfidence` и предупреждениями. Сохраните JSON, повторите Import на том же фрейме — результат должен совпадать byte-for-byte.
+- **AT-08 — Infer TaskSpec.** Используя экспортированный `ExportSpec`, нажмите **Generate TaskSpec**. Проверяйте наличие блока `acceptance` (`maxSpacingDeviation`, `checkAutoLayout`), токенов `text/primary/neutral` и предупреждений «выбрано эвристикой». После **Build → Export** убедитесь, что отклонения не превышают `maxSpacingDeviation`, `meta.inferred` установлен в `true`, warnings отображаются.
+
 ## Plugin UX
 
 - Вкладка **Artifacts** показывает дружелюбный пустой экран, skeleton-загрузчик и поддерживает ленивую подгрузку превью.

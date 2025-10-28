@@ -172,6 +172,44 @@
       .flow-panel__logs[data-visible='false'] {
         display: none;
       }
+      .flow-panel__sections {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 6px;
+        font-size: 11px;
+        color: #0f172a;
+      }
+      .flow-panel__sections[data-visible='false'] {
+        display: none;
+      }
+      .flow-panel__section-item {
+        background: #e2e8f0;
+        border-radius: 4px;
+        padding: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .flow-panel__section-header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-weight: 600;
+      }
+      .flow-panel__section-header span {
+        display: inline-flex;
+        gap: 4px;
+        align-items: baseline;
+      }
+      .flow-panel__section-warning {
+        color: #b45309;
+        font-size: 10px;
+      }
+      .flow-panel__section-warning ul {
+        margin: 4px 0 0;
+        padding-left: 16px;
+      }
       .flow-panel[data-state='valid'] .flow-panel__status,
       .flow-panel[data-state='done'] .flow-panel__status {
         color: #15803d;
@@ -1569,6 +1607,7 @@
           <div id="import-message" class="flow-panel__message"></div>
           <div id="import-hint" class="flow-panel__hint"></div>
           <div id="import-warnings" class="flow-panel__warnings" data-visible="false"></div>
+          <div id="import-sections" class="flow-panel__sections" data-visible="false"></div>
           <pre
             id="import-preview"
             class="flow-panel__logs"
@@ -2331,6 +2370,7 @@
           downloadUrl: null,
           downloadFilename: "ExportSpec.selection.json",
           exportSpec: null,
+          sections: [],
         },
         validate: {
           state: "idle",
@@ -5897,6 +5937,43 @@
         element.appendChild(list);
       };
 
+      const formatConfidenceValue = (value) => {
+        if (!Number.isFinite(value)) return "—";
+        const clamped = Math.max(0, Math.min(1, value));
+        return clamped.toFixed(2);
+      };
+
+      const collectImportSectionSummaries = (spec) => {
+        if (!spec || typeof spec !== "object") return [];
+        const sections = Array.isArray(spec.sections) ? spec.sections : [];
+        return sections
+          .map((section, index) => {
+            if (!section || typeof section !== "object") return null;
+            const name =
+              typeof section.name === "string" && section.name.trim()
+                ? section.name.trim()
+                : `Section ${index + 1}`;
+            const type =
+              typeof section.type === "string" && section.type.trim()
+                ? section.type.trim()
+                : "custom";
+            const meta = section.meta && typeof section.meta === "object" ? section.meta : null;
+            const rawConfidence =
+              meta && typeof meta.typeConfidence === "number" ? meta.typeConfidence : null;
+            const typeConfidence =
+              rawConfidence != null && Number.isFinite(rawConfidence)
+                ? Math.max(0, Math.min(1, rawConfidence))
+                : null;
+            const warnings = Array.isArray(section.warnings)
+              ? section.warnings
+                  .map((entry) => (typeof entry === "string" ? entry : String(entry)))
+                  .filter((entry) => entry && entry.length)
+              : [];
+            return { name, type, typeConfidence, warnings };
+          })
+          .filter(Boolean);
+      };
+
       const formatLogEntries = (entries, limit) => {
         if (!Array.isArray(entries) || entries.length === 0) return [];
         const sliceLimit = Number.isInteger(limit) && limit > 0 ? limit : entries.length;
@@ -6104,6 +6181,54 @@
           elements.hint.style.display = flowState.import.hint ? "block" : "none";
         }
         renderWarnings(elements.warnings, flowState.import.warnings);
+        if (elements.sections) {
+          const container = elements.sections;
+          const sections = Array.isArray(flowState.import.sections)
+            ? flowState.import.sections
+            : [];
+          while (container.firstChild) {
+            container.firstChild.remove();
+          }
+          if (!sections.length) {
+            container.dataset.visible = "false";
+          } else {
+            container.dataset.visible = "true";
+            sections.forEach((section, index) => {
+              const item = document.createElement("div");
+              item.className = "flow-panel__section-item";
+              const header = document.createElement("div");
+              header.className = "flow-panel__section-header";
+              const nameEl = document.createElement("span");
+              nameEl.textContent = `${index + 1}. ${section.name}`;
+              header.appendChild(nameEl);
+              const typeEl = document.createElement("span");
+              typeEl.textContent = `type: ${section.type}`;
+              header.appendChild(typeEl);
+              const confidenceEl = document.createElement("span");
+              confidenceEl.textContent = `typeConfidence: ${formatConfidenceValue(
+                section.typeConfidence,
+              )}`;
+              header.appendChild(confidenceEl);
+              item.appendChild(header);
+              if (Array.isArray(section.warnings) && section.warnings.length) {
+                const warningBlock = document.createElement("div");
+                warningBlock.className = "flow-panel__section-warning";
+                const title = document.createElement("div");
+                title.textContent = "Warnings:";
+                warningBlock.appendChild(title);
+                const list = document.createElement("ul");
+                section.warnings.forEach((warning) => {
+                  const li = document.createElement("li");
+                  li.textContent = typeof warning === "string" ? warning : String(warning);
+                  list.appendChild(li);
+                });
+                warningBlock.appendChild(list);
+                item.appendChild(warningBlock);
+              }
+              container.appendChild(item);
+            });
+          }
+        }
         if (elements.preview) {
           if (flowState.import.specString) {
             elements.preview.dataset.visible = "true";
@@ -6284,6 +6409,7 @@
             flowState.import.warnings = [];
             flowState.import.specString = null;
             flowState.import.exportSpec = null;
+            flowState.import.sections = [];
             revokeImportDownloadUrl();
             flowState.import.downloadFilename = "ExportSpec.selection.json";
           }
@@ -6294,6 +6420,7 @@
           flowState.import.warnings = [];
           flowState.import.specString = null;
           flowState.import.exportSpec = null;
+          flowState.import.sections = [];
           revokeImportDownloadUrl();
           flowState.import.downloadFilename = "ExportSpec.selection.json";
         } else if (state === "done") {
@@ -6304,6 +6431,9 @@
           flowState.import.specString = typeof specString === "string" ? specString : null;
           flowState.import.exportSpec =
             exportSpec && typeof exportSpec === "object" ? exportSpec : null;
+          flowState.import.sections = collectImportSectionSummaries(
+            flowState.import.exportSpec,
+          );
           revokeImportDownloadUrl();
           flowState.import.downloadUrl = downloadUrl || null;
           flowState.import.downloadFilename = downloadFilename || "ExportSpec.selection.json";
@@ -6317,6 +6447,7 @@
           }
           if (!keepResult) {
             flowState.import.exportSpec = null;
+            flowState.import.sections = [];
           }
           revokeImportDownloadUrl();
           flowState.import.downloadFilename = "ExportSpec.selection.json";
@@ -6655,6 +6786,7 @@
           message: document.getElementById("import-message"),
           hint: document.getElementById("import-hint"),
           warnings: document.getElementById("import-warnings"),
+          sections: document.getElementById("import-sections"),
           preview: document.getElementById("import-preview"),
           actions: document.getElementById("import-actions"),
           saveButton: document.getElementById("btn-import-save"),

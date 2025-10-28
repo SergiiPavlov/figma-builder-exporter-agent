@@ -10,7 +10,7 @@
 - [ ] `API_KEYS=dev123 npm run dev --prefix relay` (smoke-запуск перед ручными сценариями)
 - [ ] (Опционально) `RELAY_URL=http://localhost:3000 API_KEY=dev123 npm run e2e`
 
-## Acceptance Tests (AT-01…AT-06)
+## Acceptance Tests (AT-01…AT-08)
 - [ ] **AT-01 Validate / UX**
     1. Вставить `examples/taskspecs/marketing-landing.json`, нажать **Validate** → «валидно», **Build/Export** активны.
     2. Вставить невалидный JSON → отрисовался список ошибок, **Build/Export** заблокированы.
@@ -38,6 +38,16 @@
         - Проверить UI: `taskId`, сводка `created/updated/removed`, предупреждения и последние строки логов.
     4. Подтвердить, что Runner проходит Pull → Build → Export → `POST /results`.
     5. `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` → `status: done`, артефакты `exportSpec.json`, `build.log.jsonl`, `preview.png` (если загружен).
+
+- [ ] **AT-07 Import ExportSpec**
+    1. Выделить фрейм в Figma и нажать **Import**.
+    2. Убедиться, что панель показывает сгенерированный `ExportSpec`, уверенности секций и warnings.
+    3. Сохранить JSON, повторить Import для того же фрейма и сравнить: результат идентичен предыдущему (byte-for-byte).
+
+- [ ] **AT-08 Infer TaskSpec**
+    1. В плагине выбрать полученный ExportSpec и нажать **Generate TaskSpec**.
+    2. Проверить, что TaskSpec валиден, содержит `acceptance` с `maxSpacingDeviation` и токены `text/primary/neutral` с предупреждениями «выбрано эвристикой».
+    3. Выполнить **Build → Export** и убедиться, что отклонения укладываются в `maxSpacingDeviation`, `meta.inferred` выставлен в `true`, warnings отображаются.
 
 ## Плагин
 - [ ] Плагин установлен через `plugin/manifest.json`.
