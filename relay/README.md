@@ -1,19 +1,22 @@
-# Relay (M2)
+# Relay
 
 Лёгкий локальный сервер, чтобы GPT Actions мог класть задачи для плагина Figma и забирать результат.
 
-## Запуск
+## Quickstart
+
 ```bash
-cd relay
-npm i
-npm run dev   # http://localhost:3000
-# (опционально) ngrok http 3000
+# зависимости и тесты
+npm ci --prefix relay
+npm test --prefix relay
+
+# локальный запуск (ключи через env)
+API_KEYS=dev123 npm run dev --prefix relay  # http://localhost:3000
+
+# (опционально) туннель
+ngrok http 3000
 ```
 
-## Запуск с .env
-
-Скопируйте `.env.example` → `.env` и заполните нужные переменные (например, `API_KEYS`, `CORS_ORIGIN`).
-Сервер автоматически подхватит файл при старте (`npm run dev`).
+> Вместо переменной окружения можно скопировать `.env.example` → `.env` и указать `API_KEYS`, `CORS_ORIGIN`, `TRUST_PROXY` и другие настройки. Файл автоматически подхватывается при старте `npm run dev --prefix relay`.
 
 Примеры значений `TRUST_PROXY` для `.env`:
 
@@ -25,12 +28,56 @@ TRUST_PROXY=loopback     # доверять локальному прокси
 
 > Если у вас только один промежуточный хоп, не ставьте `TRUST_PROXY=true`: передайте точное количество или адреса, чтобы предотвратить спуф заголовков `X-Forwarded-For`.
 
+## curl примеры
+
+### Без ключа (free-валидация)
+
+```bash
+# проверка taskSpec
+curl -s -X POST http://localhost:3000/validate/taskSpec \
+  -H 'Content-Type: application/json' \
+  -d '{"taskSpec": {"meta": {"specVersion": "0.1", "id": "demo"}}}'
+
+# проверка exportSpec
+curl -s -X POST http://localhost:3000/validate/exportSpec \
+  -H 'Content-Type: application/json' \
+  -d '{"exportSpec": {"meta": {"generatedAt": "2024-01-01T00:00:00Z"}, "target": {"fileId": "FILE", "frameName": "Frame"}}}'
+```
+
+### С авторизацией (жизненный цикл задачи)
+
+```bash
+API_KEY=dev123
+
+# создать задачу (idempotent по taskId)
+curl -s -X POST http://localhost:3000/tasks \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -H 'Content-Type: application/json' \
+  -d '{"taskId": "demo-task", "taskSpec": {"meta": {"specVersion": "0.1", "id": "demo-task"}}}'
+
+# забрать очередь (можно указать limit и pluginId)
+curl -s "http://localhost:3000/tasks/pull?limit=2&pluginId=local" \
+  -H "X-API-Key: ${API_KEY}"
+
+# отправить результат
+curl -s -X POST http://localhost:3000/results \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -H 'Content-Type: application/json' \
+  -d '{"taskId": "demo-task", "exportSpec": {"meta": {"generatedAt": "2024-01-01T00:00:00Z"}, "summary": {"sections": 1}}}'
+
+# посмотреть сводку и ссылки
+curl -s "http://localhost:3000/tasks/demo-task/result" \
+  -H "Authorization: Bearer ${API_KEY}"
+```
+
 ## Эндпоинты
 - `GET /health` → `{ ok: true }`
-- `POST /tasks` body: `{ taskSpec }` → `{ taskId }`
-- `GET /tasks/{id}` → `{ id, status, createdAt, taskSpec, logs[], result?, artifactPath?, artifactSize? }`
-- `GET /tasks/{id}/result` → `{ taskId, status, exportSpec, logs[], error?, artifactPath?, artifactSize? }`
+- `POST /tasks` body: `{ taskSpec, taskId? }` → `{ taskId, status, createdAt }` (идемпотентность по `taskId` или `taskSpec.meta.id`)
+- `GET /tasks/pull?pluginId=&limit=` → `{ taskId, taskSpec, items[], pulled, remaining, hasMore }`
+- `GET /tasks/{id}` → `{ id, status, createdAt, taskSpec, logs[], result?, artifactPath?, artifactSize?, hasPreview?, previewUrl? }`
+- `GET /tasks/{id}/result` → `{ taskId, status, exportSpec, logs[], error?, artifactPath?, artifactSize?, hasPreview?, previewUrl? }`
 - `POST /tasks/{id}/result` body: `{ result }` → `{ ok: true }`
+- `POST /results` body: `{ taskId, exportSpec, logs? }` → `{ ok: true }`
 - `POST /tasks/{id}/preview` body: `{ contentType: "image/png", base64 }` → `{ ok: true, size }`
 - `GET /tasks/{id}/preview.png` → binary `image/png`
 
@@ -40,7 +87,7 @@ TRUST_PROXY=loopback     # доверять локальному прокси
 
 - Включите простую API-аутентификацию через переменную `API_KEYS` (CSV-список значений). Пример: `API_KEYS="dev123,dev456"`.
 - Сервер принимает ключи в заголовках `Authorization: Bearer <key>` или `X-API-Key: <key>`. Для SSE-подписок (`/tasks/{id}/watch`) можно передать ключ в query-параметре `?apiKey=<key>`.
-- Переменная `API_FREE_ENDPOINTS` задаёт список публичных маршрутов (формат: `METHOD /path`, поддерживаются параметры `:token`). По умолчанию доступны `GET /health` и `GET /shared/:token`.
+- Переменная `API_FREE_ENDPOINTS` задаёт список публичных маршрутов (формат: `METHOD /path`, поддерживаются параметры `:token`). По умолчанию разрешены `GET /health`, `GET /shared/:token`, `POST /validate/taskSpec` и `POST /validate/exportSpec`.
 - Лимиты: по умолчанию действует 100 запросов за 5 минут на ключ/IP (`RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS`). SSE-потоки `/tasks/{id}/watch` исключены из жёсткого лимита. Значение `0` отключает лимитер. Для корректной работы лимита по IP убедитесь, что `TRUST_PROXY` настроен в соответствии с вашей сетью.
 - CORS настраивается через `CORS_ORIGIN`: `*` (значение по умолчанию в dev) или CSV списка доверенных origin (`https://relay.company.com,https://app.company.com`). Заголовки `Authorization`, `Content-Type` и `X-API-Key` добавлены в allow-list.
 - В плагине Figma во вкладке Builder появился блок “API key”: ключ сохраняется локально и автоматически прокидывается во все HTTP-запросы, включая загрузки артефактов и SSE.
