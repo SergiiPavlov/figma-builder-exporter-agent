@@ -30,7 +30,7 @@
    - `/tasks/pull` используется агентом для взятия задач в работу (multi-pull, лимиты и метаданные).
    - `/results` и `/tasks/{id}/log` сохраняют отчёты и логи выполнения.
 
-## Acceptance Tests (AT-01…AT-06)
+## Acceptance Tests (AT-01…AT-08)
 ### AT-01 — Validate / UX
 1. Подставьте `examples/taskspecs/marketing-landing.json`, нажмите **Validate**.
    - Ожидаемый результат: «валидно», кнопки **Build** и **Export** активны.
@@ -70,6 +70,16 @@
 4. Дождитесь цикла Runner: Pull → Build → Export → `POST /results`.
 5. Проверьте API: `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` — ожидаются артефакты `exportSpec.json`, `build.log.jsonl` и (при наличии) `preview.png`.
 6. В UI убедитесь, что отображаются `taskId`, сводка `created/updated/removed`, предупреждения и последние строки логов.
+
+### AT-07 — Import ExportSpec
+1. Выделите целевой фрейм в Figma и нажмите **Import**.
+2. Убедитесь, что панель Import отображает определённый тип секций, `meta.typeConfidence` и предупреждения.
+3. Сохраните полученный `ExportSpec`, повторите Import на том же фрейме и сравните JSON — результат должен совпадать byte-for-byte.
+
+### AT-08 — Infer TaskSpec
+1. Используйте экспортированный `ExportSpec` и нажмите **Generate TaskSpec**.
+2. Проверьте, что TaskSpec валиден, содержит блок `acceptance` (`maxSpacingDeviation`, `checkAutoLayout`) и токены `text/primary/neutral` с предупреждениями «выбрано эвристикой».
+3. Запустите **Build → Export** и убедитесь, что отклонения не превышают `maxSpacingDeviation`, `meta.inferred` равен `true`, а warnings отражаются в UI.
 
 ## Milestone status
 - **M1** — ✅ источник правды (Validate → Build → Export + Relay lifecycle)
