@@ -14,7 +14,8 @@ function isObject(value) {
 
 function clampUnit(value) {
   if (!Number.isFinite(value)) return null;
-  return Math.max(-10000, Math.min(10000, value));
+  var rounded = Math.round(value);
+  return Math.max(-10000, Math.min(10000, rounded));
 }
 
 function normalizePadding(raw) {
@@ -67,6 +68,629 @@ function applyAutoLayoutConfig(frame, config) {
   if (config.padding) {
     applyPadding(frame, config.padding);
   }
+}
+
+var BUILDER_PATH_KEY = 'relay:builderPath';
+
+function safeGetPluginData(node, key) {
+  try {
+    return node.getPluginData(key) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function safeSetPluginData(node, key, value) {
+  try {
+    node.setPluginData(key, value != null ? String(value) : '');
+  } catch (e) {}
+}
+
+function createNodeOfType(type) {
+  switch (type) {
+    case 'FRAME':
+      return figma.createFrame();
+    case 'TEXT':
+      return figma.createText();
+    case 'RECTANGLE':
+      return figma.createRectangle();
+    default:
+      return figma.createFrame();
+  }
+}
+
+function ensureBuilderNode(parent, options, context) {
+  var path = options.path;
+  var type = options.type;
+  var name = options.name;
+  var node = null;
+  var childArray = Array.isArray(parent.children) ? parent.children : [];
+  if (path) {
+    node = childArray.find(function (child) {return safeGetPluginData(child, BUILDER_PATH_KEY) === path;});
+  }
+  if (!node && name) {
+    node = childArray.find(function (child) {
+      return child.name === name && !safeGetPluginData(child, BUILDER_PATH_KEY);
+    });
+  }
+  var created = false;
+  if (!node) {
+    node = createNodeOfType(type);
+    created = true;
+    parent.appendChild(node);
+  } else if (node.type !== type) {
+    try {
+      node.remove();
+    } catch (e) {}
+    node = createNodeOfType(type);
+    created = true;
+    parent.appendChild(node);
+    if (context && context.report) {
+      context.report.removed += 1;
+    }
+  }
+  if (node.parent !== parent) {
+    parent.appendChild(node);
+  }
+  if (name) {
+    node.name = name;
+  }
+  if (path) {
+    safeSetPluginData(node, BUILDER_PATH_KEY, path);
+  }
+  if (typeof options.setup === 'function') {
+    options.setup(node, created);
+  }
+  if (context && context.report) {
+    if (created) {
+      context.report.created += 1;
+    } else {
+      context.report.updated += 1;
+    }
+  }
+  if (context && typeof context.log === 'function' && options.logMessage) {
+    context.log(options.logMessage, created ? 'info' : 'debug', { path: path, created: created });
+  }
+  return { node: node, created: created, path: path };
+}
+
+function reorderBuilderChildren(parent, orderedNodes) {
+  orderedNodes.forEach(function (child, index) {
+    if (child && child.parent === parent) {
+      parent.insertChild(index, child);
+    }
+  });
+}
+
+function cleanupBuilderChildren(parent, expectedPaths, context) {
+  var keep = new Set(expectedPaths);
+  var removed = 0;
+  Array.from(parent.children || []).forEach(function (child) {
+    var path = safeGetPluginData(child, BUILDER_PATH_KEY);
+    if (!path) return;
+    if (!keep.has(path)) {
+      try {
+        child.remove();
+        removed += 1;
+      } catch (e) {}
+    }
+  });
+  if (removed && context && context.report) {
+    context.report.removed += removed;
+  }
+  if (removed && context && typeof context.log === 'function') {
+    context.log("Removed ".concat(removed, " outdated node(s)"), 'info', { parent: parent.name });
+  }
+}
+
+function ensureTextNode(parent, path, label, textValue, context, options) {
+  options = options || {};
+  return ensureBuilderNode(parent, {
+    path: path,
+    type: 'TEXT',
+    name: label,
+    setup: function setup(node, created) {
+      if (context && context.fontName) {
+        try {
+          node.fontName = context.fontName;
+        } catch (e) {}
+      }
+      if ('textAutoResize' in node) {
+        node.textAutoResize = 'HEIGHT';
+      }
+      if (options.fontSize && Number.isFinite(options.fontSize)) {
+        var size = clampUnit(options.fontSize);
+        if (size != null) {
+          node.fontSize = size;
+        }
+      }
+      if (typeof textValue === 'string') {
+        if (node.characters !== textValue) {
+          node.characters = textValue;
+        }
+      } else if (textValue != null) {
+        var str = String(textValue);
+        if (node.characters !== str) {
+          node.characters = str;
+        }
+      } else if (created) {
+        node.characters = '';
+      }
+      if (options.fillColor) {
+        applyFill(node, options.fillColor);
+      }
+      applyTokensToNode(node, context ? context.tokens : null, options.tokenContext || null);
+    }
+  }, context).node;
+}
+
+function resolveTokenColor(tokens, key) {
+  if (!isObject(tokens) || !isObject(tokens.colors)) return null;
+  var value = tokens.colors[key];
+  return value != null ? value : null;
+}
+
+function addBuildWarning(context, message) {
+  if (!context) return;
+  if (context.report && Array.isArray(context.report.warnings)) {
+    context.report.warnings.push(message);
+  }
+  if (typeof context.log === 'function') {
+    context.log(message, 'warn');
+  }
+}
+
+function ensureButton(parent, path, label, context, options) {
+  options = options || {};
+  var fillColor = options.fillColor || resolveTokenColor(context ? context.tokens : null, 'primary');
+  var button = ensureBuilderNode(parent, {
+    path: path,
+    type: 'FRAME',
+    name: options.name || label || 'Button',
+    setup: function setup(node) {
+      ensureFrameAutoLayout(node, 'HORIZONTAL');
+      if ('primaryAxisSizingMode' in node) node.primaryAxisSizingMode = 'AUTO';
+      if ('counterAxisSizingMode' in node) node.counterAxisSizingMode = 'AUTO';
+      node.layoutGrow = 0;
+      applyPadding(node, normalizePadding(options.padding != null ? options.padding : 12));
+      if (fillColor) {
+        applyFill(node, fillColor);
+      }
+      if ('cornerRadius' in node && Number.isFinite(options.cornerRadius)) {
+        node.cornerRadius = clampUnit(options.cornerRadius);
+      }
+    }
+  }, context).node;
+
+  var textColor = options.textColor || resolveTokenColor(context ? context.tokens : null, 'onPrimary') || '#FFFFFF';
+  var textNode = ensureTextNode(button, path + '/label', ''.concat(label, ' Label'), label || '', context, {
+    fontSize: options.fontSize || 16,
+    fillColor: textColor,
+    tokenContext: options.tokenContext || null
+  });
+  reorderBuilderChildren(button, [textNode]);
+  cleanupBuilderChildren(button, [path + '/label'], context);
+  return button;
+}
+
+function collectFontFamilies(spec) {
+  var families = [];
+  if (isObject(spec === null || spec === void 0 ? void 0 : spec.tokens) && typeof spec.tokens.fontFamily === 'string') {
+    families.push(spec.tokens.fontFamily);
+  }
+  if (isObject(spec === null || spec === void 0 ? void 0 : spec.target) && Array.isArray(spec.target.fonts)) {
+    spec.target.fonts.forEach(function (family) {
+      if (typeof family === 'string' && family.trim()) families.push(family.trim());
+    });
+  }
+  families.push('Inter', 'Roboto');
+  return families;
+}
+
+function buildFontName(family) {
+  if (!family) return null;
+  return { family: family, style: 'Regular' };
+}
+
+function ensureFontsForSpec(spec) {
+  return _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee() {var families, unique, loadedFamily, warnings, _iterator5, _step5, family, fontName;return _regenerator().w(function (_context3) {while (1) switch (_context3.n) {case 0:
+          families = collectFontFamilies(spec);
+          unique = [];
+          families.forEach(function (family) {
+            if (typeof family !== 'string') return;
+            var trimmed = family.trim();
+            if (!trimmed) return;
+            if (!unique.includes(trimmed)) unique.push(trimmed);
+          });
+          loadedFamily = null;
+          warnings = [];
+          fontName = null;_iterator5 = _createForOfIteratorHelper(
+            unique);_context3.f(1);case 4:_context3.s();case 5:if ((_step5 = _context3.n()).done) {_context3.n = 12;break;}family = _step5.value;_context3.n = 6;return (
+              figma.loadFontAsync(buildFontName(family)));case 6:_context3.n = 7;break;case 7:
+
+            if (!loadedFamily) {
+              loadedFamily = family;
+            }_context3.n = 11;break;case 8:_context3.p = 8;_context3.t0 = _context3.v;
+
+            warnings.push("Font \u201C".concat(family, "\u201D unavailable; falling back"));case 11:_context3.n = 5;break;case 12:_context3.f(1);case 13:
+          fontName = buildFontName(loadedFamily);
+          if (!loadedFamily) {
+            loadedFamily = 'Roboto';
+            fontName = buildFontName(loadedFamily);_context3.n = 16;return (
+              figma.loadFontAsync(fontName));case 16:_context3.n = 17;break;case 17:_context3.p = 17;_context3.t1 = _context3.v;case 18:return _context3.a(0,
+          {
+            fontName: fontName,
+            family: loadedFamily,
+            warnings: warnings
+          });case 19:case "end":return _context3.stop();}}, null, null, [[4, 13, 13, 13], [5, 8], [16, 17]]);
+        }))();
+}
+
+function buildHeroSection(frame, section, basePath, context) {
+  var nodes = [];
+  var paths = [];
+  var textColor = resolveTokenColor(context ? context.tokens : null, 'text');
+
+  var headline = typeof section.headline === 'string' ? section.headline : section.title || section.name || null;
+  if (headline) {
+    var headlinePath = ''.concat(basePath, '/headline');
+    nodes.push(ensureTextNode(frame, headlinePath, 'Hero Headline', headline, context, {
+      fontSize: 48,
+      fillColor: textColor,
+      tokenContext: { type: section.type, role: 'headline', name: section.name }
+    }));
+    paths.push(headlinePath);
+  }
+
+  var subheading = typeof section.subheading === 'string' ? section.subheading : section.subtitle || section.description || null;
+  if (subheading) {
+    var subPath = ''.concat(basePath, '/subheading');
+    nodes.push(ensureTextNode(frame, subPath, 'Hero Subheading', subheading, context, {
+      fontSize: 20,
+      fillColor: textColor,
+      tokenContext: { type: section.type, role: 'subheading', name: section.name }
+    }));
+    paths.push(subPath);
+  }
+
+  var actions = [];
+  if (typeof section.primaryAction === 'string') {
+    actions.push({ label: section.primaryAction, variant: 'primary' });
+  }
+  if (typeof section.secondaryAction === 'string') {
+    actions.push({ label: section.secondaryAction, variant: 'secondary' });
+  }
+  if (Array.isArray(section.actions)) {
+    section.actions.forEach(function (item) {
+      if (typeof item === 'string') {
+        actions.push({ label: item, variant: 'secondary' });
+      } else if (isObject(item) && typeof item.label === 'string') {
+        actions.push({ label: item.label, variant: item.variant || 'secondary' });
+      }
+    });
+  }
+
+  if (actions.length) {
+    var actionsPath = ''.concat(basePath, '/actions');
+    var actionsFrame = ensureBuilderNode(frame, {
+      path: actionsPath,
+      type: 'FRAME',
+      name: 'Actions',
+      setup: function setup(node) {
+        ensureFrameAutoLayout(node, 'HORIZONTAL');
+        if ('primaryAxisSizingMode' in node) node.primaryAxisSizingMode = 'AUTO';
+        if ('counterAxisSizingMode' in node) node.counterAxisSizingMode = 'AUTO';
+        var gap = Number.isFinite(section.actionSpacing) ? section.actionSpacing : 16;
+        if ('itemSpacing' in node) {
+          var spacing = clampUnit(gap);
+          node.itemSpacing = spacing != null ? spacing : 16;
+        }
+      }
+    }, context).node;
+    var buttonNodes = [];
+    var buttonPaths = [];
+    actions.forEach(function (action, index) {
+      var buttonPath = ''.concat(actionsPath, '/items[').concat(index, ']');
+      var button = ensureButton(actionsFrame, buttonPath, action.label, context, {
+        name: ''.concat(action.variant || 'button', ' ').concat(index + 1),
+        tokenContext: { type: section.type, role: 'action', variant: action.variant }
+      });
+      buttonNodes.push(button);
+      buttonPaths.push(buttonPath);
+    });
+    reorderBuilderChildren(actionsFrame, buttonNodes);
+    cleanupBuilderChildren(actionsFrame, buttonPaths, context);
+    nodes.push(actionsFrame);
+    paths.push(actionsPath);
+  }
+
+  reorderBuilderChildren(frame, nodes);
+  cleanupBuilderChildren(frame, paths, context);
+  return { nodes: nodes, paths: paths };
+}
+
+function buildFeaturesSection(frame, section, basePath, context, gridResult) {
+  var nodes = [];
+  var paths = [];
+  var textColor = resolveTokenColor(context ? context.tokens : null, 'text');
+  var heading = section.title || section.heading || null;
+  if (heading) {
+    var headingPath = ''.concat(basePath, '/title');
+    nodes.push(ensureTextNode(frame, headingPath, 'Section Title', heading, context, {
+      fontSize: 32,
+      fillColor: textColor,
+      tokenContext: { type: section.type, role: 'title', name: section.name }
+    }));
+    paths.push(headingPath);
+  }
+
+  if (gridResult && gridResult.container) {
+    var container = gridResult.container;
+    nodes.push(container);
+    var containerPath = ''.concat(basePath, '/grid');
+    safeSetPluginData(container, BUILDER_PATH_KEY, containerPath);
+    paths.push(containerPath);
+    var items = Array.isArray(section.items) ? section.items : [];
+    var columnNodes = [];
+    var columnPaths = [];
+    gridResult.columns.forEach(function (column, index) {
+      var columnPath = ''.concat(containerPath, '/column[').concat(index, ']');
+      safeSetPluginData(column, BUILDER_PATH_KEY, columnPath);
+      ensureFrameAutoLayout(column, 'VERTICAL');
+      if ('itemSpacing' in column) {
+        var spacing = clampUnit(section.itemSpacing || 12);
+        column.itemSpacing = spacing != null ? spacing : 12;
+      }
+      column.layoutGrow = 1;
+      if ('layoutAlign' in column) column.layoutAlign = 'STRETCH';
+      columnNodes.push(column);
+      columnPaths.push(columnPath);
+      var item = items[index];
+      if (item && (typeof item.title === 'string' || typeof item.description === 'string')) {
+        var titlePath = ''.concat(basePath, '/items[').concat(index, ']/title');
+        var descPath = ''.concat(basePath, '/items[').concat(index, ']/description');
+        var childNodes = [];
+        var childPaths = [];
+        if (typeof item.title === 'string') {
+          childNodes.push(ensureTextNode(column, titlePath, 'Feature Title', item.title, context, {
+            fontSize: 20,
+            fillColor: textColor,
+            tokenContext: { type: section.type, role: 'itemTitle', index: index }
+          }));
+          childPaths.push(titlePath);
+        }
+        if (typeof item.description === 'string') {
+          childNodes.push(ensureTextNode(column, descPath, 'Feature Description', item.description, context, {
+            fontSize: 14,
+            fillColor: textColor,
+            tokenContext: { type: section.type, role: 'itemDescription', index: index }
+          }));
+          childPaths.push(descPath);
+        }
+        reorderBuilderChildren(column, childNodes);
+        cleanupBuilderChildren(column, childPaths, context);
+      } else {
+        cleanupBuilderChildren(column, [], context);
+      }
+    });
+    reorderBuilderChildren(container, columnNodes);
+    cleanupBuilderChildren(container, columnPaths, context);
+  }
+
+  reorderBuilderChildren(frame, nodes);
+  cleanupBuilderChildren(frame, paths, context);
+  return { nodes: nodes, paths: paths };
+}
+
+function buildCTASection(frame, section, basePath, context) {
+  var nodes = [];
+  var paths = [];
+  var textColor = resolveTokenColor(context ? context.tokens : null, 'text');
+  var title = section.title || section.heading || section.name || null;
+  if (title) {
+    var titlePath = ''.concat(basePath, '/title');
+    nodes.push(ensureTextNode(frame, titlePath, 'CTA Title', title, context, {
+      fontSize: 36,
+      fillColor: textColor,
+      tokenContext: { type: section.type, role: 'title', name: section.name }
+    }));
+    paths.push(titlePath);
+  }
+
+  var body = section.subtitle || section.description || (isObject(section.content) && section.content.body ? section.content.body : null);
+  if (body) {
+    var bodyPath = ''.concat(basePath, '/body');
+    nodes.push(ensureTextNode(frame, bodyPath, 'CTA Body', body, context, {
+      fontSize: 16,
+      fillColor: textColor,
+      tokenContext: { type: section.type, role: 'body', name: section.name }
+    }));
+    paths.push(bodyPath);
+  }
+
+  var actions = [];
+  if (typeof section.ctaText === 'string') {
+    actions.push({ label: section.ctaText, variant: 'primary' });
+  }
+  if (typeof section.secondaryAction === 'string') {
+    actions.push({ label: section.secondaryAction, variant: 'secondary' });
+  }
+  if (Array.isArray(section.actions)) {
+    section.actions.forEach(function (action) {
+      if (typeof action === 'string') {
+        actions.push({ label: action, variant: 'secondary' });
+      } else if (isObject(action) && typeof action.label === 'string') {
+        actions.push({ label: action.label, variant: action.variant || 'secondary' });
+      }
+    });
+  }
+  if (actions.length) {
+    var actionsPath = ''.concat(basePath, '/actions');
+    var actionsFrame = ensureBuilderNode(frame, {
+      path: actionsPath,
+      type: 'FRAME',
+      name: 'CTA Actions',
+      setup: function setup(node) {
+        ensureFrameAutoLayout(node, 'HORIZONTAL');
+        if ('primaryAxisSizingMode' in node) node.primaryAxisSizingMode = 'AUTO';
+        if ('counterAxisSizingMode' in node) node.counterAxisSizingMode = 'AUTO';
+        if ('itemSpacing' in node) {
+          var spacing = clampUnit(section.actionSpacing || 16);
+          node.itemSpacing = spacing != null ? spacing : 16;
+        }
+      }
+    }, context).node;
+    var buttons = [];
+    var buttonPaths = [];
+    actions.forEach(function (action, index) {
+      var buttonPath = ''.concat(actionsPath, '/items[').concat(index, ']');
+      buttons.push(ensureButton(actionsFrame, buttonPath, action.label, context, {
+        name: ''.concat(action.variant || 'cta', ' ').concat(index + 1),
+        tokenContext: { type: section.type, role: 'action', variant: action.variant }
+      }));
+      buttonPaths.push(buttonPath);
+    });
+    reorderBuilderChildren(actionsFrame, buttons);
+    cleanupBuilderChildren(actionsFrame, buttonPaths, context);
+    nodes.push(actionsFrame);
+    paths.push(actionsPath);
+  }
+
+  reorderBuilderChildren(frame, nodes);
+  cleanupBuilderChildren(frame, paths, context);
+  return { nodes: nodes, paths: paths };
+}
+
+function buildFooterSection(frame, section, basePath, context) {
+  var nodes = [];
+  var paths = [];
+  var textColor = resolveTokenColor(context ? context.tokens : null, 'text');
+  var caption = section.caption || section.description || null;
+  if (caption) {
+    var captionPath = ''.concat(basePath, '/caption');
+    nodes.push(ensureTextNode(frame, captionPath, 'Footer Caption', caption, context, {
+      fontSize: 14,
+      fillColor: textColor,
+      tokenContext: { type: section.type, role: 'caption', name: section.name }
+    }));
+    paths.push(captionPath);
+  }
+
+  var links = Array.isArray(section.links) ? section.links : [];
+  if (links.length) {
+    var listPath = ''.concat(basePath, '/links');
+    var listFrame = ensureBuilderNode(frame, {
+      path: listPath,
+      type: 'FRAME',
+      name: 'Footer Links',
+      setup: function setup(node) {
+        ensureFrameAutoLayout(node, 'VERTICAL');
+        if ('itemSpacing' in node) {
+          var spacing = clampUnit(section.linkSpacing || 8);
+          node.itemSpacing = spacing != null ? spacing : 8;
+        }
+      }
+    }, context).node;
+    var linkNodes = [];
+    var linkPaths = [];
+    links.forEach(function (link, index) {
+      var label = null;
+      if (isObject(link)) {
+        if (typeof link.label === 'string' && typeof link.href === 'string') {
+          label = ''.concat(link.label, ' · ').concat(link.href);
+        } else if (typeof link.label === 'string') {
+          label = link.label;
+        } else if (typeof link.href === 'string') {
+          label = link.href;
+        }
+      } else if (typeof link === 'string') {
+        label = link;
+      }
+      if (!label) {
+        label = 'Link '.concat(index + 1);
+      }
+      var linkPath = ''.concat(listPath, '[').concat(index, ']');
+      linkNodes.push(ensureTextNode(listFrame, linkPath, 'Footer Link '.concat(index + 1), label, context, {
+        fontSize: 14,
+        fillColor: textColor,
+        tokenContext: { type: section.type, role: 'link', index: index }
+      }));
+      linkPaths.push(linkPath);
+    });
+    reorderBuilderChildren(listFrame, linkNodes);
+    cleanupBuilderChildren(listFrame, linkPaths, context);
+    nodes.push(listFrame);
+    paths.push(listPath);
+  }
+
+  reorderBuilderChildren(frame, nodes);
+  cleanupBuilderChildren(frame, paths, context);
+  return { nodes: nodes, paths: paths };
+}
+
+function buildCustomSection(frame, section, basePath, context) {
+  var nodes = [];
+  var paths = [];
+  var textColor = resolveTokenColor(context ? context.tokens : null, 'text');
+  var title = section.title || section.name || null;
+  if (title) {
+    var titlePath = ''.concat(basePath, '/title');
+    nodes.push(ensureTextNode(frame, titlePath, 'Section Title', title, context, {
+      fontSize: 28,
+      fillColor: textColor,
+      tokenContext: { type: section.type || 'custom', role: 'title', name: section.name }
+    }));
+    paths.push(titlePath);
+  }
+  var contentText = null;
+  if (typeof section.content === 'string') {
+    contentText = section.content;
+  } else if (Array.isArray(section.content)) {
+    contentText = section.content.join('\n');
+  } else if (isObject(section.content) && typeof section.content.body === 'string') {
+    contentText = section.content.body;
+  }
+  if (!contentText && typeof section.description === 'string') {
+    contentText = section.description;
+  }
+  if (contentText) {
+    var contentPath = ''.concat(basePath, '/content');
+    nodes.push(ensureTextNode(frame, contentPath, 'Section Content', contentText, context, {
+      fontSize: 16,
+      fillColor: textColor,
+      tokenContext: { type: section.type || 'custom', role: 'content', name: section.name }
+    }));
+    paths.push(contentPath);
+  }
+  reorderBuilderChildren(frame, nodes);
+  cleanupBuilderChildren(frame, paths, context);
+  return { nodes: nodes, paths: paths };
+}
+
+function syncSectionContent(frame, spec, section, index, context, gridResult) {
+  var basePath = "sections[".concat(index, "]");
+  var result;
+  switch (section.type) {
+    case 'hero':
+      result = buildHeroSection(frame, section, basePath, context);
+      break;
+    case 'features':
+      result = buildFeaturesSection(frame, section, basePath, context, gridResult);
+      break;
+    case 'cta':
+      result = buildCTASection(frame, section, basePath, context);
+      break;
+    case 'footer':
+      result = buildFooterSection(frame, section, basePath, context);
+      break;
+    default:
+      result = buildCustomSection(frame, section, basePath, context);
+      break;
+  }
+  if (!result) {
+    return { nodes: [], paths: [] };
+  }
+  return result;
 }
 
 function ensureFrameAutoLayout(frame) {var mode = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 'VERTICAL';
@@ -357,8 +981,12 @@ function ensureRootFrame(page, spec, log) {
   if (isObject(spec.target.frameSize)) {
     var _spec$target$frameSiz = spec.target.frameSize,w = _spec$target$frameSiz.w,h = _spec$target$frameSiz.h;
     if (Number.isFinite(w) && Number.isFinite(h) && typeof frame.resizeWithoutConstraints === 'function') {
-      frame.resizeWithoutConstraints(w, h);
-      log("Adjusted root frame size to ".concat(w, "\xD7").concat(h));
+      var width = clampUnit(w);
+      var height = clampUnit(h);
+      if (width != null && height != null) {
+        frame.resizeWithoutConstraints(width, height);
+        log("Adjusted root frame size to ".concat(width, "\xD7").concat(height));
+      }
     }
   }
   if ('x' in frame) frame.x = 0;
@@ -370,6 +998,20 @@ function ensureRootFrame(page, spec, log) {
 
       // ignore plugin data issues
     }}
+  safeSetPluginData(frame, BUILDER_PATH_KEY, 'root');
+  if (isObject(spec === null || spec === void 0 ? void 0 : spec.grid) && Number.isFinite(spec.grid.container) && typeof frame.resizeWithoutConstraints === 'function') {
+    var containerWidth = clampUnit(spec.grid.container);
+    if (containerWidth != null) {
+      var fallbackHeight = isObject(spec.target) && isObject(spec.target.frameSize) && Number.isFinite(spec.target.frameSize.h) ? spec.target.frameSize.h : 10;
+      var nextHeight = Math.max(1, Math.round(frame.height || fallbackHeight));
+      try {
+        frame.resizeWithoutConstraints(containerWidth, nextHeight);
+      } catch (e) {}
+    }
+  }
+  if ('counterAxisSizingMode' in frame) {
+    frame.counterAxisSizingMode = 'FIXED';
+  }
   applyTokensToNode(frame, spec.tokens, { scope: 'root' });
   return frame;
 }
@@ -397,10 +1039,14 @@ function resolveSectionGrid(section, spec) {var _spec$grid;
   return { columns: columns, gap: gap };
 }
 
-function ensureGridStructure(sectionNode, section, spec, log) {
+function ensureGridStructure(sectionNode, section, spec, log, context, basePath) {
   var gridInfo = resolveSectionGrid(section, spec);
   if (!gridInfo) return;
   var columns = gridInfo.columns,gap = gridInfo.gap;
+  var targetColumns = columns;
+  if (Array.isArray(section === null || section === void 0 ? void 0 : section.items) && section.items.length > columns) {
+    targetColumns = section.items.length;
+  }
 
   var containerId = 'relay:gridContainer';
   var container = sectionNode.children.find(function (child) {
@@ -418,7 +1064,7 @@ function ensureGridStructure(sectionNode, section, spec, log) {
     try {
       container.setPluginData(containerId, '1');
     } catch (e) {}
-    log("Created grid container for section \u201C".concat(sectionNode.name, "\u201D with ").concat(columns, " columns"));
+    log("Created grid container for section \u201C".concat(sectionNode.name, "\u201D with ").concat(targetColumns, " columns"));
   }
   ensureFrameAutoLayout(container, 'HORIZONTAL');
   container.counterAxisSizingMode = 'AUTO';
@@ -426,10 +1072,20 @@ function ensureGridStructure(sectionNode, section, spec, log) {
   if ('layoutAlign' in container) {
     container.layoutAlign = 'STRETCH';
   }
-  container.itemSpacing = Number.isFinite(gap) ? gap : 0;
+  var spacing = clampUnit(gap);
+  container.itemSpacing = spacing != null ? spacing : 0;
   applyPadding(container, normalizePadding(0));
   if ('fills' in container) {
     container.fills = [];
+  }
+  if (isObject(spec === null || spec === void 0 ? void 0 : spec.grid) && Number.isFinite(spec.grid.container) && typeof container.resizeWithoutConstraints === 'function') {
+    var width = clampUnit(spec.grid.container);
+    if (width != null) {
+      var height = Math.max(1, Math.round(container.height || 10));
+      try {
+        container.resizeWithoutConstraints(width, height);
+      } catch (e) {}
+    }
   }
 
   var columnPluginKey = 'relay:gridColumnIndex';
@@ -461,8 +1117,11 @@ function ensureGridStructure(sectionNode, section, spec, log) {
     if ('fills' in column) {
       column.fills = [];
     }
+    if (basePath) {
+      safeSetPluginData(column, BUILDER_PATH_KEY, "".concat(basePath, "/column[").concat(i, "]"));
+    }
     desiredColumns.push(column);
-  };for (var i = 0; i < columns; i += 1) {_loop(i);}
+  };for (var i = 0; i < targetColumns; i += 1) {_loop(i);}
 
   desiredColumns.forEach(function (column, index) {
     if (column.parent === container) {
@@ -474,11 +1133,20 @@ function ensureGridStructure(sectionNode, section, spec, log) {
       toRemove),_step2;try {for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {var extra = _step2.value;
       try {
         extra.remove();
+        if (context && context.report) {
+          context.report.removed += 1;
+        }
       } catch (e) {}
     }} catch (err) {_iterator2.e(err);} finally {_iterator2.f();}
+
+  if (basePath) {
+    safeSetPluginData(container, BUILDER_PATH_KEY, "".concat(basePath));
+  }
+
+  return { container: container, columns: desiredColumns };
 }
 
-function ensureSectionFrame(rootFrame, spec, section, log) {
+function ensureSectionFrame(rootFrame, spec, section, log, index, context) {
   if (!section || typeof section.name !== 'string') {
     throw new Error('Every section requires a name');
   }
@@ -505,47 +1173,85 @@ function ensureSectionFrame(rootFrame, spec, section, log) {
   try {
     frame.setPluginData('relay:sectionType', String(section.type || 'custom'));
   } catch (e) {}
+  var basePath = "sections[".concat(index, "]");
+  safeSetPluginData(frame, BUILDER_PATH_KEY, basePath);
   applyTokensToNode(frame, spec.tokens, {
     type: section.type,
     name: sectionName,
     section: section
   });
-  ensureGridStructure(frame, section, spec, log);
-  return frame;
+  if (isObject(spec === null || spec === void 0 ? void 0 : spec.grid) && Number.isFinite(spec.grid.container) && typeof frame.resizeWithoutConstraints === 'function') {
+    var targetWidth = clampUnit(spec.grid.container);
+    if (targetWidth != null) {
+      var height = Math.max(1, Math.round(frame.height || 10));
+      try {
+        frame.resizeWithoutConstraints(targetWidth, height);
+      } catch (e) {}
+    }
+  }
+  var gridResult = ensureGridStructure(frame, section, spec, log, context, "".concat(basePath, "/grid")) || null;
+  var contentResult = syncSectionContent(frame, spec, section, index, context, gridResult);
+  return { frame: frame, grid: gridResult, content: contentResult };
 }function
 
-runBuild(_x) {return _runBuild.apply(this, arguments);}function _runBuild() {_runBuild = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2(spec) {var logs, log, page, rootFrame, sections, sectionFrames, _iterator4, _step4, section, frame, timestamp;return _regenerator().w(function (_context2) {while (1) switch (_context2.n) {case 0:
+runBuild(_x) {return _runBuild.apply(this, arguments);}function _runBuild() {_runBuild = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2(spec) {var logs, log, page, rootFrame, buildContext, fontInfo, sections, sectionNodes, _iterator4, _step4, _step4$value, section, index, sectionResult, timestamp;return _regenerator().w(function (_context2) {while (1) switch (_context2.n) {case 0:
           logs = [];
-          log = function log(entry) {
-            logs.push("[build] ".concat(entry));
+          log = function log(message) {var level = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 'info';var meta = arguments.length > 2 ? arguments[2] : undefined;
+            var entry = { ts: new Date().toISOString(), level: level, message: message };
+            if (isObject(meta)) Object.assign(entry, meta);
+            logs.push(JSON.stringify(entry));
           };if (!(
           !isObject(spec.meta) || !isObject(spec.target))) {_context2.n = 1;break;}throw (
             new Error('TaskSpec meta/target are required'));case 1:
 
           page = ensurePage(spec.target.pageName, log);
           rootFrame = ensureRootFrame(page, spec, log);
+          buildContext = {
+            tokens: spec.tokens,
+            log: log,
+            report: { created: 0, updated: 0, removed: 0, warnings: [] },
+            fontName: null
+          };
+          _context2.n = 2;return (
+            ensureFontsForSpec(spec));case 2:fontInfo = _context2.v;
+
+          if (fontInfo) {
+            if (fontInfo.fontName) {
+              buildContext.fontName = fontInfo.fontName;
+            }
+            if (Array.isArray(fontInfo.warnings)) {
+              fontInfo.warnings.forEach(function (warning) {
+                addBuildWarning(buildContext, warning);
+              });
+            }
+          }
           sections = Array.isArray(spec.sections) ? spec.sections : [];
-          sectionFrames = [];_iterator4 = _createForOfIteratorHelper(
-            sections);try {for (_iterator4.s(); !(_step4 = _iterator4.n()).done;) {section = _step4.value;
-              frame = ensureSectionFrame(rootFrame, spec, section, log);
-              sectionFrames.push(frame);
-            }} catch (err) {_iterator4.e(err);} finally {_iterator4.f();}
-          sectionFrames.forEach(function (frame, index) {
+          sectionNodes = [];
+          _iterator4 = _createForOfIteratorHelper(
+            sections.entries());_context2.f(3);case 5:_context2.s();case 6:if ((_step4 = _context2.n()).done) {_context2.n = 13;break;}_step4$value = _slicedToArray(_step4.value, 2);section = _step4$value[1];index = _step4$value[0];
+          sectionResult = ensureSectionFrame(rootFrame, spec, section, log, index, buildContext);
+          sectionNodes.push(sectionResult.frame);_context2.n = 11;break;case 8:_context2.p = 8;_context2.t0 = _context2.v;
+
+          log(String(_context2.t0 || 'Section build failed'), 'error');case 11:_context2.n = 6;break;case 13:_context2.f(3);case 14:
+          sectionNodes.forEach(function (frame, position) {
             if (frame.parent === rootFrame) {
-              rootFrame.insertChild(index, frame);
+              rootFrame.insertChild(position, frame);
             }
           });
-          log("Processed ".concat(sectionFrames.length, " sections"));
+          log('Processed sections', 'info', { count: sectionNodes.length, created: buildContext.report.created, updated: buildContext.report.updated, removed: buildContext.report.removed });
           timestamp = new Date().toISOString();
           try {
             rootFrame.setPluginData('relay:lastBuildAt', timestamp);
-          } catch (e) {}return _context2.a(2,
+          } catch (e) {}return _context2.a(3,
           {
             page: page,
             rootFrame: rootFrame,
-            sections: sectionFrames,
-            logs: logs
-          });}}, _callee2);}));return _runBuild.apply(this, arguments);}
+            sections: sectionNodes,
+            logs: logs,
+            report: buildContext.report
+          });case 17:case "end":return _context2.stop();}}, null, null, [[5, 8, 11, 13]]);
+        }))();
+
 
 
 function extractBounds(node) {
@@ -895,7 +1601,8 @@ figma.ui.onmessage = /*#__PURE__*/function () {var _ref = _asyncToGenerator(/*#_
             sections: sections.length,
             pageId: page.id,
             frameId: rootFrame.id,
-            logs: logs
+            logs: logs,
+            report: _yield$runBuild.report
           });_context.n = 11;break;case 6:if (!(
           msg.type === 'export')) {_context.n = 10;break;}
           _spec2 = safeParseJSON(msg.taskSpec);if (
