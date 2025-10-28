@@ -10,22 +10,21 @@
 
 ## Quickstart (локально)
 
-1. Скопируйте пример настроек и обновите значения:
+1. Установите зависимости Relay:
    ```bash
-   cp relay/.env.example relay/.env
-   echo "API_KEYS=dev123" >> relay/.env
+   npm ci --prefix relay
+   ```
+2. Запустите Relay с тестовым ключом (можно использовать `npm run dev:relay` при наличии `.env`):
+   ```bash
+   API_KEYS=dev123 npm run dev --prefix relay
    ```
    > **Никогда не коммитьте `.env`**. Для ротации ключей используйте переменную `API_KEYS_ROLLOVER`.
-2. Установите зависимости Relay и поднимите dev-сервер:
-   ```bash
-   npm install --prefix relay
-   npm run dev --prefix relay
-   ```
 3. Проверьте здоровье API (по умолчанию `http://localhost:3000`):
    ```bash
    curl http://localhost:3000/health
    ```
    Ответ должен содержать `200 OK` и JSON с состоянием.
+4. Импортируйте плагин в Figma и вручную прогоните `examples/taskspecs/marketing-landing.json`: **Validate → Build → Export**.
 
 ## Quickstart (Docker)
 
@@ -47,7 +46,7 @@
 ## Plugin setup
 
 1. Откройте Figma → **Plugins → Development → Import plugin from manifest…** и выберите `plugin/manifest.json`.
-2. Введите API key в поле **API key** (ключ хранится локально в `localStorage` и автоматически добавляется в `Authorization: Bearer <key>` и `X-API-Key`).
+2. Введите API key в поле **API key** (ключ хранится локально в `localStorage` и автоматически добавляется в `Authorization: Bearer <key>` и `X-API-Key`). Валидаторы `/validate/*` доступны и без ключа, но для `/tasks*`, `/results` и артефактов авторизация обязательна.
 3. Минимальный сценарий работы:
    1. **Validate** — отправьте TaskSpec в `/validate/taskSpec` и убедитесь в отсутствии ошибок.
    2. **Build** — подготовьте ExportSpec и проверьте диффы внутри плагина.
@@ -94,18 +93,19 @@
 
 ## Быстрый рабочий цикл
 
-1. Создайте задачу:
+1. **Validate** — плагин или curl вызывает `/validate/taskSpec` и `/validate/exportSpec`. Эти эндпоинты доступны без ключа (free-режим). Пример: `examples/curl/validate-task-spec.sh`.
+2. **Build** — кнопка в плагине создаёт/обновляет секции (`hero`, `features`, `cta`, `footer`, `custom`), поддерживает повторный запуск без дублей.
+3. **Create task** — отправьте TaskSpec в Relay:
    ```bash
-   curl -s -X POST http://localhost:3000/tasks \
-     -H 'Authorization: Bearer dev123' \
-     -H 'Content-Type: application/json' \
-     -d '{"taskSpec":{"meta":{"specVersion":"0.1","id":"demo"},"target":{"fileId":"F","pageName":"P","frameName":"Root","frameSize":{"w":1440,"h":900}},"grid":{"container":1200,"columns":12,"gap":24,"margins":24},"sections":[{"type":"hero","name":"Hero"}]}}'
+   jq -c '{taskSpec: .}' examples/taskspecs/marketing-landing.json | \
+     curl -s -X POST http://localhost:3000/tasks \
+       -H 'Authorization: Bearer dev123' \
+       -H 'Content-Type: application/json' \
+       -d @-
    ```
-2. Нажмите **Fetch** в плагине, чтобы получить TaskSpec и стартовать процесс.
-3. Используйте **Validate** для проверки TaskSpec (`/validate/taskSpec`).
-4. Запустите **Export**, чтобы валидировать `ExportSpec`, скачать результат и отправить `/tasks/:id/result`.
-5. При необходимости проверяйте результат напрямую: `curl -H 'Authorization: Bearer dev123' http://localhost:3000/tasks/<TASK_ID>/result`.
-6. Для обзора последних экспортов используйте `GET /artifacts?offset=0&limit=50&order=desc` — список поддерживает пагинацию и сортировку.
+4. **Pull / Run** — агент выбирает задачи через `GET /tasks/pull`, переводит их в `running` и стримит логи `GET /tasks/{id}/watch`.
+5. **Export / Results** — плагин отправляет `POST /results`, после чего доступен `GET /tasks/{id}/result` и артефакты (`/compare`, `/artifacts`).
+6. **Artifacts** — `GET /artifacts?offset=0&limit=50&order=desc` позволяет просматривать историю экспортов и скачивать compare HTML/ZIP.
 
 ## Plugin UX
 
