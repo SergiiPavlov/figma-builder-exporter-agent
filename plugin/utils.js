@@ -156,6 +156,22 @@
       return limited || fallbackName;
     };
 
+    const stringifyJson = (value, fallback = "") => {
+      if (value === undefined) return typeof fallback === "string" ? fallback : "";
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch (error) {
+        if (value == null) {
+          return typeof fallback === "string" ? fallback : "";
+        }
+        try {
+          return String(value);
+        } catch (_) {
+          return typeof fallback === "string" ? fallback : "";
+        }
+      }
+    };
+
     const validateTaskSpecSchema = (value) => {
       const errors = [];
       const addError = (path, message) => {
@@ -798,10 +814,55 @@
       const frameSlug = slugify(normalizedFrameName || "frame");
       const inferredId = `${pageSlug}-${frameSlug}-draft`;
 
+      const colorCandidates = [];
+      if (textColor) {
+        colorCandidates.push({ key: "text", entry: textColor });
+      }
+      if (primaryColor) {
+        colorCandidates.push({ key: "primary", entry: primaryColor });
+      }
+      if (neutralColor) {
+        colorCandidates.push({ key: "neutral", entry: neutralColor });
+      }
+
+      let selectedColors = [];
+      if (colorCandidates.length) {
+        const take = (candidate) => {
+          if (!candidate) return;
+          if (selectedColors.some((item) => item.key === candidate.key)) return;
+          if (selectedColors.length >= 2) return;
+          selectedColors = selectedColors.concat(candidate);
+        };
+        const findByKey = (key) => colorCandidates.find((item) => item.key === key) || null;
+        take(findByKey("text"));
+        take(findByKey("primary"));
+        take(findByKey("neutral"));
+        if (selectedColors.length === 0) {
+          take(colorCandidates[0]);
+        }
+        if (selectedColors.length < 2) {
+          const remaining = colorCandidates.filter(
+            (item) => !selectedColors.some((entry) => entry.key === item.key),
+          );
+          if (remaining.length) {
+            take(remaining[0]);
+          }
+        }
+        const droppedKeys = colorCandidates
+          .filter((item) => !selectedColors.some((entry) => entry.key === item.key))
+          .map((item) => item.key);
+        if (droppedKeys.length) {
+          pushWarning(
+            `tokens.colors ограничены двумя значениями. Добавьте вручную: ${droppedKeys.join(", ")}.`,
+          );
+        }
+      }
+
       const colorTokens = {};
-      if (primaryColor) colorTokens.primary = primaryColor.hex;
-      if (textColor) colorTokens.text = textColor.hex;
-      if (neutralColor) colorTokens.neutral = neutralColor.hex;
+      selectedColors.forEach((item) => {
+        if (!item || !item.entry || !item.entry.hex) return;
+        colorTokens[item.key] = item.entry.hex;
+      });
 
       const tokens = {};
       if (fontFamily) tokens.fontFamily = fontFamily;
@@ -854,6 +915,7 @@
       normalizeSchemaErrors,
       validateTaskSpecSchema,
       sanitizeFilename,
+      stringifyJson,
       inferTaskSpecFromExportSpec,
     };
   },
