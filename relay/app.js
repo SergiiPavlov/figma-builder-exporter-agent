@@ -14,6 +14,7 @@ const AjvModule = require('ajv/dist/2020');
 const Ajv = typeof AjvModule === 'function' ? AjvModule : AjvModule.default;
 
 const SAFE_TASK_ID_RE = /^[A-Za-z0-9._-]+$/;
+const MAX_TASK_ID_LENGTH = 200;
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const KEEPALIVE_INTERVAL_MS = 30 * 1000;
 const CLEANUP_MIN_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
@@ -24,6 +25,7 @@ const MAX_BULK_ARTIFACT_IDS = 50;
 const BULK_ZIP_MAX_SIZE_BYTES = 100 * 1024 * 1024;
 const DEFAULT_COMPARE_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_PREVIEW_MAX_BYTES = 2_000_000;
+const MAX_PULL_LIMIT = 25;
 const DEFAULT_JSON_BODY_LIMIT = '1mb';
 const PREVIEW_CONTENT_TYPE = 'image/png';
 
@@ -400,6 +402,23 @@ function normalizePathname(pathname) {
   if (!trimmed) return '/';
   const normalized = trimmed.endsWith('/') && trimmed !== '/' ? trimmed.slice(0, -1) : trimmed;
   return normalized || '/';
+}
+
+function normalizeTaskId(candidate) {
+  if (typeof candidate !== 'string') {
+    return null;
+  }
+  const trimmed = candidate.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.length > MAX_TASK_ID_LENGTH) {
+    return null;
+  }
+  if (!SAFE_TASK_ID_RE.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
 }
 
 function escapeRegexSegment(segment) {
@@ -2143,15 +2162,65 @@ function createApp(options = {}) {
     return { updated, appended };
   }
 
-  function findLatestTaskByStatuses(statuses) {
+  function findTasksByStatuses(statuses, { limit = null, order = 'desc' } = {}) {
     const allowed = new Set(statuses);
     const byId = readAll();
     const arr = Array.from(byId.values()).filter((task) => allowed.has(task.status));
     if (arr.length === 0) {
+      return [];
+    }
+    const normalizeTs = (value) => (Number.isFinite(value) ? value : 0);
+    arr.sort((a, b) => {
+      const aCreated = normalizeTs(a && a.createdAt);
+      const bCreated = normalizeTs(b && b.createdAt);
+      const idA = a && a.id != null ? String(a.id) : '';
+      const idB = b && b.id != null ? String(b.id) : '';
+      if (order === 'asc') {
+        if (aCreated !== bCreated) {
+          return aCreated - bCreated;
+        }
+        return idA.localeCompare(idB);
+      }
+      if (bCreated !== aCreated) {
+        return bCreated - aCreated;
+      }
+      return idB.localeCompare(idA);
+    });
+    if (typeof limit === 'number' && limit >= 0) {
+      return arr.slice(0, limit);
+    }
+    return arr;
+  }
+
+  function findLatestTaskByStatuses(statuses) {
+    const tasks = findTasksByStatuses(statuses, { limit: 1, order: 'desc' });
+    return tasks.length > 0 ? tasks[0] : null;
+  }
+
+  function transitionTaskToRunning(task, { pluginId } = {}) {
+    if (!task) {
       return null;
     }
-    arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    return arr[0];
+    const now = Date.now();
+    const updated = {
+      ...task,
+      status: 'running',
+      runnerPluginId: pluginId ?? task.runnerPluginId ?? null,
+      startedAt: task.startedAt ?? task.createdAt ?? now,
+      finishedAt: null,
+      error: null,
+    };
+    writeOne(updated);
+    const statusPreviewInfo = getPreviewInfo(updated.id, updated);
+    broadcastTaskEvent(updated.id, 'status', {
+      status: 'running',
+      logs: normalizeLogs(updated.logs),
+      exportSpec: updated.result ?? null,
+      artifactPath: updated.artifactPath ?? null,
+      artifactSize: updated.artifactSize ?? null,
+      ...statusPreviewInfo,
+    });
+    return updated;
   }
 
   function markTaskError(taskId, errorMessage, { logs: logEntries, baseUrl } = {}) {
@@ -2216,14 +2285,35 @@ function createApp(options = {}) {
   });
 
   app.post('/tasks', (req, res) => {
-    const { taskSpec } = req.body || {};
-    if (!taskSpec) return sendJsonError(res, 400, 'taskSpec required');
-    const id = uuidv4();
+    const body = req.body || {};
+    const taskSpec = body.taskSpec;
+    if (!taskSpec || typeof taskSpec !== 'object') {
+      return sendJsonError(res, 400, 'taskSpec required');
+    }
+
+    const providedIdSource =
+      body.taskId != null ? body.taskId : taskSpec && taskSpec.meta && taskSpec.meta.id;
+    const normalizedId = providedIdSource != null ? normalizeTaskId(String(providedIdSource)) : null;
+    if (providedIdSource != null && !normalizedId) {
+      return sendJsonError(res, 400, 'Invalid task id');
+    }
+
+    const taskId = normalizedId || uuidv4();
+    const existing = readOne(taskId);
+    if (existing) {
+      return res.json({
+        taskId: existing.id,
+        status: existing.status ?? null,
+        createdAt: existing.createdAt ?? null,
+      });
+    }
+
+    const now = Date.now();
     const rec = {
-      id,
+      id: taskId,
       status: 'pending',
       taskSpec,
-      createdAt: Date.now(),
+      createdAt: now,
       logs: [],
       error: null,
       runnerPluginId: null,
@@ -2231,37 +2321,47 @@ function createApp(options = {}) {
       finishedAt: null,
     };
     writeOne(rec);
-    res.json({ taskId: id });
+    res.json({ taskId, status: rec.status, createdAt: now });
   });
 
   app.get('/tasks/pull', (req, res) => {
-    const pluginId =
-      typeof req.query.pluginId === 'string' && req.query.pluginId.trim()
-        ? req.query.pluginId.trim()
-        : null;
-    const next = findLatestTaskByStatuses(['pending', 'queued']);
-    if (!next) {
-      return res.json({ taskId: null, taskSpec: null });
+    const pluginIdRaw = typeof req.query.pluginId === 'string' ? req.query.pluginId.trim() : '';
+    const pluginId = pluginIdRaw ? pluginIdRaw : null;
+    const limitRaw = typeof req.query.limit === 'string' ? req.query.limit.trim() : null;
+    const parsedLimit = limitRaw ? Number.parseInt(limitRaw, 10) : Number.NaN;
+    let limit = Number.isFinite(parsedLimit) ? parsedLimit : 1;
+    if (limit < 0) {
+      limit = 0;
     }
-    const updated = {
-      ...next,
-      status: 'running',
-      runnerPluginId: pluginId ?? next.runnerPluginId ?? null,
-      startedAt: Date.now(),
-      finishedAt: null,
-      error: null,
+    if (limit > MAX_PULL_LIMIT) {
+      limit = MAX_PULL_LIMIT;
+    }
+    const effectiveLimit = limit === 0 ? 0 : limit || 1;
+
+    const pendingTasks = findTasksByStatuses(['pending', 'queued'], { order: 'asc' });
+    const toPull = effectiveLimit === 0 ? [] : pendingTasks.slice(0, effectiveLimit);
+    const pulled = [];
+    for (const task of toPull) {
+      const updated = transitionTaskToRunning(task, { pluginId });
+      if (updated) {
+        pulled.push({ taskId: updated.id, taskSpec: updated.taskSpec ?? null });
+      }
+    }
+    const remaining = Math.max(0, pendingTasks.length - toPull.length);
+    const response = {
+      items: pulled,
+      pulled: pulled.length,
+      remaining,
+      hasMore: remaining > 0,
     };
-    writeOne(updated);
-    const statusPreviewInfo = getPreviewInfo(updated.id, updated);
-    broadcastTaskEvent(updated.id, 'status', {
-      status: 'running',
-      logs: normalizeLogs(updated.logs),
-      exportSpec: updated.result ?? null,
-      artifactPath: updated.artifactPath ?? null,
-      artifactSize: updated.artifactSize ?? null,
-      ...statusPreviewInfo,
-    });
-    res.json({ taskId: updated.id, taskSpec: updated.taskSpec ?? null });
+    if (pulled.length > 0) {
+      response.taskId = pulled[0].taskId;
+      response.taskSpec = pulled[0].taskSpec;
+    } else {
+      response.taskId = null;
+      response.taskSpec = null;
+    }
+    return res.json(response);
   });
 
   app.get('/tasks/latest', (req, res) => {

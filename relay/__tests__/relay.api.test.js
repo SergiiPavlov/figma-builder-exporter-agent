@@ -98,7 +98,12 @@ describe('Relay API', () => {
 
     const pullRes = await request.get('/tasks/pull');
     expect(pullRes.status).toBe(200);
-    expect(pullRes.body).toEqual({ taskId, taskSpec: SAMPLE_TASK_SPEC });
+    expect(pullRes.body.taskId).toBe(taskId);
+    expect(pullRes.body.taskSpec).toEqual(SAMPLE_TASK_SPEC);
+    expect(pullRes.body.items).toEqual([{ taskId, taskSpec: SAMPLE_TASK_SPEC }]);
+    expect(pullRes.body.pulled).toBe(1);
+    expect(pullRes.body.remaining).toBe(0);
+    expect(pullRes.body.hasMore).toBe(false);
 
     const runningTaskRes = await request.get(`/tasks/${taskId}`);
     expect(runningTaskRes.status).toBe(200);
@@ -106,7 +111,12 @@ describe('Relay API', () => {
 
     const secondPull = await request.get('/tasks/pull');
     expect(secondPull.status).toBe(200);
-    expect(secondPull.body).toEqual({ taskId: null, taskSpec: null });
+    expect(secondPull.body.taskId).toBeNull();
+    expect(secondPull.body.taskSpec).toBeNull();
+    expect(secondPull.body.items).toEqual([]);
+    expect(secondPull.body.pulled).toBe(0);
+    expect(secondPull.body.remaining).toBe(0);
+    expect(secondPull.body.hasMore).toBe(false);
 
     const logs = ['build started', { message: 'build done', ts: new Date().toISOString() }];
     const resultsRes = await request.post('/results').send({ taskId, exportSpec: SAMPLE_EXPORT_SPEC, logs });

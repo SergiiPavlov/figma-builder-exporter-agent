@@ -17,6 +17,12 @@ const SAMPLE_TASK_SPEC = {
   sections: [{ type: 'hero', name: 'Hero' }],
 };
 
+const SAMPLE_EXPORT_SPEC = {
+  meta: { generatedAt: new Date().toISOString() },
+  target: { fileId: 'FILE', frameName: 'Frame' },
+  summary: { sections: 1 },
+};
+
 function createTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'relay-auth-'));
 }
@@ -69,9 +75,28 @@ describe('Auth & Protection middleware', () => {
     const res = await request.get('/tasks/latest');
     expect(res.status).toBe(401);
     expectErrorBody(res, 401, 'Unauthorized');
+
+    const createRes = await request.post('/tasks').send({ taskSpec: SAMPLE_TASK_SPEC });
+    expect(createRes.status).toBe(401);
+    expectErrorBody(createRes, 401, 'Unauthorized');
+
+    const resultRes = await request.post('/results').send({ taskId: 'nope', exportSpec: {} });
+    expect(resultRes.status).toBe(401);
+    expectErrorBody(resultRes, 401, 'Unauthorized');
   });
 
   test('allows public endpoints without API key', async () => {
+    if (app && typeof app.__webhooksIdle === 'function') {
+      await app.__webhooksIdle();
+    }
+    app = createApp({
+      dataDir,
+      apiKeys: [API_KEY],
+      rateLimitMax: 0,
+      rateLimitWindowMs: 0,
+    });
+    request = supertest(app);
+
     const healthRes = await request.get('/health');
     expect(healthRes.status).toBe(200);
     expect(healthRes.body).toEqual({ ok: true });
@@ -79,6 +104,16 @@ describe('Auth & Protection middleware', () => {
     const sharedRes = await request.get('/shared/missing');
     expect(sharedRes.status).toBe(404);
     expect(sharedRes.body).toEqual({ error: { code: 404, message: 'Not found' } });
+
+    const validateTask = await request.post('/validate/taskSpec').send({ taskSpec: SAMPLE_TASK_SPEC });
+    expect(validateTask.status).toBe(200);
+    expect(validateTask.body).toEqual({ valid: true, errors: [] });
+
+    const validateExport = await request
+      .post('/validate/exportSpec')
+      .send({ exportSpec: SAMPLE_EXPORT_SPEC });
+    expect(validateExport.status).toBe(200);
+    expect(validateExport.body).toEqual({ valid: true, errors: [] });
   });
 
   test('accepts valid API key and enforces rate limits', async () => {
@@ -93,6 +128,12 @@ describe('Auth & Protection middleware', () => {
     expect(fourth.status).toBe(429);
     expectErrorBody(fourth, 429, 'Too many requests');
     expect(fourth.headers['retry-after']).toBeDefined();
+  });
+
+  test('accepts X-API-Key header for authentication', async () => {
+    const res = await request.get('/tasks/pull').set('X-API-Key', API_KEY);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ taskId: null, taskSpec: null });
   });
 
   test('SSE watch endpoint bypasses rate limit but still requires key', async () => {
