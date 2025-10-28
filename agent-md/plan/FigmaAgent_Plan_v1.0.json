@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Relay foundation",
+      "status": "complete",
+      "deliverables": [
+        "Health endpoint",
+        "API key gatekeeping",
+        "Initial OpenAPI contract"
+      ]
+    },
+    {
+      "id": "M2",
+      "title": "Plugin spacing and export fidelity",
+      "status": "in_progress",
+      "acceptance_tests": [
+        "AT-01 Relay build -> health 200",
+        "AT-02 Unauthorized access yields 401",
+        "AT-03 Authorized flows return JSON payloads",
+        "AT-04 Spacing tolerance maintained within ±2 px",
+        "AT-05 ExportSpec includes style/token metadata"
+      ]
+    },
+    {
+      "id": "M3",
+      "title": "Extended API surface",
+      "status": "pending",
+      "notes": "Document watch/log/preview endpoints and finalize integrations"
+    }
+  ],
+  "links": {
+    "openapi": "../schemas/openapi.v1.0.0.yaml",
+    "docs": "../README.md"
+  }
+}

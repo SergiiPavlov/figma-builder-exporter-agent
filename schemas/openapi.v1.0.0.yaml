@@ -3,15 +3,8 @@ info:
   title: Figma Relay (Local)
   version: '0.1'
 servers:
-  - url: '{scheme}://{host}:{port}'
-    variables:
-      scheme:
-        default: http
-        enum: [http, https]
-      host:
-        default: localhost
-      port:
-        default: '3000'
+  - url: http://localhost:3000
+    description: Local Relay server
 components:
   securitySchemes:
     ApiKeyAuth:
