@@ -143,6 +143,19 @@
         .filter(Boolean);
     };
 
+    const sanitizeFilename = (input, fallback = "ExportSpec") => {
+      const fallbackName =
+        typeof fallback === "string" && fallback.trim() ? fallback.trim() : "ExportSpec";
+      if (typeof input !== "string") return fallbackName;
+      const trimmed = input.trim();
+      if (!trimmed) return fallbackName;
+      const replaced = trimmed.replace(/[\\/:*?"<>|]+/g, "_");
+      const collapsed = replaced.replace(/\s+/g, " ").trim();
+      const withoutDots = collapsed.replace(/\.+$/, "");
+      const limited = withoutDots.slice(0, 120);
+      return limited || fallbackName;
+    };
+
     const validateTaskSpecSchema = (value) => {
       const errors = [];
       const addError = (path, message) => {
@@ -269,6 +282,7 @@
       createPersistentState,
       normalizeSchemaErrors,
       validateTaskSpecSchema,
+      sanitizeFilename,
     };
   },
 );
