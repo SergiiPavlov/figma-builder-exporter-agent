@@ -5,7 +5,13 @@
   "main": "code.js",
   "ui": "ui.html",
   "editorType": ["figma", "figjam"],
-  "networkAccess": {
-    "allowedDomains": ["http://localhost:3000"]
-  }
+"networkAccess": {
+  "reasoning": "The plugin talks to a local Relay during development; in production no network access is allowed.",
+  "devAllowedDomains": [
+    "http://localhost:3000"
+    
+  ],
+  "allowedDomains": ["none"]
+}
+
 }
