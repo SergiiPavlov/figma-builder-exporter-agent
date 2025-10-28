@@ -5988,24 +5988,98 @@
           spec.warnings = uniqueStrings(spec.warnings);
         }
 
-        setTaskSpecTextarea(spec);
-        setValidateState("idle", {
-          message: "TaskSpec сгенерирован. Нажмите Validate.",
-          keepSpec: true,
-          skipReset: true,
-        });
-        const finalWarnings = Array.isArray(spec.warnings) ? spec.warnings : [];
-        if (finalWarnings.length) {
-          showToast({
-            message: `TaskSpec сгенерирован (${finalWarnings.length} предупреждений)`,
-            type: "warning",
+        const specString = stringifyJson(spec) || "";
+        setTaskSpecTextarea(specString);
+
+        let validationResult = null;
+        try {
+          validationResult = validateTaskSpecSchema(spec);
+        } catch (validationError) {
+          const message = parseServerError(
+            validationError,
+            "Ошибка локальной валидации TaskSpec",
+          );
+          setValidateState("error", {
+            message,
+            keepSpec: true,
           });
+          showToast({ message, type: "error" });
+          log(`TaskSpec inference validation error: ${message}`);
+          updateActionButtons();
+          return false;
+        }
+
+        const warningsSource = Array.isArray(spec.warnings)
+          ? spec.warnings
+          : spec.meta && Array.isArray(spec.meta.warnings)
+          ? spec.meta.warnings
+          : [];
+        const finalWarnings = uniqueStrings(warningsSource);
+        const hasWarnings = finalWarnings.length > 0;
+        if (hasWarnings) {
+          spec.warnings = finalWarnings;
+          if (spec.meta && typeof spec.meta === "object") {
+            spec.meta.warnings = finalWarnings;
+          }
           finalWarnings.forEach((warning) => {
             log(`Inference warning: ${warning}`);
           });
-        } else {
-          showToast({ message: "TaskSpec сгенерирован", type: "success" });
         }
+
+        if (validationResult && validationResult.valid) {
+          const message = hasWarnings
+            ? `TaskSpec сгенерирован и валиден (${finalWarnings.length} предупреждений)`
+            : "TaskSpec сгенерирован и валиден";
+          setValidateState("valid", {
+            message,
+            hint: hasWarnings ? "Проверьте предупреждения ниже." : "",
+            specString,
+          });
+          showToast({ message, type: hasWarnings ? "warning" : "success" });
+          log(`TaskSpec inference (${source}) OK (valid)`);
+          updateActionButtons();
+          return true;
+        }
+
+        if (validationResult && validationResult.valid === false) {
+          const errors = Array.isArray(validationResult.errors)
+            ? validationResult.errors
+            : [];
+          const errorMessage =
+            errors.length === 1
+              ? "TaskSpec сгенерирован, но содержит 1 ошибку схемы."
+              : errors.length > 1
+              ? `TaskSpec сгенерирован, но содержит ${errors.length} ошибки схемы.`
+              : "TaskSpec сгенерирован, но не прошёл валидацию схемы.";
+          setValidateState("invalid", {
+            message: errorMessage,
+            errors,
+            hint: "Исправьте TaskSpec и повторите Validate.",
+            keepSpec: true,
+          });
+          if (errors.length) {
+            log("TaskSpec schema validation failed:");
+            errors.forEach((entry) => {
+              const path = entry && entry.path ? entry.path : "/";
+              const text = entry && entry.message ? entry.message : "Invalid value";
+              log(` - ${path}: ${text}`);
+            });
+          }
+          showToast({ message: errorMessage, type: "error" });
+          log(`TaskSpec inference (${source}) завершена с ошибками схемы`);
+          updateActionButtons();
+          return false;
+        }
+
+        const fallbackMessage = hasWarnings
+          ? `TaskSpec сгенерирован (${finalWarnings.length} предупреждений). Проверьте вручную.`
+          : "TaskSpec сгенерирован. Проверьте вручную.";
+        setValidateState("idle", {
+          message: fallbackMessage,
+          keepSpec: true,
+          skipReset: true,
+        });
+        showToast({ message: fallbackMessage, type: hasWarnings ? "warning" : "success" });
         log(`TaskSpec inference (${source}) OK`);
         updateActionButtons();
         return true;

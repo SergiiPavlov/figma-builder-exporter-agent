@@ -902,6 +902,7 @@
 
       const uniqueWarnings = Array.from(warningSet.values());
       if (uniqueWarnings.length) {
+        taskSpec.meta.warnings = uniqueWarnings;
         taskSpec.warnings = uniqueWarnings;
       }
 
