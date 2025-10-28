@@ -87,6 +87,96 @@
         gap: 8px;
         margin: 8px 0;
       }
+      .flow-panels {
+        display: grid;
+        gap: 8px;
+        margin: 12px 0;
+      }
+      .flow-panel {
+        border: 1px solid #cbd5f5;
+        background: #f8fafc;
+        border-radius: 6px;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .flow-panel__header {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .flow-panel__status {
+        margin-left: auto;
+        font-weight: 600;
+      }
+      .flow-panel__message {
+        font-size: 11px;
+        color: #475569;
+      }
+      .flow-panel__hint {
+        font-size: 10px;
+        color: #64748b;
+      }
+      .flow-panel__errors {
+        margin: 0;
+        padding-left: 16px;
+        font-size: 11px;
+        color: #b91c1c;
+      }
+      .flow-panel__errors[data-visible='false'] {
+        display: none;
+      }
+      .flow-panel__warnings {
+        font-size: 11px;
+        color: #b45309;
+      }
+      .flow-panel__warnings[data-visible='false'] {
+        display: none;
+      }
+      .flow-panel__warnings ul {
+        margin: 0;
+        padding-left: 16px;
+      }
+      .flow-panel__summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        font-size: 11px;
+        color: #0f172a;
+      }
+      .flow-panel__summary span {
+        display: inline-flex;
+        gap: 4px;
+        align-items: baseline;
+      }
+      .flow-panel__logs {
+        font-size: 11px;
+        background: #e2e8f0;
+        color: #0f172a;
+        border-radius: 4px;
+        padding: 6px;
+        margin: 0;
+        max-height: 140px;
+        overflow: auto;
+      }
+      .flow-panel__logs[data-visible='false'] {
+        display: none;
+      }
+      .flow-panel[data-state='valid'] .flow-panel__status,
+      .flow-panel[data-state='done'] .flow-panel__status {
+        color: #15803d;
+      }
+      .flow-panel[data-state='invalid'] .flow-panel__status,
+      .flow-panel[data-state='error'] .flow-panel__status {
+        color: #b91c1c;
+      }
+      .flow-panel[data-state='running'] .flow-panel__status {
+        color: #2563eb;
+      }
       button {
         padding: 6px 10px;
         cursor: pointer;
@@ -1360,6 +1450,46 @@
         >
         <button id="btn-close">Close</button>
       </div>
+      <div class="flow-panels">
+        <section id="validate-panel" class="flow-panel" data-state="idle">
+          <div class="flow-panel__header">
+            <span>Validate</span>
+            <span id="validate-status" class="flow-panel__status">idle</span>
+          </div>
+          <div id="validate-message" class="flow-panel__message"></div>
+          <div id="validate-hint" class="flow-panel__hint"></div>
+          <ul id="validate-errors" class="flow-panel__errors" data-visible="false"></ul>
+        </section>
+        <section id="build-panel" class="flow-panel" data-state="idle">
+          <div class="flow-panel__header">
+            <span>Build</span>
+            <span id="build-status" class="flow-panel__status">idle</span>
+          </div>
+          <div id="build-message" class="flow-panel__message"></div>
+          <div id="build-summary" class="flow-panel__summary"></div>
+          <div id="build-warnings" class="flow-panel__warnings" data-visible="false"></div>
+          <pre
+            id="build-logs"
+            class="flow-panel__logs"
+            data-visible="false"
+            aria-live="polite"
+          ></pre>
+        </section>
+        <section id="export-panel" class="flow-panel" data-state="idle">
+          <div class="flow-panel__header">
+            <span>Export</span>
+            <span id="export-status" class="flow-panel__status">idle</span>
+          </div>
+          <div id="export-message" class="flow-panel__message"></div>
+          <ul id="export-errors" class="flow-panel__errors" data-visible="false"></ul>
+          <pre
+            id="export-logs"
+            class="flow-panel__logs"
+            data-visible="false"
+            aria-live="polite"
+          ></pre>
+        </section>
+      </div>
       <pre
         id="relay-log"
         style="background: #f1f5f9; color: #0f172a; padding: 8px; max-height: 120px; overflow: auto"
@@ -1951,6 +2081,99 @@
           write: () => false,
         }));
 
+      const normalizeSchemaErrors =
+        pluginUtils.normalizeSchemaErrors ||
+        ((errors) => {
+          if (!Array.isArray(errors)) return [];
+          return errors
+            .map((entry) => {
+              if (!entry) return null;
+              const path =
+                (typeof entry.path === "string" && entry.path) ||
+                (typeof entry.instancePath === "string" && entry.instancePath) ||
+                (typeof entry.dataPath === "string" && entry.dataPath) ||
+                "/";
+              const message =
+                entry && typeof entry.message === "string" && entry.message.trim()
+                  ? entry.message.trim()
+                  : "Invalid value";
+              return { path, message };
+            })
+            .filter(Boolean);
+        });
+
+      const validateTaskSpecSchema =
+        pluginUtils.validateTaskSpecSchema ||
+        (() => ({ valid: true, errors: [] }));
+
+      const validateRequestGuard = createRaceGuard();
+
+      const MAX_BUILD_LOG_LINES = 40;
+      const MAX_EXPORT_LOG_LINES = 40;
+
+      const VALIDATE_STATUS_LABELS = {
+        idle: "Ожидание",
+        valid: "Валидно",
+        invalid: "Невалидно",
+        error: "Ошибка",
+      };
+      const BUILD_STATUS_LABELS = {
+        idle: "Ожидание",
+        running: "Выполняется…",
+        done: "Готово",
+        error: "Ошибка",
+      };
+      const EXPORT_STATUS_LABELS = {
+        idle: "Ожидание",
+        running: "Выполняется…",
+        done: "Готово",
+        error: "Ошибка",
+      };
+
+      const VALIDATOR_AUTH_HINT =
+        "Валидатор недоступен без ключа. Запусти relay с API_KEYS=dev123 npm run dev --prefix relay или включи free-режим (API_FREE_ENDPOINTS=/validate/*).";
+
+      const flowState = {
+        validate: {
+          state: "idle",
+          message: "",
+          hint: "",
+          errors: [],
+          lastSpecString: null,
+        },
+        build: {
+          state: "idle",
+          message: "",
+          summary: null,
+          warnings: [],
+          logs: [],
+          lastSpecString: null,
+        },
+        export: {
+          state: "idle",
+          message: "",
+          errors: [],
+          logs: [],
+          lastSpecString: null,
+          downloadFilename: "ExportSpec.json",
+          downloadUrl: null,
+        },
+      };
+
+      const inflightOperations = {
+        validate: false,
+        build: false,
+        export: false,
+      };
+
+      const operationContext = {
+        validateSpec: null,
+        buildSpec: null,
+        exportSpec: null,
+      };
+
+      let validateInProgress = false;
+
       const buildRelayUrl = (path, { includeApiKey = false } = {}) => {
         try {
           const url = new URL(path, RELAY_URL);
@@ -2382,7 +2605,10 @@
         setRunnerStatus("running", "build");
         await runnerPostLog(taskId, "Runner: start");
         appendRunnerLog("Running build…");
-        post("build", runnerState.currentSpecString);
+        triggerBuild(runnerState.currentSpecString, {
+          source: "runner",
+          skipValidationCheck: true,
+        });
       };
 
       async function runRunnerPoll() {
@@ -5105,6 +5331,492 @@
           renderRunnerState();
         }
       };
+
+      const getCurrentSpecString = () =>
+        specTextareaEl && typeof specTextareaEl.value === "string" ? specTextareaEl.value : "";
+
+      const setButtonDisabled = (button, disabled) => {
+        if (!button) return;
+        const isDisabled = !!disabled;
+        button.disabled = isDisabled;
+        button.setAttribute("aria-disabled", isDisabled ? "true" : "false");
+      };
+
+      const renderErrorList = (element, items) => {
+        if (!element) return;
+        element.innerHTML = "";
+        if (!Array.isArray(items) || items.length === 0) {
+          element.dataset.visible = "false";
+          return;
+        }
+        element.dataset.visible = "true";
+        items.forEach((entry) => {
+          const li = document.createElement("li");
+          const code = document.createElement("code");
+          code.textContent = entry && entry.path ? entry.path : "/";
+          li.appendChild(code);
+          const message = entry && entry.message ? ` — ${entry.message}` : "";
+          if (message) {
+            li.appendChild(document.createTextNode(message));
+          }
+          element.appendChild(li);
+        });
+      };
+
+      const renderWarnings = (element, warnings) => {
+        if (!element) return;
+        element.innerHTML = "";
+        if (!Array.isArray(warnings) || warnings.length === 0) {
+          element.dataset.visible = "false";
+          return;
+        }
+        element.dataset.visible = "true";
+        const title = document.createElement("div");
+        title.textContent = "Warnings:";
+        element.appendChild(title);
+        const list = document.createElement("ul");
+        warnings.forEach((warning) => {
+          const li = document.createElement("li");
+          li.textContent = typeof warning === "string" ? warning : String(warning);
+          list.appendChild(li);
+        });
+        element.appendChild(list);
+      };
+
+      const formatLogEntries = (entries, limit) => {
+        if (!Array.isArray(entries) || entries.length === 0) return [];
+        const sliceLimit = Number.isInteger(limit) && limit > 0 ? limit : entries.length;
+        return entries
+          .slice(-sliceLimit)
+          .map((entry) => {
+            if (typeof entry === "string") return entry;
+            try {
+              return JSON.stringify(entry);
+            } catch (_) {
+              return String(entry);
+            }
+          })
+          .filter((entry) => entry && entry.length);
+      };
+
+      const renderValidateState = () => {
+        const elements = flowElements.validate;
+        if (elements.panel) {
+          elements.panel.dataset.state = flowState.validate.state;
+        }
+        if (elements.status) {
+          elements.status.textContent =
+            VALIDATE_STATUS_LABELS[flowState.validate.state] || flowState.validate.state;
+        }
+        if (elements.message) {
+          elements.message.textContent = flowState.validate.message || "";
+          elements.message.style.display = flowState.validate.message ? "block" : "none";
+        }
+        if (elements.hint) {
+          elements.hint.textContent = flowState.validate.hint || "";
+          elements.hint.style.display = flowState.validate.hint ? "block" : "none";
+        }
+        renderErrorList(elements.errors, flowState.validate.errors);
+      };
+
+      const renderBuildState = () => {
+        const elements = flowElements.build;
+        if (elements.panel) {
+          elements.panel.dataset.state = flowState.build.state;
+        }
+        if (elements.status) {
+          elements.status.textContent =
+            BUILD_STATUS_LABELS[flowState.build.state] || flowState.build.state;
+        }
+        if (elements.message) {
+          elements.message.textContent = flowState.build.message || "";
+          elements.message.style.display = flowState.build.message ? "block" : "none";
+        }
+        if (elements.summary) {
+          elements.summary.innerHTML = "";
+          if (flowState.build.summary) {
+            const { created = 0, updated = 0, removed = 0 } = flowState.build.summary;
+            const parts = [
+              { label: "Created", value: created },
+              { label: "Updated", value: updated },
+              { label: "Removed", value: removed },
+            ];
+            parts.forEach((part) => {
+              const span = document.createElement("span");
+              const label = document.createElement("span");
+              label.textContent = `${part.label}:`;
+              const value = document.createElement("strong");
+              value.textContent = String(part.value);
+              span.appendChild(label);
+              span.appendChild(value);
+              elements.summary.appendChild(span);
+            });
+          }
+        }
+        renderWarnings(elements.warnings, flowState.build.warnings);
+        if (elements.logs) {
+          if (flowState.build.logs.length) {
+            elements.logs.dataset.visible = "true";
+            elements.logs.textContent = flowState.build.logs.join("\n");
+            elements.logs.scrollTop = elements.logs.scrollHeight;
+          } else {
+            elements.logs.dataset.visible = "false";
+            elements.logs.textContent = "";
+          }
+        }
+      };
+
+      const renderExportState = () => {
+        const elements = flowElements.export;
+        if (elements.panel) {
+          elements.panel.dataset.state = flowState.export.state;
+        }
+        if (elements.status) {
+          elements.status.textContent =
+            EXPORT_STATUS_LABELS[flowState.export.state] || flowState.export.state;
+        }
+        if (elements.message) {
+          elements.message.textContent = flowState.export.message || "";
+          elements.message.style.display = flowState.export.message ? "block" : "none";
+        }
+        renderErrorList(elements.errors, flowState.export.errors);
+        if (elements.logs) {
+          if (flowState.export.logs.length) {
+            elements.logs.dataset.visible = "true";
+            elements.logs.textContent = flowState.export.logs.join("\n");
+            elements.logs.scrollTop = elements.logs.scrollHeight;
+          } else {
+            elements.logs.dataset.visible = "false";
+            elements.logs.textContent = "";
+          }
+        }
+        if (exportDownloadLink) {
+          if (flowState.export.state === "done" && flowState.export.downloadUrl) {
+            exportDownloadLink.style.display = "inline-block";
+            exportDownloadLink.href = flowState.export.downloadUrl;
+            exportDownloadLink.download = flowState.export.downloadFilename || "ExportSpec.json";
+            exportDownloadLink.setAttribute("aria-disabled", "false");
+          } else {
+            exportDownloadLink.style.display = "none";
+            exportDownloadLink.href = "#";
+            exportDownloadLink.setAttribute("aria-disabled", "true");
+          }
+        }
+      };
+
+      const renderFlowPanels = () => {
+        renderValidateState();
+        renderBuildState();
+        renderExportState();
+      };
+
+      const clearExportDownload = () => {
+        if (flowState.export.downloadUrl) {
+          try {
+            URL.revokeObjectURL(flowState.export.downloadUrl);
+          } catch (_) {}
+        }
+        flowState.export.downloadUrl = null;
+        if (exportDownloadLink) {
+          exportDownloadLink.style.display = "none";
+          exportDownloadLink.href = "#";
+          exportDownloadLink.setAttribute("aria-disabled", "true");
+        }
+      };
+
+      const canBuild = () =>
+        flowState.validate.state === "valid" &&
+        flowState.validate.lastSpecString === getCurrentSpecString() &&
+        flowState.build.state !== "running";
+
+      const canExport = () =>
+        flowState.build.state === "done" &&
+        flowState.build.lastSpecString === getCurrentSpecString() &&
+        flowState.export.state !== "running";
+
+      const updateActionButtons = () => {
+        setButtonDisabled(validateButton, validateInProgress);
+        setButtonDisabled(buildButton, !canBuild());
+        setButtonDisabled(exportButton, !canExport());
+      };
+
+      function setBuildState(state, options = {}) {
+        const {
+          message = "",
+          summary = null,
+          warnings = [],
+          logs = [],
+          specString = null,
+          reset = false,
+          skipUpdateButtons = false,
+        } = options;
+
+        flowState.build.state = state;
+        flowState.build.message = message || "";
+
+        if (state === "running") {
+          flowState.build.summary = null;
+          flowState.build.warnings = [];
+          flowState.build.logs = [];
+          flowState.build.lastSpecString = specString != null ? specString : null;
+        } else if (state === "done") {
+          flowState.build.summary = summary || null;
+          flowState.build.warnings = Array.isArray(warnings) ? warnings : [];
+          flowState.build.logs = formatLogEntries(logs, MAX_BUILD_LOG_LINES);
+          flowState.build.lastSpecString = specString != null ? specString : flowState.build.lastSpecString;
+        } else if (state === "error") {
+          flowState.build.summary = null;
+          flowState.build.warnings = Array.isArray(warnings) ? warnings : [];
+          flowState.build.logs = formatLogEntries(logs, MAX_BUILD_LOG_LINES);
+          if (specString != null) {
+            flowState.build.lastSpecString = specString;
+          }
+        }
+
+        if (state === "idle" || reset) {
+          flowState.build.summary = null;
+          flowState.build.warnings = [];
+          flowState.build.logs = [];
+          if (reset) {
+            flowState.build.lastSpecString = null;
+          }
+        }
+
+        renderBuildState();
+        if (!skipUpdateButtons) {
+          updateActionButtons();
+        }
+      }
+
+      function setExportState(state, options = {}) {
+        const {
+          message = "",
+          errors = [],
+          logs = [],
+          specString = null,
+          downloadUrl = null,
+          downloadFilename = "ExportSpec.json",
+          reset = false,
+          skipUpdateButtons = false,
+        } = options;
+
+        if (state === "idle" || reset) {
+          flowState.export.state = "idle";
+          flowState.export.message = message || "";
+          flowState.export.errors = [];
+          flowState.export.logs = [];
+          if (reset || specString === null) {
+            flowState.export.lastSpecString = null;
+          }
+          clearExportDownload();
+          renderExportState();
+          if (!skipUpdateButtons) {
+            updateActionButtons();
+          }
+          return;
+        }
+
+        flowState.export.state = state;
+        flowState.export.message = message || "";
+        flowState.export.errors = Array.isArray(errors) ? errors : [];
+        flowState.export.logs = formatLogEntries(logs, MAX_EXPORT_LOG_LINES);
+        if (specString != null) {
+          flowState.export.lastSpecString = specString;
+        }
+
+        if (state === "done") {
+          clearExportDownload();
+          flowState.export.downloadFilename = downloadFilename || "ExportSpec.json";
+          flowState.export.downloadUrl = downloadUrl || null;
+        }
+
+        if (state === "error") {
+          clearExportDownload();
+        }
+
+        renderExportState();
+        if (!skipUpdateButtons) {
+          updateActionButtons();
+        }
+      }
+
+      function setValidateState(state, options = {}) {
+        const {
+          message = "",
+          hint = "",
+          errors = [],
+          specString = null,
+          keepSpec = false,
+          skipReset = false,
+          skipUpdateButtons = false,
+        } = options;
+
+        flowState.validate.state = state;
+        flowState.validate.message = message || "";
+        flowState.validate.hint = hint || "";
+        flowState.validate.errors = Array.isArray(errors) ? errors : [];
+
+        if (state === "valid") {
+          flowState.validate.lastSpecString =
+            specString != null ? specString : getCurrentSpecString();
+        } else if (!keepSpec) {
+          flowState.validate.lastSpecString = null;
+        }
+
+        renderValidateState();
+
+        if (!skipReset && state !== "valid") {
+          setBuildState("idle", { reset: true, skipUpdateButtons: true });
+          setExportState("idle", { reset: true, skipUpdateButtons: true });
+        }
+
+        if (!skipUpdateButtons) {
+          updateActionButtons();
+        }
+      }
+
+      const handleSpecUpdated = (source = "user") => {
+        const current = getCurrentSpecString();
+        if (
+          flowState.validate.state === "valid" &&
+          flowState.validate.lastSpecString === current
+        ) {
+          updateActionButtons();
+          return;
+        }
+        if (flowState.validate.state !== "idle" || flowState.validate.lastSpecString !== null) {
+          const message =
+            source === "user" ? "TaskSpec изменён. Нажмите Validate." : flowState.validate.message;
+          setValidateState("idle", { message });
+        } else {
+          updateActionButtons();
+        }
+      };
+
+      const tryRemoteTaskSpecValidation = async (spec, guardToken) => {
+        const relayHost = typeof RELAY_URL === "string" ? RELAY_URL.trim() : "";
+        if (!relayHost || relayHost === "disabled") {
+          return { attempted: false };
+        }
+        const init = {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskSpec: spec }),
+        };
+        if (guardToken && guardToken.signal) {
+          init.signal = guardToken.signal;
+        }
+        try {
+          const response = await relayFetch(
+            buildRelayUrl(`/validate/taskSpec`, { includeApiKey: false }),
+            init,
+          );
+          if (guardToken && !validateRequestGuard.isActive(guardToken.token)) {
+            return { aborted: true };
+          }
+          if (response.ok) {
+            const data = await response.json();
+            return {
+              attempted: true,
+              ok: true,
+              valid: !!(data && data.valid),
+              errors: Array.isArray(data && data.errors) ? data.errors : [],
+              raw: data,
+            };
+          }
+          if (response.status === 401) {
+            return { attempted: true, ok: false, status: 401, unauthorized: true };
+          }
+          let payload;
+          try {
+            payload = await response.json();
+          } catch (_) {
+            try {
+              payload = await response.text();
+            } catch (_) {
+              payload = null;
+            }
+          }
+          return {
+            attempted: true,
+            ok: false,
+            status: response.status,
+            message: parseServerError(payload, `HTTP ${response.status}`),
+          };
+        } catch (error) {
+          if (guardToken && !validateRequestGuard.isActive(guardToken.token)) {
+            return { aborted: true };
+          }
+          return {
+            attempted: true,
+            ok: false,
+            error,
+            networkError: true,
+            message: parseServerError(error),
+          };
+        }
+      };
+
+      const triggerBuild = (specString, options = {}) => {
+        const { source = "manual", skipValidationCheck = false } = options;
+        const payload = specString != null ? specString : getCurrentSpecString();
+        if (!payload) return false;
+        if (!skipValidationCheck && !canBuild()) {
+          return false;
+        }
+        setExportState("idle", { reset: true, skipUpdateButtons: true });
+        operationContext.buildSpec = payload;
+        inflightOperations.build = true;
+        const message = source === "runner" ? "Runner: Build выполняется…" : "Build выполняется…";
+        setBuildState("running", { message, specString: payload });
+        post("build", payload);
+        return true;
+      };
+
+      const triggerExport = (specString, options = {}) => {
+        const { source = "manual", skipBuildCheck = false } = options;
+        const payload = specString != null ? specString : getCurrentSpecString();
+        if (!payload) return false;
+        if (!skipBuildCheck && !canExport()) {
+          return false;
+        }
+        operationContext.exportSpec = payload;
+        inflightOperations.export = true;
+        const message = source === "runner" ? "Runner: Export выполняется…" : "Export выполняется…";
+        setExportState("running", { message, specString: payload });
+        post("export", payload);
+        return true;
+      };
+      const flowElements = {
+        validate: {
+          panel: document.getElementById("validate-panel"),
+          status: document.getElementById("validate-status"),
+          message: document.getElementById("validate-message"),
+          hint: document.getElementById("validate-hint"),
+          errors: document.getElementById("validate-errors"),
+        },
+        build: {
+          panel: document.getElementById("build-panel"),
+          status: document.getElementById("build-status"),
+          message: document.getElementById("build-message"),
+          summary: document.getElementById("build-summary"),
+          warnings: document.getElementById("build-warnings"),
+          logs: document.getElementById("build-logs"),
+        },
+        export: {
+          panel: document.getElementById("export-panel"),
+          status: document.getElementById("export-status"),
+          message: document.getElementById("export-message"),
+          errors: document.getElementById("export-errors"),
+          logs: document.getElementById("export-logs"),
+        },
+      };
+      const specTextareaEl = document.getElementById("spec");
+      const validateButton = document.getElementById("btn-validate");
+      const buildButton = document.getElementById("btn-build");
+      const exportButton = document.getElementById("btn-export");
+      const exportDownloadLink = document.getElementById("download");
+
       const statusPanelEl = document.getElementById("status-panel");
       const statusTextEl = document.getElementById("status-text");
       const statusLogEl = document.getElementById("status-log");
@@ -5148,18 +5860,24 @@
       }
 
       const setTaskSpecTextarea = (taskSpec) => {
-        const textarea = document.getElementById("spec");
-        if (!textarea || taskSpec == null) return;
+        if (!specTextareaEl || taskSpec == null) return;
         if (typeof taskSpec === "string") {
-          textarea.value = taskSpec;
-          return;
+          specTextareaEl.value = taskSpec;
+        } else {
+          try {
+            specTextareaEl.value = JSON.stringify(taskSpec, null, 2);
+          } catch (err) {
+            specTextareaEl.value = String(taskSpec);
+          }
         }
-        try {
-          textarea.value = JSON.stringify(taskSpec, null, 2);
-        } catch (err) {
-          textarea.value = String(taskSpec);
-        }
+        handleSpecUpdated("programmatic");
       };
+
+      if (specTextareaEl) {
+        specTextareaEl.addEventListener("input", () => {
+          handleSpecUpdated("user");
+        });
+      }
 
       const assignFetchedTask = async (taskId, taskSpec, label, logMessage) => {
         if (!taskId) {
@@ -5474,7 +6192,15 @@
         ],
         acceptance: { maxSpacingDeviation: 2, checkAutoLayout: true },
       };
-      document.getElementById("spec").value = JSON.stringify(sample, null, 2);
+      setTaskSpecTextarea(sample);
+      setValidateState("idle", {
+        message: "Готово к проверке. Нажмите Validate.",
+        keepSpec: true,
+        skipReset: true,
+      });
+      renderBuildState();
+      renderExportState();
+      updateActionButtons();
 
       const post = (type, overrideSpec) => {
         const textarea = document.getElementById("spec");
@@ -5487,65 +6213,126 @@
         parent.postMessage({ pluginMessage: { type, taskSpec: val } }, "*");
       };
 
-      document.getElementById("btn-validate").onclick = async () => {
-        const textarea = document.getElementById("spec");
-        const raw = textarea.value;
-        let parsed;
-        let parseError = false;
-        try {
-          parsed = JSON.parse(raw);
-        } catch (_) {
-          parseError = true;
-        }
-        let shouldPost = true;
-        if (!parseError) {
-          const relayHost = typeof RELAY_URL === "string" ? RELAY_URL.trim() : "";
-          if (!relayHost || relayHost === "disabled" || !runnerState.enabled) {
-            rlog("Runner disabled: skip remote validation (offline parse OK).");
-          } else {
-            try {
-              const res = await relayFetch(
-                buildRelayUrl(`/validate/taskSpec`, { includeApiKey: false }),
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ taskSpec: parsed }),
-                }
-              );
-              if (res.ok) {
-                const data = await res.json();
-                runnerState.lastError = null;
-                renderRunnerState();
-                if (!data.valid) {
-                  shouldPost = false;
-                  log("TaskSpec schema validation failed:");
-                  const errors = Array.isArray(data.errors) ? data.errors : [];
-                  if (errors.length === 0) {
-                    log(" - No details provided");
-                  } else {
-                    for (const err of errors) {
-                      const path = err.instancePath || "/";
-                      log(` - ${path}: ${err.message}`);
-                    }
-                  }
-                }
-              } else {
-                runnerState.lastError = `HTTP ${res.status}`;
-                renderRunnerState();
-                rlog(`TaskSpec validation request failed: HTTP ${res.status}`);
-              }
-            } catch (err) {
-              const message = err && err.message ? err.message : err;
-              runnerState.lastError = message;
-              renderRunnerState();
-              rlog("TaskSpec validation request error: " + message);
-            }
+      if (validateButton) {
+        validateButton.addEventListener("click", async () => {
+          if (validateInProgress) return;
+          const raw = getCurrentSpecString();
+          if (!raw || !raw.trim()) {
+            const message = "TaskSpec пуст. Вставьте JSON для проверки.";
+            setValidateState("error", { message });
+            showToast({ message, type: "error" });
+            log(message);
+            return;
           }
-        }
-        if (shouldPost) post("validate");
-      };
-      document.getElementById("btn-build").onclick = () => post("build");
-      document.getElementById("btn-export").onclick = () => post("export");
+
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch (error) {
+            const message = `Некорректный JSON: ${error && error.message ? error.message : error}`;
+            setValidateState("error", { message });
+            showToast({ message, type: "error" });
+            log(`Validate error: ${message}`);
+            return;
+          }
+
+          validateInProgress = true;
+          updateActionButtons();
+          const guardToken = validateRequestGuard.start();
+
+          try {
+            const remoteResult = await tryRemoteTaskSpecValidation(parsed, guardToken);
+            if (!validateRequestGuard.isActive(guardToken.token)) {
+              return;
+            }
+
+            let hint = "";
+            if (remoteResult && remoteResult.attempted && !remoteResult.ok) {
+              if (remoteResult.unauthorized || remoteResult.networkError) {
+                hint = VALIDATOR_AUTH_HINT;
+                showToast({ message: VALIDATOR_AUTH_HINT, type: "error", duration: 5200 });
+              } else if (remoteResult.message) {
+                hint = remoteResult.message;
+                showToast({ message: remoteResult.message, type: "error" });
+              }
+            }
+
+            const localResult = validateTaskSpecSchema(parsed);
+            let finalState = "valid";
+            let finalMessage = "TaskSpec валиден";
+            let errors = [];
+
+            if (remoteResult && remoteResult.attempted && remoteResult.ok && !remoteResult.valid) {
+              finalState = "invalid";
+              errors = normalizeSchemaErrors(remoteResult.errors);
+              finalMessage = "TaskSpec не проходит проверку схемы";
+            } else if (!localResult.valid) {
+              finalState = "invalid";
+              errors = localResult.errors;
+              finalMessage = "TaskSpec не проходит проверку схемы";
+            } else if (remoteResult && remoteResult.attempted && !remoteResult.ok) {
+              finalMessage = "TaskSpec валиден (offline)";
+            }
+
+            if (finalState === "invalid") {
+              if (!errors.length && remoteResult && remoteResult.errors) {
+                errors = normalizeSchemaErrors(remoteResult.errors);
+              }
+              if (!errors.length && localResult && Array.isArray(localResult.errors)) {
+                errors = localResult.errors;
+              }
+              if (errors.length) {
+                log("TaskSpec schema validation failed:");
+                errors.forEach((entry) => {
+                  const path = entry && entry.path ? entry.path : "/";
+                  const text = entry && entry.message ? entry.message : "Invalid value";
+                  log(` - ${path}: ${text}`);
+                });
+              }
+              setValidateState("invalid", { message: finalMessage, errors, hint });
+              showToast({ message: finalMessage, type: "error" });
+              log("TaskSpec schema validation failed");
+              return;
+            }
+
+            setValidateState("valid", {
+              message: finalMessage,
+              hint,
+              specString: raw,
+              errors: [],
+            });
+            showToast({ message: finalMessage, type: "success" });
+            operationContext.validateSpec = raw;
+            inflightOperations.validate = true;
+            post("validate", raw);
+          } catch (error) {
+            const message = parseServerError(error, "Ошибка валидации");
+            setValidateState("error", { message });
+            showToast({ message, type: "error" });
+            log(`Validate error: ${message}`);
+          } finally {
+            if (validateRequestGuard.isActive(guardToken.token)) {
+              validateRequestGuard.finish(guardToken.token);
+            }
+            validateInProgress = false;
+            updateActionButtons();
+          }
+        });
+      }
+      if (buildButton) {
+        buildButton.addEventListener("click", () => {
+          if (!triggerBuild()) {
+            showToast({ message: "Build доступен после успешной Validate.", type: "error" });
+          }
+        });
+      }
+      if (exportButton) {
+        exportButton.addEventListener("click", () => {
+          if (!triggerExport()) {
+            showToast({ message: "Export доступен после успешного Build.", type: "error" });
+          }
+        });
+      }
       document.getElementById("btn-fetch").onclick = async () => {
         try {
           if (pullModeEnabled) {
@@ -5595,26 +6382,69 @@
         const msg = e.data && e.data.pluginMessage;
         if (!msg) return;
         if (msg.type === "validate:ok") {
+          inflightOperations.validate = false;
+          operationContext.validateSpec = null;
+          validateInProgress = false;
+          if (flowState.validate.state !== "valid") {
+            setValidateState("valid", {
+              message: "TaskSpec валиден",
+              specString: getCurrentSpecString(),
+            });
+          }
+          updateActionButtons();
           log("Validate OK");
           return;
         }
         if (msg.type === "validate:error") {
-          log("ERROR: " + msg.error);
+          inflightOperations.validate = false;
+          operationContext.validateSpec = null;
+          validateInProgress = false;
+          const message = msg.error ? String(msg.error) : "Validate error";
+          setValidateState("error", { message });
+          showToast({ message, type: "error" });
+          log(`ERROR: ${message}`);
+          updateActionButtons();
           return;
         }
         if (msg.type === "build:ok") {
+          inflightOperations.build = false;
+          const specString = operationContext.buildSpec || getCurrentSpecString();
+          operationContext.buildSpec = null;
+
+          const summary = msg.report
+            ? {
+                created: Number.isFinite(msg.report.created) ? msg.report.created : 0,
+                updated: Number.isFinite(msg.report.updated) ? msg.report.updated : 0,
+                removed: Number.isFinite(msg.report.removed) ? msg.report.removed : 0,
+              }
+            : null;
+          const warnings =
+            msg.report && Array.isArray(msg.report.warnings) ? msg.report.warnings : [];
+          const logs = Array.isArray(msg.logs) ? msg.logs : [];
+          const messageLabel = Number.isFinite(msg.sections)
+            ? `Build завершён (sections=${msg.sections})`
+            : "Build завершён";
+
+          setBuildState("done", {
+            message: messageLabel,
+            summary,
+            warnings,
+            logs,
+            specString,
+          });
+          setExportState("idle", { message: "Готов к Export" });
+          showToast({ message: "Build завершён", type: "success" });
+
           log("Build OK: sections=" + msg.sections);
-          if (msg.report) {
-            const created = Number.isFinite(msg.report.created) ? msg.report.created : 0;
-            const updated = Number.isFinite(msg.report.updated) ? msg.report.updated : 0;
-            const removed = Number.isFinite(msg.report.removed) ? msg.report.removed : 0;
-            log(`Build summary → created: ${created}, updated: ${updated}, removed: ${removed}`);
-            if (Array.isArray(msg.report.warnings) && msg.report.warnings.length) {
-              msg.report.warnings.forEach((warning) => {
-                log(`Warning: ${warning}`);
-              });
-            }
+          if (summary) {
+            log(
+              `Build summary → created: ${summary.created}, updated: ${summary.updated}, removed: ${summary.removed}`,
+            );
+            warnings.forEach((warning) => {
+              log(`Warning: ${warning}`);
+            });
           }
+
           if (runnerState.processing && runnerState.waitingFor === "build") {
             appendRunnerLog(
               `Build OK${Number.isFinite(msg.sections) ? ` (sections=${msg.sections})` : ""}`,
@@ -5623,7 +6453,10 @@
             if (runnerState.currentSpecString) {
               setRunnerStatus("running", "export");
               appendRunnerLog("Running export…");
-              post("export", runnerState.currentSpecString);
+              triggerExport(runnerState.currentSpecString, {
+                source: "runner",
+                skipBuildCheck: true,
+              });
             } else {
               appendRunnerLog("Missing TaskSpec for export");
               await finalizeRunnerFailure("Missing TaskSpec");
@@ -5632,11 +6465,18 @@
           return;
         }
         if (msg.type === "export:ok") {
+          inflightOperations.export = false;
           const exportSpec = msg.exportSpec;
           const previewPayload = msg.preview;
           const previewError = msg.previewError;
-          let proceed = true;
-          let runnerPostErrorMessage = null;
+          const exportLogs = Array.isArray(msg.logs) ? msg.logs : [];
+          const specString = operationContext.exportSpec || getCurrentSpecString();
+          operationContext.exportSpec = null;
+
+          let validationFailed = false;
+          let validationErrors = [];
+          let validationMessage = "ExportSpec не проходит проверку схемы";
+          let fallbackMessage = "";
           if (exportSpec) {
             try {
               const res = await relayFetch(buildRelayUrl(`/validate/exportSpec`), {
@@ -5647,38 +6487,76 @@
               if (res.ok) {
                 const data = await res.json();
                 if (!data.valid) {
-                  proceed = false;
-                  log("ExportSpec schema validation failed:");
-                  const errors = Array.isArray(data.errors) ? data.errors : [];
-                  if (errors.length === 0) {
-                    log(" - No details provided");
-                  } else {
-                    for (const err of errors) {
-                      const path = err.instancePath || "/";
-                      log(` - ${path}: ${err.message}`);
-                    }
-                  }
+                  validationFailed = true;
+                  validationErrors = Array.isArray(data.errors) ? data.errors : [];
                 }
+              } else if (res.status === 401) {
+                fallbackMessage = "ExportSpec готов (валидация оффлайн)";
+                showToast({ message: VALIDATOR_AUTH_HINT, type: "error", duration: 5200 });
               } else {
-                rlog(`ExportSpec validation request failed: HTTP ${res.status}`);
+                let payload = null;
+                try {
+                  payload = await res.json();
+                } catch (_) {
+                  try {
+                    payload = await res.text();
+                  } catch (_) {}
+                }
+                const message = parseServerError(payload, `HTTP ${res.status}`);
+                rlog(`ExportSpec validation request failed: ${message}`);
+                showToast({ message, type: "error" });
+                fallbackMessage = `ExportSpec готов (валидатор: ${message})`;
               }
             } catch (err) {
-              rlog(
-                "ExportSpec validation request error: " +
-                  (err && err.message ? err.message : err)
-              );
+              const message = parseServerError(err);
+              rlog(`ExportSpec validation request error: ${message}`);
+              showToast({ message, type: "error" });
+              fallbackMessage = "ExportSpec готов (валидация оффлайн)";
             }
+          } else {
+            validationFailed = true;
+            validationErrors = [{ path: "/", message: "ExportSpec отсутствует" }];
+            validationMessage = "ExportSpec отсутствует";
           }
-          if (!proceed) return;
+
+          if (validationFailed) {
+            const normalizedErrors = normalizeSchemaErrors(validationErrors);
+            if (normalizedErrors.length) {
+              log("ExportSpec schema validation failed:");
+              normalizedErrors.forEach((entry) => {
+                const path = entry && entry.path ? entry.path : "/";
+                const text = entry && entry.message ? entry.message : "Invalid value";
+                log(` - ${path}: ${text}`);
+              });
+            }
+            setExportState("error", {
+              message: validationMessage,
+              errors: normalizedErrors,
+              logs: exportLogs,
+              specString,
+            });
+            showToast({ message: validationMessage, type: "error" });
+            log("ExportSpec schema validation failed");
+            return;
+          }
+
           log(exportSpec);
           const blob = new Blob([JSON.stringify(exportSpec, null, 2)], {
             type: "application/json",
           });
-          const url = URL.createObjectURL(blob);
-          const a = document.getElementById("download");
-          a.href = url;
-          a.download = msg.filename || "ExportSpec.json";
-          a.style.display = "inline-block";
+          const downloadUrl = URL.createObjectURL(blob);
+          const successMessage = fallbackMessage || "ExportSpec готов";
+          setExportState("done", {
+            message: successMessage,
+            errors: [],
+            logs: exportLogs,
+            specString,
+            downloadUrl,
+            downloadFilename: msg.filename || "ExportSpec.json",
+          });
+          showToast({ message: successMessage, type: "success" });
+
+          let runnerPostErrorMessage = null;
           if (lastTaskId) {
             try {
               await relayFetch(buildRelayUrl(`/tasks/${lastTaskId}/result`), {
@@ -5801,11 +6679,29 @@
           return;
         }
         if (msg.type === "error") {
-          log("ERROR: " + msg.error);
-          if (runnerState.processing) {
-            appendRunnerLog(`Plugin error: ${msg.error}`);
-            await finalizeRunnerFailure(msg.error);
+          const errorMessage = msg.error ? String(msg.error) : "Unknown error";
+          log("ERROR: " + errorMessage);
+          if (inflightOperations.export) {
+            inflightOperations.export = false;
+            const specString = operationContext.exportSpec || getCurrentSpecString();
+            operationContext.exportSpec = null;
+            setExportState("error", { message: errorMessage, logs: [], errors: [], specString });
+          } else if (inflightOperations.build) {
+            inflightOperations.build = false;
+            operationContext.buildSpec = null;
+            setBuildState("error", { message: errorMessage });
+          } else if (inflightOperations.validate) {
+            inflightOperations.validate = false;
+            operationContext.validateSpec = null;
+            validateInProgress = false;
+            setValidateState("error", { message: errorMessage });
           }
+          updateActionButtons();
+          if (runnerState.processing) {
+            appendRunnerLog(`Plugin error: ${errorMessage}`);
+            await finalizeRunnerFailure(errorMessage);
+          }
+          showToast({ message: errorMessage, type: "error" });
           return;
         }
         log(msg);
