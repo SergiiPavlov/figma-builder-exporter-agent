@@ -5604,6 +5604,17 @@
         }
         if (msg.type === "build:ok") {
           log("Build OK: sections=" + msg.sections);
+          if (msg.report) {
+            const created = Number.isFinite(msg.report.created) ? msg.report.created : 0;
+            const updated = Number.isFinite(msg.report.updated) ? msg.report.updated : 0;
+            const removed = Number.isFinite(msg.report.removed) ? msg.report.removed : 0;
+            log(`Build summary → created: ${created}, updated: ${updated}, removed: ${removed}`);
+            if (Array.isArray(msg.report.warnings) && msg.report.warnings.length) {
+              msg.report.warnings.forEach((warning) => {
+                log(`Warning: ${warning}`);
+              });
+            }
+          }
           if (runnerState.processing && runnerState.waitingFor === "build") {
             appendRunnerLog(
               `Build OK${Number.isFinite(msg.sections) ? ` (sections=${msg.sections})` : ""}`,
