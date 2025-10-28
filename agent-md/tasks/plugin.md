@@ -13,6 +13,7 @@
 - **Preview** — если PNG загружен, панель показывает превью и кнопку download; ошибки загрузки выводятся в лог.
 - **Compare** — выбирает две строки, клавиша **C** открывает вкладку сравнения и подгружает diff.
 - **Export diff HTML/ZIP** — `GET /artifacts/compare.html` и `GET /artifacts/compare.zip`, сохраняют отчёты без API key внутри.
+- **Runner (auto)** — переключатель рядом с полем Plugin ID запускает фонового агента: каждые 5 с делает `GET /tasks/pull?pluginId=<id>`, после получения TaskSpec пишет лог `start`, выполняет Build → Export, отправляет `POST /tasks/{id}/result`, `POST /tasks/{id}/preview`, после завершения пишет `done` и при включённом Auto-share вызывает `POST /tasks/{id}/share`, показывая токен/ссылку.
 
 ### Как читать ошибки
 
@@ -26,6 +27,30 @@
 - Страница OpenAPI (`docs/openapi.html`) открывается и подтягивает `relay/actions.yaml`.
 - Скрипты из `examples/curl/` выполняются с дефолтными параметрами и корректно обрабатывают ошибки.
 - Проверено, что скачанные `compare.html`/`compare.zip` не содержат API key.
+
+### Runner mode: pull → result → preview (+watch)
+
+- Включите Runner, задайте Plugin ID (например, `local`) и API key; панель Runner будет показывать текущий taskId, статус и хвост логов.
+- Цикл агента: pull → log `start` → Build → Export → upload result/preview → log `done` → опционально share → ожидание следующей задачи.
+- После завершения Runner делает повторный pull; при ошибках статус и тосты подсвечивают проблему.
+
+#### Быстрые команды
+
+```bash
+# создать задачу для Runner
+curl -X POST http://localhost:3000/tasks \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer dev123' \
+  -d '{"pluginId":"local","taskSpec":{...}}'
+
+# вручную дернуть очередь
+curl -X GET 'http://localhost:3000/tasks/pull?pluginId=local' \
+  -H 'Authorization: Bearer dev123'
+
+# посмотреть итог
+curl http://localhost:3000/tasks/{taskId} \
+  -H 'Authorization: Bearer dev123'
+```
 
 
 ## [PLUGIN] Индикатор статуса задачи в UI

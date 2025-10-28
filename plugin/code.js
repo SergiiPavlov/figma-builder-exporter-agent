@@ -374,21 +374,33 @@ function ensureRootFrame(page, spec, log) {
   return frame;
 }
 
-function ensureGridStructure(sectionNode, section, spec, log) {
-  if (!isObject(section)) return;
+function resolveSectionGrid(section, spec) {
+  if (!isObject(section)) return null;
   const layoutValue = section.layout || section.gridLayout || section.grid;
-  const layoutString = typeof layoutValue === 'string' ? layoutValue : typeof layoutValue?.type === 'string' ? layoutValue.type : null;
-  if (!layoutString || !/^grid-(\d+)/i.test(layoutString)) return;
+  const layoutString =
+    typeof layoutValue === 'string'
+      ? layoutValue
+      : typeof layoutValue?.type === 'string'
+        ? layoutValue.type
+        : null;
+  if (!layoutString || !/^grid-(\d+)/i.test(layoutString)) return null;
   const match = layoutString.match(/grid-(\d+)/i);
   const columns = match ? parseInt(match[1], 10) : NaN;
-  if (!Number.isFinite(columns) || columns <= 0) return;
+  if (!Number.isFinite(columns) || columns <= 0) return null;
   const gap = Number.isFinite(section.gap)
     ? section.gap
     : Number.isFinite(section.gridGap)
       ? section.gridGap
-      : Number.isFinite(spec.grid?.gap)
+      : Number.isFinite(spec?.grid?.gap)
         ? spec.grid.gap
         : 0;
+  return { columns, gap };
+}
+
+function ensureGridStructure(sectionNode, section, spec, log) {
+  const gridInfo = resolveSectionGrid(section, spec);
+  if (!gridInfo) return;
+  const { columns, gap } = gridInfo;
 
   const containerId = 'relay:gridContainer';
   let container = sectionNode.children.find((child) => {
@@ -411,6 +423,9 @@ function ensureGridStructure(sectionNode, section, spec, log) {
   ensureFrameAutoLayout(container, 'HORIZONTAL');
   container.counterAxisSizingMode = 'AUTO';
   container.layoutGrow = 1;
+  if ('layoutAlign' in container) {
+    container.layoutAlign = 'STRETCH';
+  }
   container.itemSpacing = Number.isFinite(gap) ? gap : 0;
   applyPadding(container, normalizePadding(0));
   if ('fills' in container) {
@@ -439,6 +454,9 @@ function ensureGridStructure(sectionNode, section, spec, log) {
     }
     ensureFrameAutoLayout(column, 'VERTICAL');
     column.layoutGrow = 1;
+    if ('layoutAlign' in column) {
+      column.layoutAlign = 'STRETCH';
+    }
     column.counterAxisSizingMode = 'AUTO';
     if ('fills' in column) {
       column.fills = [];
@@ -603,6 +621,23 @@ function extractStyles(node) {
   return styles;
 }
 
+function extractStyleIds(node) {
+  const result = {};
+  const assign = (prop) => {
+    if (prop in node) {
+      const value = node[prop];
+      if (typeof value === 'string' && value.trim()) {
+        result[prop] = value;
+      }
+    }
+  };
+  assign('textStyleId');
+  assign('effectStyleId');
+  assign('strokeStyleId');
+  assign('fillStyleId');
+  return Object.keys(result).length ? result : null;
+}
+
 function extractVariables(node) {
   if (!('boundVariables' in node)) return null;
   try {
@@ -638,7 +673,8 @@ function resolveSectionName(node, rootFrame) {
 }
 
 function collectNode(node, rootFrame) {
-  return {
+  const styleIds = extractStyleIds(node);
+  const result = {
     id: node.id,
     name: node.name || '',
     type: node.type,
@@ -649,6 +685,10 @@ function collectNode(node, rootFrame) {
     constraints: extractConstraints(node),
     section: resolveSectionName(node, rootFrame),
   };
+  if (styleIds) {
+    Object.assign(result, styleIds);
+  }
+  return result;
 }
 
 function computeDeviationSummary(spec, rootFrame, logs) {
@@ -706,6 +746,35 @@ function computeDeviationSummary(spec, rootFrame, logs) {
             `Padding deviation (${side}) in “${section.name}”: Δ=${delta.toFixed(2)}px`,
           );
         }
+      }
+    }
+    const gridInfo = resolveSectionGrid(section, spec);
+    if (gridInfo && Number.isFinite(gridInfo.columns)) {
+      const containerId = 'relay:gridContainer';
+      let container = null;
+      if (Array.isArray(sectionNode.children)) {
+        container = sectionNode.children.find((child) => {
+          if (child.type !== 'FRAME') return false;
+          try {
+            return child.getPluginData(containerId) === '1';
+          } catch {
+            return false;
+          }
+        }) || null;
+        if (!container) {
+          container = sectionNode.children.find(
+            (child) => child.type === 'FRAME' && /·\s*Grid$/i.test(child.name || ''),
+          );
+        }
+      }
+      let actualColumns = 0;
+      if (container && 'children' in container && Array.isArray(container.children)) {
+        actualColumns = container.children.filter((child) => child.type === 'FRAME').length;
+      }
+      if (actualColumns !== gridInfo.columns) {
+        warnings.push(
+          `Grid mismatch in “${section.name}”: expected ${gridInfo.columns} columns, found ${actualColumns}`,
+        );
       }
     }
   }
