@@ -65,9 +65,10 @@
 1. Запустите Relay (`API_KEYS=dev123 npm run dev --prefix relay`).
 2. Создайте задачу: `bash examples/curl/create-task.sh` и сохраните `taskId` из ответа.
 3. В плагине включите **Enable Runner**, предварительно указав Relay Base URL, API Key, Plugin ID и Pull interval.
-   - В UI отображаются: активный `taskId`, состояния Pull/Build/Export, тайминг каждого шага, отчёт `created/updated/removed`, последние строки логов.
-4. Дождитесь завершения цикла — Runner автоматически отправляет `/results` и после нажатия **Stop** возвращает доступ к ручным действиям.
-5. Проверьте API: `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'`.
+   - Убедитесь, что Runner отображает активный `taskId`, состояния Pull/Build/Export, тайминги и последние строки логов.
+4. Дождитесь завершения цикла: Runner обрабатывает задачу, выполняет `POST /tasks/{taskId}/result` и после нажатия **Stop** возвращает доступ к ручным действиям.
+5. Проверьте артефакты в истории задачи — доступны `exportSpec`, `build.log.jsonl` и превью.
+6. Проверьте API: `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'`.
    - Ожидание: `status: "done"`, заполненный `summary` (created/updated/removed, warnings) и ссылки на `export.artifacts`/`preview`.
 
 ## Milestone status

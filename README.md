@@ -27,10 +27,11 @@
 4. Импортируйте плагин в Figma через `plugin/manifest.json`.
 5. Создайте задачу: `bash examples/curl/create-task.sh` (скрипт вернёт `taskId`).
 6. Откройте вкладку Runner, заполните настройки (Relay Base URL `http://localhost:3000`, API Key `dev123`, Plugin ID из TaskSpec, Pull interval `5` сек.) и включите **Enable Runner**.
-   - В UI появится активный `taskId`, индикаторы Pull/Build/Export, тайминги шагов, отчёт `created/updated/removed`, последние строки логов и уведомление об успешном `POST /results`.
-   - После завершения цикла кнопка **Stop** возвращает ручные действия; настройки сохраняются между перезапусками.
-7. Проверьте результат: `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` → ожидается `status: "done"`, блок `summary` (created/updated/removed, warnings) и ссылки на `export.artifacts`/`preview`.
-8. Для ручной проверки отключите Runner и воспроизведите **Validate → Build → Export**.
+   - Убедитесь, что Runner отображает активный `taskId`, индикаторы Pull/Build/Export, тайминги шагов, отчёт `created/updated/removed` и последние строки логов.
+   - Дождитесь завершения цикла: Runner автоматически обработает задачу (Pull → Build → Export) и выполнит `POST /tasks/<taskId>/result`; после остановки (**Stop**) ручные действия снова доступны.
+7. Откройте артефакты задачи: должны быть `exportSpec`, `build.log.jsonl` и превью.
+8. Проверьте результат API: `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` → ожидается `status: "done"`, блок `summary` (created/updated/removed, warnings) и ссылки на `export.artifacts`/`preview`.
+9. Для ручной проверки отключите Runner и воспроизведите **Validate → Build → Export**.
 
 ## Quickstart (Docker)
 
