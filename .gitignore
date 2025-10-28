@@ -7,3 +7,7 @@ relay/.env
 
 # Release artifacts
 dist/*.zip
+
+# Local env files
+relay/.env
+relay/.env.*
