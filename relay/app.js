@@ -40,7 +40,12 @@ const MAX_PUBLIC_TOKEN_TTL_MIN = 1440;
 const SHARE_CLEANUP_INTERVAL_MS = 60 * 1000;
 const EXPIRED_TOKEN_RETENTION_MS = 60 * 60 * 1000;
 
-const DEFAULT_API_FREE_ENDPOINTS = ['GET /health', 'GET /shared/:token'];
+const DEFAULT_API_FREE_ENDPOINTS = [
+  'GET /health',
+  'GET /shared/:token',
+  'POST /validate/taskSpec',
+  'POST /validate/exportSpec',
+];
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_MAX = 100;
 const WATCH_PATH_REGEX = /^\/tasks\/[^/]+\/watch$/;
