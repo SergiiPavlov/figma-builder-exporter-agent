@@ -34,8 +34,9 @@
     2. Создать задачу: `bash examples/curl/create-task.sh` → сохранить `taskId`.
     3. В плагине включить **Enable Runner** (Relay Base URL, API Key, Plugin ID, Pull interval заданы).
         - Проверить UI: отображается `taskId`, тайминги Pull/Build/Export, отчёт `created/updated/removed`, последние логи.
-    4. После завершения цикла нажать **Stop** — ручные кнопки вновь активны.
-    5. `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` → `status: done`, `summary` с артефактами/предупреждениями.
+    4. Убедиться, что Runner завершает цикл и публикует результат (`POST /tasks/{taskId}/result`).
+    5. Проверить артефакты задачи: доступны `exportSpec`, `build.log.jsonl`, превью.
+    6. `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` → `status: done`, `summary` с артефактами/предупреждениями.
 
 ## Плагин
 - [ ] Плагин установлен через `plugin/manifest.json`.
