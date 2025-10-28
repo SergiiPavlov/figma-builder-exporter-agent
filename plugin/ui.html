@@ -1549,6 +1549,7 @@
         <button id="btn-validate">Validate</button>
         <button id="btn-build">Build</button>
         <button id="btn-import">Import</button>
+        <button id="btn-infer">Generate TaskSpec</button>
         <button id="btn-export">Export</button>
         <button id="btn-fetch">Fetch</button>
         <a
@@ -2264,6 +2265,9 @@
             })
             .filter(Boolean);
         });
+      const inferTaskSpecFromExportSpec =
+        pluginUtils.inferTaskSpecFromExportSpec ||
+        (() => ({ taskSpec: null, warnings: ["Inference is not available"] }));
 
       const validateTaskSpecSchema =
         pluginUtils.validateTaskSpecSchema ||
@@ -2311,6 +2315,7 @@
           specString: null,
           downloadUrl: null,
           downloadFilename: "ExportSpec.selection.json",
+          exportSpec: null,
         },
         validate: {
           state: "idle",
@@ -2353,6 +2358,7 @@
       };
 
       let validateInProgress = false;
+      let pendingInference = null;
 
       const selectionState = {
         count: 0,
@@ -5892,6 +5898,104 @@
           .filter((entry) => entry && entry.length);
       };
 
+      const uniqueStrings = (values) => {
+        if (!Array.isArray(values) || values.length === 0) return [];
+        const seen = new Set();
+        const result = [];
+        values.forEach((value) => {
+          if (value == null) return;
+          const normalized =
+            typeof value === "string" && value.trim()
+              ? value.trim()
+              : value != null
+              ? String(value)
+              : "";
+          if (!normalized) return;
+          if (seen.has(normalized)) return;
+          seen.add(normalized);
+          result.push(normalized);
+        });
+        return result;
+      };
+
+      const requestSelectionImport = () => {
+        inflightOperations.import = true;
+        setImportState("running", { hint: flowState.import.hint });
+        parent.postMessage({ pluginMessage: { type: "import:selection" } }, "*");
+      };
+
+      const runTaskSpecInference = (exportSpec, options = {}) => {
+        const { source = "import" } = options;
+        if (!exportSpec) {
+          showToast({
+            message: "ExportSpec отсутствует для генерации TaskSpec.",
+            type: "error",
+          });
+          log("TaskSpec inference skipped: missing ExportSpec");
+          return false;
+        }
+        let result;
+        try {
+          result = inferTaskSpecFromExportSpec(exportSpec, {
+            specVersion: "0.1",
+            fallbackFileId: "REPLACE_WITH_FILE_ID",
+          });
+        } catch (error) {
+          const message = parseServerError(error, "Ошибка генерации TaskSpec");
+          showToast({ message, type: "error" });
+          log(`TaskSpec inference error: ${message}`);
+          return false;
+        }
+        if (!result || !result.taskSpec) {
+          const message = "Не удалось построить TaskSpec из ExportSpec.";
+          showToast({ message, type: "error" });
+          log("TaskSpec inference failed: empty result");
+          return false;
+        }
+        const spec = result.taskSpec;
+        if (!spec.meta || typeof spec.meta !== "object") {
+          spec.meta = {};
+        }
+        if (spec.meta.inferred !== true) {
+          spec.meta.inferred = true;
+        }
+        if (typeof spec.meta.specVersion !== "string") {
+          spec.meta.specVersion = "0.1";
+        }
+        const warningList = Array.isArray(result.warnings) ? result.warnings : [];
+        const mergedWarnings = uniqueStrings([
+          ...(Array.isArray(spec.warnings) ? spec.warnings : []),
+          ...warningList,
+        ]);
+        if (mergedWarnings.length) {
+          spec.warnings = mergedWarnings;
+        } else if (Array.isArray(spec.warnings)) {
+          spec.warnings = uniqueStrings(spec.warnings);
+        }
+
+        setTaskSpecTextarea(spec);
+        setValidateState("idle", {
+          message: "TaskSpec сгенерирован. Нажмите Validate.",
+          keepSpec: true,
+          skipReset: true,
+        });
+        const finalWarnings = Array.isArray(spec.warnings) ? spec.warnings : [];
+        if (finalWarnings.length) {
+          showToast({
+            message: `TaskSpec сгенерирован (${finalWarnings.length} предупреждений)`,
+            type: "warning",
+          });
+          finalWarnings.forEach((warning) => {
+            log(`Inference warning: ${warning}`);
+          });
+        } else {
+          showToast({ message: "TaskSpec сгенерирован", type: "success" });
+        }
+        log(`TaskSpec inference (${source}) OK`);
+        updateActionButtons();
+        return true;
+      };
+
       const renderImportState = () => {
         const elements = flowElements.import;
         if (!elements) return;
@@ -6078,6 +6182,7 @@
           reset = false,
           keepResult = false,
           skipUpdateButtons = false,
+          exportSpec = null,
         } = options;
 
         if (state === "idle" || reset) {
@@ -6089,6 +6194,7 @@
           if (!keepResult || reset) {
             flowState.import.warnings = [];
             flowState.import.specString = null;
+            flowState.import.exportSpec = null;
             revokeImportDownloadUrl();
             flowState.import.downloadFilename = "ExportSpec.selection.json";
           }
@@ -6098,6 +6204,7 @@
           flowState.import.hint = hint || "";
           flowState.import.warnings = [];
           flowState.import.specString = null;
+          flowState.import.exportSpec = null;
           revokeImportDownloadUrl();
           flowState.import.downloadFilename = "ExportSpec.selection.json";
         } else if (state === "done") {
@@ -6106,6 +6213,8 @@
           flowState.import.hint = hint || flowState.import.hint || "";
           flowState.import.warnings = Array.isArray(warnings) ? warnings : [];
           flowState.import.specString = typeof specString === "string" ? specString : null;
+          flowState.import.exportSpec =
+            exportSpec && typeof exportSpec === "object" ? exportSpec : null;
           revokeImportDownloadUrl();
           flowState.import.downloadUrl = downloadUrl || null;
           flowState.import.downloadFilename = downloadFilename || "ExportSpec.selection.json";
@@ -6116,6 +6225,9 @@
           flowState.import.warnings = Array.isArray(warnings) ? warnings : [];
           if (typeof specString === "string") {
             flowState.import.specString = specString;
+          }
+          if (!keepResult) {
+            flowState.import.exportSpec = null;
           }
           revokeImportDownloadUrl();
           flowState.import.downloadFilename = "ExportSpec.selection.json";
@@ -6186,11 +6298,17 @@
         selectionState.isSingleFrame &&
         flowState.import.state !== "running";
 
+      const canInferTaskSpec = () =>
+        !isRunnerActive() &&
+        !inflightOperations.import &&
+        (flowState.import.exportSpec != null || selectionState.isSingleFrame);
+
       const updateActionButtons = () => {
         setButtonDisabled(validateButton, validateInProgress);
         setButtonDisabled(buildButton, !canBuild());
         setButtonDisabled(importButton, !canImport());
         setButtonDisabled(exportButton, !canExport());
+        setButtonDisabled(inferButton, !canInferTaskSpec());
       };
 
       function setBuildState(state, options = {}) {
@@ -6479,6 +6597,7 @@
       const validateButton = document.getElementById("btn-validate");
       const buildButton = document.getElementById("btn-build");
       const importButton = document.getElementById("btn-import");
+      const inferButton = document.getElementById("btn-infer");
       const importSaveButton = document.getElementById("btn-import-save");
       const exportButton = document.getElementById("btn-export");
       const exportDownloadLink = document.getElementById("download");
@@ -7002,9 +7121,39 @@
             });
             return;
           }
-          inflightOperations.import = true;
-          setImportState("running", { hint: flowState.import.hint });
-          parent.postMessage({ pluginMessage: { type: "import:selection" } }, "*");
+          requestSelectionImport();
+        });
+      }
+      if (inferButton) {
+        inferButton.addEventListener("click", () => {
+          if (isRunnerActive()) {
+            showToast({
+              message: "Генерация недоступна при активном Runner.",
+              type: "error",
+            });
+            return;
+          }
+          if (inflightOperations.import) {
+            showToast({
+              message: "Дождитесь завершения импорта перед генерацией TaskSpec.",
+              type: "error",
+            });
+            return;
+          }
+          if (flowState.import.exportSpec) {
+            runTaskSpecInference(flowState.import.exportSpec, { source: "import" });
+            return;
+          }
+          if (!selectionState.isSingleFrame) {
+            showToast({
+              message: "Выделите один фрейм для генерации TaskSpec.",
+              type: "error",
+            });
+            return;
+          }
+          pendingInference = { source: "selection" };
+          log("Inference: requesting ExportSpec from selection");
+          requestSelectionImport();
         });
       }
       if (importSaveButton) {
@@ -7133,9 +7282,18 @@
             downloadUrl,
             downloadFilename: finalFilename,
             hint: flowState.import.hint,
+            exportSpec,
           });
           showToast({ message: "Import завершён", type: "success" });
           log("Import OK");
+          operationContext.importSpec = exportSpec;
+          if (pendingInference) {
+            const context = pendingInference;
+            pendingInference = null;
+            runTaskSpecInference(exportSpec, {
+              source: context.source || "selection",
+            });
+          }
           return;
         }
         if (msg.type === "import:error") {
@@ -7144,6 +7302,9 @@
           const message = msg.error ? String(msg.error) : "Import error";
           const warnings = Array.isArray(msg.warnings) ? msg.warnings : [];
           setImportState("error", { message, warnings, hint: flowState.import.hint });
+          if (pendingInference) {
+            pendingInference = null;
+          }
           showToast({ message, type: "error" });
           log(`Import error: ${message}`);
           updateActionButtons();
