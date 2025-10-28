@@ -5,6 +5,8 @@ const {
   parseServerError,
   createRaceGuard,
   createPersistentState,
+  normalizeSchemaErrors,
+  validateTaskSpecSchema,
 } = require("../utils.js");
 
 describe("parseServerError", () => {
@@ -54,5 +56,68 @@ describe("createPersistentState", () => {
     const state = createPersistentState("demo", { storage });
     state.write({ order: "asc" });
     assert.deepEqual(state.read(), { order: "asc" });
+  });
+});
+
+describe("normalizeSchemaErrors", () => {
+  test("maps ajv style errors to path/message pairs", () => {
+    const normalized = normalizeSchemaErrors([
+      { instancePath: "/meta/id", message: "must be string" },
+      { dataPath: "/grid/columns", message: "must be >= 1" },
+      { path: "", message: "root" },
+    ]);
+
+    assert.deepEqual(normalized, [
+      { path: "/meta/id", message: "must be string" },
+      { path: "/grid/columns", message: "must be >= 1" },
+      { path: "/", message: "root" },
+    ]);
+  });
+
+  test("handles non-array inputs", () => {
+    assert.deepEqual(normalizeSchemaErrors(null), []);
+  });
+});
+
+describe("validateTaskSpecSchema", () => {
+  const baseSpec = {
+    meta: { specVersion: "0.1", id: "demo" },
+    target: {
+      fileId: "file",
+      pageName: "Page",
+      frameName: "Frame",
+      frameSize: { w: 100, h: 100 },
+    },
+    grid: { container: 1200, columns: 12, gap: 24, margins: 24 },
+    sections: [{ type: "hero", name: "Hero" }],
+  };
+
+  test("accepts valid spec", () => {
+    const result = validateTaskSpecSchema(baseSpec);
+    assert.equal(result.valid, true);
+    assert.deepEqual(result.errors, []);
+  });
+
+  test("reports missing required structures", () => {
+    const result = validateTaskSpecSchema({});
+    assert.equal(result.valid, false);
+    const paths = result.errors.map((err) => err.path);
+    assert.ok(paths.includes("/meta"));
+    assert.ok(paths.includes("/target"));
+    assert.ok(paths.includes("/grid"));
+    assert.ok(paths.includes("/sections"));
+  });
+
+  test("validates section type enum", () => {
+    const spec = {
+      ...baseSpec,
+      sections: [{ type: "unknown", name: "Hero" }],
+    };
+    const result = validateTaskSpecSchema(spec);
+    assert.equal(result.valid, false);
+    assert.deepEqual(result.errors[0], {
+      path: "/sections/0/type",
+      message: "type must be one of hero, features, gallery, cta, footer",
+    });
   });
 });
