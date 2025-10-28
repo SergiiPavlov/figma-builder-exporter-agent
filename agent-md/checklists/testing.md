@@ -29,14 +29,15 @@
 - [ ] **AT-05 Limits & Free Validators**
     1. `/validate/*` доступен без ключа.
     2. Превью/дифф артефакты укладываются в лимиты; превышение → ожидаемая ошибка/отказ.
-- [ ] **AT-06 Runner Auto Mode**
-    1. Запустить Relay: `API_KEYS=dev123 npm run dev --prefix relay`.
-    2. Создать задачу: `bash examples/curl/create-task.sh` → сохранить `taskId`.
-    3. В плагине включить **Enable Runner** (Relay Base URL, API Key, Plugin ID, Pull interval заданы).
-        - Проверить UI: отображается `taskId`, тайминги Pull/Build/Export, отчёт `created/updated/removed`, последние логи.
-    4. Убедиться, что Runner завершает цикл и публикует результат (`POST /tasks/{taskId}/result`).
-    5. Проверить артефакты задачи: доступны `exportSpec`, `build.log.jsonl`, превью.
-    6. `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` → `status: done`, `summary` с артефактами/предупреждениями.
+- [ ] **AT-06 Runner end-to-end**
+    1. Запустить Relay:
+        - `npm ci --prefix relay`
+        - `API_KEYS=dev123 npm run dev --prefix relay`
+    2. Создать задачу: `bash examples/curl/create-task.sh` и сохранить `taskId`.
+    3. В плагине включить Runner (auto) с заполненными Relay Base URL, API Key, Plugin ID и Pull interval.
+        - Проверить UI: `taskId`, сводка `created/updated/removed`, предупреждения и последние строки логов.
+    4. Подтвердить, что Runner проходит Pull → Build → Export → `POST /results`.
+    5. `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` → `status: done`, артефакты `exportSpec.json`, `build.log.jsonl`, `preview.png` (если загружен).
 
 ## Плагин
 - [ ] Плагин установлен через `plugin/manifest.json`.

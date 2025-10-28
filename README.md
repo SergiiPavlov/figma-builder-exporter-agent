@@ -33,6 +33,17 @@
 8. Проверьте результат API: `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` → ожидается `status: "done"`, блок `summary` (created/updated/removed, warnings) и ссылки на `export.artifacts`/`preview`.
 9. Для ручной проверки отключите Runner и воспроизведите **Validate → Build → Export**.
 
+### Runner Quickstart
+
+1. Запустите Relay локально:
+   - `npm ci --prefix relay`
+   - `API_KEYS=dev123 npm run dev --prefix relay`
+2. Создайте задачу: `bash examples/curl/create-task.sh` и запишите `taskId`.
+3. В плагине включите Runner (режим auto) и заполните поля Relay Base URL, API Key, Plugin ID и Pull interval.
+4. Дождитесь автоматического цикла Runner: Pull → Build → Export → `POST /results`.
+5. Проверьте `GET /tasks/<taskId>/result` — ожидаются `exportSpec.json`, `build.log.jsonl` и (при наличии) `preview.png`.
+6. В UI Runner должен отображать `taskId`, сводку `created/updated/removed`, предупреждения и последние строки логов.
+
 ## Quickstart (Docker)
 
 1. Подготовьте `.env` на основе примера и задайте `API_KEYS=dev123`.

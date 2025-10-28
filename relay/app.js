@@ -2136,6 +2136,7 @@ function createApp(options = {}) {
     const updated = {
       ...task,
       status: 'done',
+      startedAt: task.startedAt ?? Date.now(),
       result: exportSpec,
       finishedAt: Date.now(),
       error: null,
@@ -2153,6 +2154,7 @@ function createApp(options = {}) {
     const updated = {
       ...task,
       status: 'error',
+      startedAt: task.startedAt ?? Date.now(),
       finishedAt: Date.now(),
       error: normalizedMessage,
       logs,
