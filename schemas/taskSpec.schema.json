@@ -9,7 +9,8 @@
       "required": ["specVersion", "id"],
       "properties": {
         "specVersion": { "type": "string" },
-        "id": { "type": "string" }
+        "id": { "type": "string" },
+        "inferred": { "type": "boolean" }
       },
       "additionalProperties": true
     },
@@ -51,7 +52,7 @@
         "properties": {
           "type": {
             "type": "string",
-            "enum": ["hero", "features", "gallery", "cta", "footer"]
+            "enum": ["hero", "features", "gallery", "cta", "footer", "custom"]
           },
           "name": { "type": "string" }
         },
