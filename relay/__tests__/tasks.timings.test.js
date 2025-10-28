@@ -88,6 +88,9 @@ describe('task timings', () => {
     const doneRes = await request.get(`/tasks/${taskId}`);
     expect(doneRes.status).toBe(200);
     expect(doneRes.body.finishedAt).toBe(finishedAt);
-    expect(doneRes.body.finishedAt - doneRes.body.startedAt).toBeGreaterThan(0);
+    const queueLatency = doneRes.body.startedAt - doneRes.body.createdAt;
+    const runDuration = doneRes.body.finishedAt - doneRes.body.startedAt;
+    expect(queueLatency).toBeGreaterThan(0);
+    expect(runDuration).toBeGreaterThan(0);
   });
 });
