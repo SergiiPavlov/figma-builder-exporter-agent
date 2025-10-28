@@ -2138,7 +2138,7 @@ function createApp(options = {}) {
       status: 'done',
       result: exportSpec,
       finishedAt: Date.now(),
-      startedAt: task.startedAt ?? task.createdAt ?? Date.now(),
+      startedAt: task.startedAt ?? Date.now(),
       error: null,
       artifactPath,
       artifactSize,
@@ -2155,7 +2155,7 @@ function createApp(options = {}) {
       ...task,
       status: 'error',
       finishedAt: Date.now(),
-      startedAt: task.startedAt ?? task.createdAt ?? Date.now(),
+      startedAt: task.startedAt ?? Date.now(),
       error: normalizedMessage,
       logs,
     };

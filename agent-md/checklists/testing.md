@@ -10,7 +10,7 @@
 - [ ] `API_KEYS=dev123 npm run dev --prefix relay` (smoke-запуск перед ручными сценариями)
 - [ ] (Опционально) `RELAY_URL=http://localhost:3000 API_KEY=dev123 npm run e2e`
 
-## Acceptance Tests (AT-01…AT-05)
+## Acceptance Tests (AT-01…AT-06)
 - [ ] **AT-01 Validate / UX**
     1. Вставить `examples/taskspecs/marketing-landing.json`, нажать **Validate** → «валидно», **Build/Export** активны.
     2. Вставить невалидный JSON → отрисовался список ошибок, **Build/Export** заблокированы.
@@ -29,6 +29,13 @@
 - [ ] **AT-05 Limits & Free Validators**
     1. `/validate/*` доступен без ключа.
     2. Превью/дифф артефакты укладываются в лимиты; превышение → ожидаемая ошибка/отказ.
+- [ ] **AT-06 Runner Auto Mode**
+    1. Запустить Relay: `API_KEYS=dev123 npm run dev --prefix relay`.
+    2. Создать задачу: `bash examples/curl/create-task.sh` → сохранить `taskId`.
+    3. В плагине включить **Enable Runner** (Relay Base URL, API Key, Plugin ID, Pull interval заданы).
+        - Проверить UI: отображается `taskId`, тайминги Pull/Build/Export, отчёт `created/updated/removed`, последние логи.
+    4. После завершения цикла нажать **Stop** — ручные кнопки вновь активны.
+    5. `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` → `status: done`, `summary` с артефактами/предупреждениями.
 
 ## Плагин
 - [ ] Плагин установлен через `plugin/manifest.json`.

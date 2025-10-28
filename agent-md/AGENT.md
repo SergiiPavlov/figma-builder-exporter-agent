@@ -4,8 +4,12 @@
 - `npm ci --prefix relay`
 - `API_KEYS=dev123 npm run dev --prefix relay`
 - `curl http://localhost:3000/health`
-- `RELAY_URL=http://localhost:3000 API_KEY=dev123 npm run e2e`
-- Вручную запустите плагин в Figma и прогоните маркетинговый TaskSpec: Validate → Build → Export.
+- `bash examples/curl/create-task.sh` — создаёт маркетинговую задачу и возвращает `taskId`.
+- Откройте плагин в Figma, укажите Relay Base URL `http://localhost:3000`, API Key `dev123`, Plugin ID из TaskSpec и Pull interval `5` сек.
+- Включите **Enable Runner** и дождитесь авто-цикла: в UI появится `taskId`, тайминги Pull/Build/Export, отчёт `created/updated/removed`, последние строки логов и уведомление об отправке результатов.
+- Проверьте `GET /tasks/{taskId}/result` — ожидается `status: "done"`, блок `summary` с артефактами и `export.artifacts` (JSON/ZIP, preview при наличии).
+- (Опционально) `RELAY_URL=http://localhost:3000 API_KEY=dev123 npm run e2e`
+- Для ручного контроля: Validate → Build → Export доступны после выключения Runner.
 
 ## Key references
 - `README.md` — сводный Quickstart и рабочий цикл
@@ -26,7 +30,7 @@
    - `/tasks/pull` используется агентом для взятия задач в работу (multi-pull, лимиты и метаданные).
    - `/results` и `/tasks/{id}/log` сохраняют отчёты и логи выполнения.
 
-## Acceptance Tests (AT-01…AT-05)
+## Acceptance Tests (AT-01…AT-06)
 ### AT-01 — Validate / UX
 1. Подставьте `examples/taskspecs/marketing-landing.json`, нажмите **Validate**.
    - Ожидаемый результат: «валидно», кнопки **Build** и **Export** активны.
@@ -56,6 +60,15 @@
 1. Проверить, что `/validate/*` доступен без ключа.
 2. Превью и дифф-артефакты укладываются в лимиты размера.
 3. При перегрузке (превышение лимита) возвращается ожидаемая ошибка/отказ.
+
+### AT-06 — Runner Auto Mode (Pull → Build → Export → Results)
+1. Запустите Relay (`API_KEYS=dev123 npm run dev --prefix relay`).
+2. Создайте задачу: `bash examples/curl/create-task.sh` и сохраните `taskId` из ответа.
+3. В плагине включите **Enable Runner**, предварительно указав Relay Base URL, API Key, Plugin ID и Pull interval.
+   - В UI отображаются: активный `taskId`, состояния Pull/Build/Export, тайминг каждого шага, отчёт `created/updated/removed`, последние строки логов.
+4. Дождитесь завершения цикла — Runner автоматически отправляет `/results` и после нажатия **Stop** возвращает доступ к ручным действиям.
+5. Проверьте API: `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'`.
+   - Ожидание: `status: "done"`, заполненный `summary` (created/updated/removed, warnings) и ссылки на `export.artifacts`/`preview`.
 
 ## Milestone status
 - **M1** — ✅ источник правды (Validate → Build → Export + Relay lifecycle)
