@@ -224,6 +224,15 @@
         font-family: ui-monospace, Consolas, Menlo, monospace;
         font-size: 11px;
       }
+      .runner-panel__hint {
+        margin-top: 4px;
+        font-size: 11px;
+        color: #b91c1c;
+        display: none;
+      }
+      .runner-panel__hint[data-visible='true'] {
+        display: block;
+      }
       .runner-panel__share {
         display: none;
         align-items: center;
@@ -1312,6 +1321,12 @@
           <span id="runner-task-id" class="runner-panel__task">—</span>
           <span id="runner-progress" class="runner-panel__progress"></span>
         </div>
+        <div
+          id="runner-status-hint"
+          class="runner-panel__hint"
+          data-visible="false"
+          aria-live="polite"
+        ></div>
         <div id="runner-share" class="runner-panel__share" data-visible="false">
           <span>Share token:</span>
           <code id="runner-share-token">—</code>
@@ -1851,9 +1866,21 @@
 
     <script src="utils.js"></script>
     <script>
-      const RELAY_URL = "http://localhost:3000";
-      const API_KEY_STORAGE_KEY = "relay:api-key";
       const RUNNER_SETTINGS_STORAGE_KEY = "plugin:runner-settings";
+      const DEFAULT_RELAY_URL = "http://localhost:3000";
+      function loadRunnerHost() {
+        try {
+          const raw = window.__storage.getItem(RUNNER_SETTINGS_STORAGE_KEY);
+          const obj = raw ? JSON.parse(raw) : {};
+          return typeof obj.host === "string" && obj.host
+            ? obj.host
+            : DEFAULT_RELAY_URL;
+        } catch (_) {
+          return DEFAULT_RELAY_URL;
+        }
+      }
+      const RELAY_URL = loadRunnerHost();
+      const API_KEY_STORAGE_KEY = "relay:api-key";
       const RUNNER_POLL_INTERVAL_MS = 5000;
       const RUNNER_LOG_LIMIT = 120;
       let RELAY_API_KEY = "";
@@ -1877,6 +1904,22 @@
         progressLabel: "",
         shareInfo: null,
         lastError: null,
+        host: RELAY_URL,
+      };
+
+      const RUNNER_NETWORK_HINT =
+        "Relay is not reachable. Start it: npm run dev:relay (root) or cd relay && npm run dev";
+
+      const isNetworkConnectivityError = (message) => {
+        if (!message) return false;
+        const value = String(message).toLowerCase();
+        return (
+          value.includes("failed to fetch") ||
+          value.includes("networkerror") ||
+          value.includes("network error") ||
+          value.includes("err_connection") ||
+          value.includes("connection refused")
+        );
       };
 
       const pluginUtils = window.PluginUtils || {};
@@ -1973,6 +2016,7 @@
         autoShare: document.getElementById("runner-auto-share"),
         panel: document.getElementById("runner-panel"),
         status: document.getElementById("runner-status-text"),
+        hint: document.getElementById("runner-status-hint"),
         task: document.getElementById("runner-task-id"),
         progress: document.getElementById("runner-progress"),
         log: document.getElementById("runner-log"),
@@ -2102,6 +2146,11 @@
             runnerElements.status.textContent = "disabled";
           }
         }
+        if (runnerElements.hint) {
+          const showHint = isNetworkConnectivityError(runnerState.lastError);
+          runnerElements.hint.textContent = showHint ? RUNNER_NETWORK_HINT : "";
+          runnerElements.hint.dataset.visible = showHint ? "true" : "false";
+        }
         if (runnerElements.task) {
           runnerElements.task.textContent = runnerState.currentTaskId || "—";
         }
@@ -2141,6 +2190,10 @@
         if (runnerState.logs.length > RUNNER_LOG_LIMIT) {
           runnerState.logs = runnerState.logs.slice(-RUNNER_LOG_LIMIT);
         }
+        if (isNetworkConnectivityError(normalized)) {
+          runnerState.lastError = normalized;
+          renderRunnerState();
+        }
         renderRunnerLogs();
       };
 
@@ -2159,14 +2212,7 @@
 
       const apiKeyInput = document.getElementById("api-key-input");
       const apiKeyClearButton = document.getElementById("api-key-clear");
-      const storage = (() => {
-        try {
-          return window.localStorage;
-        } catch (err) {
-          console.warn("localStorage unavailable", err);
-          return null;
-        }
-      })();
+      const storage = window.__storage || null;
 
       const artifactsPreferences = createPersistentState("plugin:artifacts-preferences", {
         storage,
@@ -2174,7 +2220,12 @@
 
       const runnerPreferences = createPersistentState(RUNNER_SETTINGS_STORAGE_KEY, {
         storage,
-        fallback: { pluginId: "", autoShare: false, enabled: false },
+        fallback: {
+          pluginId: "",
+          autoShare: false,
+          enabled: false,
+          host: DEFAULT_RELAY_URL,
+        },
       });
 
       const persistRunnerSettings = () => {
@@ -2182,6 +2233,9 @@
           pluginId: runnerState.pluginId,
           autoShare: !!runnerState.autoShare,
           enabled: !!runnerState.enabled,
+          host: typeof runnerState.host === "string" && runnerState.host
+            ? runnerState.host
+            : DEFAULT_RELAY_URL,
         });
       };
 
@@ -2201,6 +2255,8 @@
           runnerState.pollTimer = null;
           runRunnerPoll().catch((err) => {
             const message = err && err.message ? err.message : String(err);
+            runnerState.lastError = message;
+            renderRunnerState();
             appendRunnerLog(`Poll error: ${message}`);
             setRunnerStatus("error", "poll failed");
             if (runnerState.enabled && !runnerState.processing) {
@@ -2350,6 +2406,7 @@
           url.searchParams.set("pluginId", pluginId);
           const res = await relayFetch(url.toString());
           if (res.status === 204) {
+            runnerState.lastError = null;
             setRunnerStatus("polling", "no tasks");
             return;
           }
@@ -2358,10 +2415,14 @@
             appendRunnerLog(
               `Pull failed (HTTP ${res.status}${text ? `: ${text.trim()}` : ""})`,
             );
+            runnerState.lastError = `HTTP ${res.status}`;
+            renderRunnerState();
             setRunnerStatus("error", "pull failed");
             return;
           }
           const data = await res.json();
+          runnerState.lastError = null;
+          renderRunnerState();
           const taskId = data && (data.taskId || data.id);
           const taskSpec = data ? data.taskSpec ?? data.spec ?? null : null;
           if (!taskId || taskSpec == null) {
@@ -2371,6 +2432,8 @@
           await beginRunnerTask(taskId, taskSpec);
         } catch (err) {
           const message = err && err.message ? err.message : String(err);
+          runnerState.lastError = message;
+          renderRunnerState();
           appendRunnerLog(`Pull error: ${message}`);
           setRunnerStatus("error", "pull failed");
         } finally {
@@ -2394,6 +2457,7 @@
             return;
           }
           runnerState.enabled = true;
+          runnerState.lastError = null;
           persistRunnerSettings();
           appendRunnerLog("Runner enabled");
           if (!runnerState.processing) {
@@ -2471,11 +2535,22 @@
       }
 
       const storedRunnerSettings =
-        runnerPreferences.read({ pluginId: "", autoShare: false, enabled: false }) || {};
+        runnerPreferences.read({
+          pluginId: "",
+          autoShare: false,
+          enabled: false,
+          host: DEFAULT_RELAY_URL,
+        }) || {};
       if (typeof storedRunnerSettings.pluginId === "string") {
         runnerState.pluginId = storedRunnerSettings.pluginId;
       }
       runnerState.autoShare = !!storedRunnerSettings.autoShare;
+      if (typeof storedRunnerSettings.host === "string") {
+        const normalizedHost = storedRunnerSettings.host.trim();
+        if (normalizedHost) {
+          runnerState.host = normalizedHost;
+        }
+      }
       const runnerAutoEnable = !!storedRunnerSettings.enabled;
       renderRunnerLogs();
       renderRunnerState();
@@ -5022,9 +5097,13 @@
       const rlog = (m) => {
         const el = document.getElementById("relay-log");
         if (!el) return;
-        el.textContent +=
-          (typeof m === "string" ? m : JSON.stringify(m, null, 2)) + "\n";
+        const text = typeof m === "string" ? m : JSON.stringify(m, null, 2);
+        el.textContent += `${text}\n`;
         el.scrollTop = el.scrollHeight;
+        if (isNetworkConnectivityError(text)) {
+          runnerState.lastError = text;
+          renderRunnerState();
+        }
       };
       const statusPanelEl = document.getElementById("status-panel");
       const statusTextEl = document.getElementById("status-text");
@@ -5420,35 +5499,47 @@
         }
         let shouldPost = true;
         if (!parseError) {
-          try {
-            const res = await relayFetch(buildRelayUrl(`/validate/taskSpec`), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ taskSpec: parsed }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (!data.valid) {
-                shouldPost = false;
-                log("TaskSpec schema validation failed:");
-                const errors = Array.isArray(data.errors) ? data.errors : [];
-                if (errors.length === 0) {
-                  log(" - No details provided");
-                } else {
-                  for (const err of errors) {
-                    const path = err.instancePath || "/";
-                    log(` - ${path}: ${err.message}`);
+          const relayHost = typeof RELAY_URL === "string" ? RELAY_URL.trim() : "";
+          if (!relayHost || relayHost === "disabled" || !runnerState.enabled) {
+            rlog("Runner disabled: skip remote validation (offline parse OK).");
+          } else {
+            try {
+              const res = await relayFetch(
+                buildRelayUrl(`/validate/taskSpec`, { includeApiKey: false }),
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ taskSpec: parsed }),
+                }
+              );
+              if (res.ok) {
+                const data = await res.json();
+                runnerState.lastError = null;
+                renderRunnerState();
+                if (!data.valid) {
+                  shouldPost = false;
+                  log("TaskSpec schema validation failed:");
+                  const errors = Array.isArray(data.errors) ? data.errors : [];
+                  if (errors.length === 0) {
+                    log(" - No details provided");
+                  } else {
+                    for (const err of errors) {
+                      const path = err.instancePath || "/";
+                      log(` - ${path}: ${err.message}`);
+                    }
                   }
                 }
+              } else {
+                runnerState.lastError = `HTTP ${res.status}`;
+                renderRunnerState();
+                rlog(`TaskSpec validation request failed: HTTP ${res.status}`);
               }
-            } else {
-              rlog(`TaskSpec validation request failed: HTTP ${res.status}`);
+            } catch (err) {
+              const message = err && err.message ? err.message : err;
+              runnerState.lastError = message;
+              renderRunnerState();
+              rlog("TaskSpec validation request error: " + message);
             }
-          } catch (err) {
-            rlog(
-              "TaskSpec validation request error: " +
-                (err && err.message ? err.message : err)
-            );
           }
         }
         if (shouldPost) post("validate");
