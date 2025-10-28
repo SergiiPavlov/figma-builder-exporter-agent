@@ -124,6 +124,110 @@
         font-size: 12px;
         margin: 6px 0;
       }
+      .runner-settings {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 8px;
+        align-items: end;
+        margin: 12px 0;
+      }
+      .runner-settings label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 11px;
+        color: #1e293b;
+      }
+      .runner-settings input[type='text'] {
+        padding: 4px 6px;
+        font-size: 12px;
+      }
+      .runner-settings__checkbox {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+      }
+      .runner-settings__hint {
+        grid-column: 1 / -1;
+        font-size: 10px;
+        color: #64748b;
+      }
+      .runner-panel {
+        border: 1px solid #cbd5f5;
+        background: #f8fafc;
+        border-radius: 6px;
+        padding: 8px;
+        margin-bottom: 8px;
+      }
+      .runner-panel__header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        margin-bottom: 6px;
+      }
+      .runner-panel__status {
+        font-weight: 600;
+      }
+      #runner-panel[data-state='idle'] .runner-panel__status {
+        color: #475569;
+      }
+      #runner-panel[data-state='pending'] .runner-panel__status,
+      #runner-panel[data-state='polling'] .runner-panel__status {
+        color: #c2410c;
+      }
+      #runner-panel[data-state='running'] .runner-panel__status {
+        color: #2563eb;
+      }
+      #runner-panel[data-state='success'] .runner-panel__status {
+        color: #15803d;
+      }
+      #runner-panel[data-state='error'] .runner-panel__status {
+        color: #dc2626;
+      }
+      .runner-panel__task {
+        font-family: ui-monospace, Consolas, Menlo, monospace;
+        font-size: 11px;
+        color: #0f172a;
+      }
+      .runner-panel__progress {
+        margin-left: auto;
+        font-size: 11px;
+        color: #475569;
+      }
+      .runner-panel__log {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 8px;
+        max-height: 160px;
+        overflow: auto;
+        font-family: ui-monospace, Consolas, Menlo, monospace;
+        font-size: 11px;
+      }
+      .runner-panel__share {
+        display: none;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-bottom: 6px;
+        font-size: 11px;
+        color: #1e293b;
+      }
+      .runner-panel__share[data-visible='true'] {
+        display: inline-flex;
+      }
+      .runner-panel__share code {
+        background: #e2e8f0;
+        border-radius: 4px;
+        padding: 2px 4px;
+        font-family: ui-monospace, Consolas, Menlo, monospace;
+        font-size: 11px;
+      }
+      .runner-panel .button-link[aria-disabled='true'] {
+        opacity: 0.6;
+        pointer-events: none;
+      }
       .artifacts-empty {
         border: 1px dashed #cbd5f5;
         border-radius: 8px;
@@ -1159,6 +1263,52 @@
         <button type="button" id="api-key-clear">Clear</button>
         <small>Stored locally (Figma plugin settings)</small>
       </div>
+      <div class="runner-settings">
+        <label class="mode-toggle">
+          <input type="checkbox" id="runner-toggle" />
+          <span>Runner (auto)</span>
+        </label>
+        <label>
+          Plugin ID
+          <input
+            type="text"
+            id="runner-plugin-id"
+            placeholder="e.g. local"
+            autocomplete="off"
+          />
+        </label>
+        <label class="runner-settings__checkbox">
+          <input type="checkbox" id="runner-auto-share" />
+          <span>Auto-share on success</span>
+        </label>
+        <small class="runner-settings__hint">
+          Runner polls <code>/tasks/pull</code>, performs Build → Export, uploads result and preview automatically.
+        </small>
+      </div>
+      <div id="runner-panel" class="runner-panel" data-state="idle">
+        <div class="runner-panel__header">
+          <span>Runner:</span>
+          <span id="runner-status-text" class="runner-panel__status">disabled</span>
+          <span>Task</span>
+          <span id="runner-task-id" class="runner-panel__task">—</span>
+          <span id="runner-progress" class="runner-panel__progress"></span>
+        </div>
+        <div id="runner-share" class="runner-panel__share" data-visible="false">
+          <span>Share token:</span>
+          <code id="runner-share-token">—</code>
+          <button type="button" id="runner-copy-share">Copy</button>
+          <a
+            id="runner-share-link"
+            class="button-link"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-disabled="true"
+            >Open</a
+          >
+        </div>
+        <pre id="runner-log" class="runner-panel__log"></pre>
+      </div>
       <label class="mode-toggle">
         <input type="checkbox" id="pull-mode" />
         <span>Pull mode</span>
@@ -1683,8 +1833,10 @@
     <script src="utils.js"></script>
     <script>
       const RELAY_URL = "http://localhost:3000";
-      const PULL_PLUGIN_ID = "plugin-ui";
       const API_KEY_STORAGE_KEY = "relay:api-key";
+      const RUNNER_SETTINGS_STORAGE_KEY = "plugin:runner-settings";
+      const RUNNER_POLL_INTERVAL_MS = 5000;
+      const RUNNER_LOG_LIMIT = 120;
       let RELAY_API_KEY = "";
       let lastTaskId = null;
       let statusSource = null;
@@ -1692,6 +1844,21 @@
       let statusLogs = [];
       const STATUS_LOG_LIMIT = 200;
       let pullModeEnabled = false;
+      const runnerState = {
+        enabled: false,
+        pluginId: "",
+        autoShare: false,
+        pollTimer: null,
+        processing: false,
+        waitingFor: null,
+        currentTaskId: null,
+        currentSpecString: null,
+        logs: [],
+        status: "idle",
+        progressLabel: "",
+        shareInfo: null,
+        lastError: null,
+      };
 
       const pluginUtils = window.PluginUtils || {};
       const parseServerError =
@@ -1779,6 +1946,21 @@
         refreshButton: document.getElementById("artifacts-refresh"),
         emptyRefreshButton: document.getElementById("artifacts-empty-refresh"),
         emptyState: document.getElementById("artifacts-empty-state"),
+      };
+
+      const runnerElements = {
+        toggle: document.getElementById("runner-toggle"),
+        pluginIdInput: document.getElementById("runner-plugin-id"),
+        autoShare: document.getElementById("runner-auto-share"),
+        panel: document.getElementById("runner-panel"),
+        status: document.getElementById("runner-status-text"),
+        task: document.getElementById("runner-task-id"),
+        progress: document.getElementById("runner-progress"),
+        log: document.getElementById("runner-log"),
+        shareContainer: document.getElementById("runner-share"),
+        shareToken: document.getElementById("runner-share-token"),
+        shareCopy: document.getElementById("runner-copy-share"),
+        shareLink: document.getElementById("runner-share-link"),
       };
 
       const artifactDetailsElements = {
@@ -1879,6 +2061,83 @@
         setTimeout(remove, Math.max(1200, Number(duration) || 2800));
       };
 
+      const renderRunnerLogs = () => {
+        if (!runnerElements.log) return;
+        runnerElements.log.textContent = runnerState.logs.join("\n");
+        runnerElements.log.scrollTop = runnerElements.log.scrollHeight;
+      };
+
+      const renderRunnerState = () => {
+        if (runnerElements.panel) {
+          const state = runnerState.processing
+            ? runnerState.status || "running"
+            : runnerState.enabled
+              ? runnerState.status || "idle"
+              : "idle";
+          runnerElements.panel.dataset.state = state;
+        }
+        if (runnerElements.status) {
+          if (runnerState.enabled || runnerState.processing) {
+            runnerElements.status.textContent = runnerState.status || "idle";
+          } else {
+            runnerElements.status.textContent = "disabled";
+          }
+        }
+        if (runnerElements.task) {
+          runnerElements.task.textContent = runnerState.currentTaskId || "—";
+        }
+        if (runnerElements.progress) {
+          runnerElements.progress.textContent = runnerState.progressLabel || "";
+        }
+        if (runnerElements.shareContainer) {
+          const share = runnerState.shareInfo;
+          const shareValue = share && (share.token || share.url);
+          const hasShare = !!shareValue;
+          runnerElements.shareContainer.dataset.visible = hasShare ? "true" : "false";
+          if (runnerElements.shareToken) {
+            runnerElements.shareToken.textContent = hasShare ? shareValue : "—";
+          }
+          if (runnerElements.shareLink) {
+            if (hasShare && share && share.url) {
+              runnerElements.shareLink.href = share.url;
+              runnerElements.shareLink.setAttribute("aria-disabled", "false");
+            } else {
+              runnerElements.shareLink.href = "#";
+              runnerElements.shareLink.setAttribute("aria-disabled", "true");
+            }
+          }
+        }
+      };
+
+      const appendRunnerLog = (message) => {
+        const normalized =
+          typeof message === "string"
+            ? message.trim()
+            : message != null
+              ? String(message)
+              : "";
+        if (!normalized) return;
+        const timestamp = new Date().toISOString();
+        runnerState.logs.push(`[${timestamp}] ${normalized}`);
+        if (runnerState.logs.length > RUNNER_LOG_LIMIT) {
+          runnerState.logs = runnerState.logs.slice(-RUNNER_LOG_LIMIT);
+        }
+        renderRunnerLogs();
+      };
+
+      const clearRunnerLogs = () => {
+        runnerState.logs = [];
+        renderRunnerLogs();
+      };
+
+      const setRunnerStatus = (status, progressLabel) => {
+        runnerState.status = status || "idle";
+        if (typeof progressLabel === "string") {
+          runnerState.progressLabel = progressLabel;
+        }
+        renderRunnerState();
+      };
+
       const apiKeyInput = document.getElementById("api-key-input");
       const apiKeyClearButton = document.getElementById("api-key-clear");
       const storage = (() => {
@@ -1893,6 +2152,247 @@
       const artifactsPreferences = createPersistentState("plugin:artifacts-preferences", {
         storage,
       });
+
+      const runnerPreferences = createPersistentState(RUNNER_SETTINGS_STORAGE_KEY, {
+        storage,
+        fallback: { pluginId: "", autoShare: false, enabled: false },
+      });
+
+      const persistRunnerSettings = () => {
+        runnerPreferences.write({
+          pluginId: runnerState.pluginId,
+          autoShare: !!runnerState.autoShare,
+          enabled: !!runnerState.enabled,
+        });
+      };
+
+      const getRunnerPluginId = () => (runnerState.pluginId || "").trim();
+
+      const clearRunnerTimer = () => {
+        if (runnerState.pollTimer) {
+          clearTimeout(runnerState.pollTimer);
+          runnerState.pollTimer = null;
+        }
+      };
+
+      const scheduleRunnerPoll = (delay = RUNNER_POLL_INTERVAL_MS) => {
+        if (!runnerState.enabled) return;
+        clearRunnerTimer();
+        runnerState.pollTimer = setTimeout(() => {
+          runnerState.pollTimer = null;
+          runRunnerPoll().catch((err) => {
+            const message = err && err.message ? err.message : String(err);
+            appendRunnerLog(`Poll error: ${message}`);
+            setRunnerStatus("error", "poll failed");
+            if (runnerState.enabled && !runnerState.processing) {
+              scheduleRunnerPoll(RUNNER_POLL_INTERVAL_MS * 2);
+            }
+          });
+        }, Math.max(0, delay));
+      };
+
+      const ensureRunnerSpecString = (taskSpec) => {
+        if (typeof taskSpec === "string") {
+          return taskSpec;
+        }
+        if (taskSpec == null) return null;
+        try {
+          return JSON.stringify(taskSpec, null, 2);
+        } catch (err) {
+          console.warn("Failed to stringify taskSpec", err);
+          return null;
+        }
+      };
+
+      const runnerPostLog = async (taskId, message) => {
+        if (!taskId || !message) return false;
+        try {
+          const response = await relayFetch(buildRelayUrl(`/tasks/${taskId}/log`), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message }),
+          });
+          if (!response.ok) {
+            const text = await response.text();
+            appendRunnerLog(
+              `Log append failed (HTTP ${response.status}${text ? `: ${text.trim()}` : ""})`,
+            );
+            return false;
+          }
+          return true;
+        } catch (err) {
+          appendRunnerLog(
+            `Log append error: ${err && err.message ? err.message : String(err)}`,
+          );
+          return false;
+        }
+      };
+
+      const runnerShareTask = async (taskId) => {
+        if (!taskId) return null;
+        try {
+          const res = await relayFetch(buildRelayUrl(`/tasks/${taskId}/share`), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            appendRunnerLog(
+              `Share failed (HTTP ${res.status}${text ? `: ${text.trim()}` : ""})`,
+            );
+            return null;
+          }
+          const data = await res.json();
+          appendRunnerLog("Share token generated");
+          return data;
+        } catch (err) {
+          appendRunnerLog(
+            `Share error: ${err && err.message ? err.message : String(err)}`,
+          );
+          return null;
+        }
+      };
+
+      const finalizeRunnerSuccess = async () => {
+        const taskId = runnerState.currentTaskId;
+        await runnerPostLog(taskId, "Runner: done");
+        if (runnerState.autoShare) {
+          const share = await runnerShareTask(taskId);
+          if (share) {
+            runnerState.shareInfo = share;
+          }
+        }
+        runnerState.processing = false;
+        runnerState.waitingFor = null;
+        runnerState.lastError = null;
+        setRunnerStatus("success", "done");
+        renderRunnerState();
+        if (runnerState.enabled) {
+          scheduleRunnerPoll(1500);
+        }
+      };
+
+      const finalizeRunnerFailure = async (reason) => {
+        const taskId = runnerState.currentTaskId;
+        if (taskId) {
+          await runnerPostLog(taskId, `Runner: error — ${reason || "unknown"}`);
+        }
+        runnerState.processing = false;
+        runnerState.waitingFor = null;
+        runnerState.lastError = reason || "Runner error";
+        setRunnerStatus("error", runnerState.lastError);
+        renderRunnerState();
+        if (runnerState.enabled) {
+          scheduleRunnerPoll(RUNNER_POLL_INTERVAL_MS * 2);
+        }
+      };
+
+      const beginRunnerTask = async (taskId, taskSpec) => {
+        runnerState.processing = true;
+        runnerState.currentTaskId = taskId;
+        runnerState.currentSpecString = ensureRunnerSpecString(taskSpec);
+        runnerState.waitingFor = "build";
+        runnerState.shareInfo = null;
+        runnerState.lastError = null;
+        clearRunnerLogs();
+        appendRunnerLog(`Pulled task ${taskId}`);
+        if (!runnerState.currentSpecString) {
+          appendRunnerLog("Invalid TaskSpec payload");
+          await finalizeRunnerFailure("Invalid TaskSpec");
+          return;
+        }
+        lastTaskId = taskId;
+        updateArtifactLinks();
+        setTaskSpecTextarea(runnerState.currentSpecString);
+        setRunnerStatus("running", "build");
+        await runnerPostLog(taskId, "Runner: start");
+        appendRunnerLog("Running build…");
+        post("build", runnerState.currentSpecString);
+      };
+
+      async function runRunnerPoll() {
+        if (!runnerState.enabled || runnerState.processing) return;
+        const pluginId = getRunnerPluginId();
+        if (!pluginId) {
+          showToast({ message: "Runner plugin ID is required", type: "error" });
+          appendRunnerLog("Runner disabled — missing plugin ID");
+          if (runnerElements.toggle) {
+            runnerElements.toggle.checked = false;
+          }
+          runnerState.enabled = false;
+          persistRunnerSettings();
+          clearRunnerTimer();
+          renderRunnerState();
+          return;
+        }
+        setRunnerStatus("polling", "pulling…");
+        try {
+          const url = new URL(buildRelayUrl(`/tasks/pull`));
+          url.searchParams.set("pluginId", pluginId);
+          const res = await relayFetch(url.toString());
+          if (res.status === 204) {
+            setRunnerStatus("polling", "no tasks");
+            return;
+          }
+          if (!res.ok) {
+            const text = await res.text();
+            appendRunnerLog(
+              `Pull failed (HTTP ${res.status}${text ? `: ${text.trim()}` : ""})`,
+            );
+            setRunnerStatus("error", "pull failed");
+            return;
+          }
+          const data = await res.json();
+          const taskId = data && (data.taskId || data.id);
+          const taskSpec = data ? data.taskSpec ?? data.spec ?? null : null;
+          if (!taskId || taskSpec == null) {
+            setRunnerStatus("polling", "no tasks");
+            return;
+          }
+          await beginRunnerTask(taskId, taskSpec);
+        } catch (err) {
+          const message = err && err.message ? err.message : String(err);
+          appendRunnerLog(`Pull error: ${message}`);
+          setRunnerStatus("error", "pull failed");
+        } finally {
+          if (runnerState.enabled && !runnerState.processing) {
+            scheduleRunnerPoll(RUNNER_POLL_INTERVAL_MS);
+          }
+        }
+      }
+
+      const setRunnerEnabled = (enabled) => {
+        if (enabled === runnerState.enabled) return;
+        if (enabled) {
+          if (!RELAY_API_KEY) {
+            showToast({ message: "API key is required for runner", type: "error" });
+            if (runnerElements.toggle) runnerElements.toggle.checked = false;
+            return;
+          }
+          if (!getRunnerPluginId()) {
+            showToast({ message: "Plugin ID is required", type: "error" });
+            if (runnerElements.toggle) runnerElements.toggle.checked = false;
+            return;
+          }
+          runnerState.enabled = true;
+          persistRunnerSettings();
+          appendRunnerLog("Runner enabled");
+          if (!runnerState.processing) {
+            setRunnerStatus("polling", "waiting…");
+            scheduleRunnerPoll(0);
+          }
+        } else {
+          runnerState.enabled = false;
+          persistRunnerSettings();
+          clearRunnerTimer();
+          if (!runnerState.processing) {
+            setRunnerStatus("idle", "");
+          } else {
+            appendRunnerLog("Runner disabled — finishing current task");
+          }
+        }
+        renderRunnerState();
+      };
 
       const persistApiKey = (value) => {
         if (!storage) return;
@@ -1949,6 +2449,57 @@
           }
           applyApiKeyChange("");
         });
+      }
+
+      const storedRunnerSettings =
+        runnerPreferences.read({ pluginId: "", autoShare: false, enabled: false }) || {};
+      if (typeof storedRunnerSettings.pluginId === "string") {
+        runnerState.pluginId = storedRunnerSettings.pluginId;
+      }
+      runnerState.autoShare = !!storedRunnerSettings.autoShare;
+      const runnerAutoEnable = !!storedRunnerSettings.enabled;
+      renderRunnerLogs();
+      renderRunnerState();
+      if (runnerElements.pluginIdInput) {
+        runnerElements.pluginIdInput.value = runnerState.pluginId;
+        runnerElements.pluginIdInput.addEventListener("input", (event) => {
+          runnerState.pluginId = (event.target.value || "").trim();
+          persistRunnerSettings();
+        });
+      }
+      if (runnerElements.autoShare) {
+        runnerElements.autoShare.checked = runnerState.autoShare;
+        runnerElements.autoShare.addEventListener("change", (event) => {
+          runnerState.autoShare = !!event.target.checked;
+          persistRunnerSettings();
+        });
+      }
+      if (runnerElements.shareCopy) {
+        runnerElements.shareCopy.addEventListener("click", async () => {
+          const share = runnerState.shareInfo;
+          if (!share) return;
+          const value = share.token || share.url;
+          if (!value) return;
+          const ok = await copyTextToClipboard(value);
+          showToast({
+            message: ok ? (share.token ? "Share token copied" : "Share link copied") : "Copy failed",
+            type: ok ? "success" : "error",
+          });
+        });
+      }
+      if (runnerElements.toggle) {
+        runnerElements.toggle.checked = runnerAutoEnable;
+        runnerElements.toggle.addEventListener("change", (event) => {
+          setRunnerEnabled(!!event.target.checked);
+        });
+      }
+      if (runnerAutoEnable && getRunnerPluginId() && RELAY_API_KEY) {
+        setRunnerEnabled(true);
+        if (runnerElements.toggle) {
+          runnerElements.toggle.checked = runnerState.enabled;
+        }
+      } else if (!runnerAutoEnable && runnerElements.toggle) {
+        runnerElements.toggle.checked = false;
       }
 
       const artifactDetailsState = {
@@ -4827,8 +5378,14 @@
       };
       document.getElementById("spec").value = JSON.stringify(sample, null, 2);
 
-      const post = (type) => {
-        const val = document.getElementById("spec").value;
+      const post = (type, overrideSpec) => {
+        const textarea = document.getElementById("spec");
+        const val =
+          overrideSpec != null
+            ? overrideSpec
+            : textarea && typeof textarea.value === "string"
+              ? textarea.value
+              : "";
         parent.postMessage({ pluginMessage: { type, taskSpec: val } }, "*");
       };
 
@@ -4883,8 +5440,9 @@
         try {
           if (pullModeEnabled) {
             const url = new URL(buildRelayUrl(`/tasks/pull`));
-            if (PULL_PLUGIN_ID) {
-              url.searchParams.set("pluginId", PULL_PLUGIN_ID);
+            const pluginId = getRunnerPluginId();
+            if (pluginId) {
+              url.searchParams.set("pluginId", pluginId);
             }
             const res = await relayFetch(url.toString());
             if (!res.ok) {
@@ -4936,6 +5494,20 @@
         }
         if (msg.type === "build:ok") {
           log("Build OK: sections=" + msg.sections);
+          if (runnerState.processing && runnerState.waitingFor === "build") {
+            appendRunnerLog(
+              `Build OK${Number.isFinite(msg.sections) ? ` (sections=${msg.sections})` : ""}`,
+            );
+            runnerState.waitingFor = "export";
+            if (runnerState.currentSpecString) {
+              setRunnerStatus("running", "export");
+              appendRunnerLog("Running export…");
+              post("export", runnerState.currentSpecString);
+            } else {
+              appendRunnerLog("Missing TaskSpec for export");
+              await finalizeRunnerFailure("Missing TaskSpec");
+            }
+          }
           return;
         }
         if (msg.type === "export:ok") {
@@ -4943,6 +5515,7 @@
           const previewPayload = msg.preview;
           const previewError = msg.previewError;
           let proceed = true;
+          let runnerPostErrorMessage = null;
           if (exportSpec) {
             try {
               const res = await relayFetch(buildRelayUrl(`/validate/exportSpec`), {
@@ -4993,6 +5566,9 @@
                 body: JSON.stringify({ result: exportSpec }),
               });
               rlog(`Result posted for task ${lastTaskId}`);
+              if (runnerState.processing && runnerState.waitingFor === "export") {
+                appendRunnerLog("Result posted");
+              }
               updateArtifactLinks();
               try {
                 await relayFetch(buildRelayUrl(`/tasks/${lastTaskId}/log`), {
@@ -5007,6 +5583,9 @@
                   "Log append error: " +
                     (logErr && logErr.message ? logErr.message : logErr)
                 );
+                runnerPostErrorMessage =
+                  runnerPostErrorMessage ||
+                  (logErr && logErr.message ? logErr.message : String(logErr));
               }
               if (
                 previewPayload &&
@@ -5031,6 +5610,9 @@
                       `Preview uploaded for task ${lastTaskId}` +
                         (previewPayload.size ? ` (${previewPayload.size} bytes)` : ""),
                     );
+                    if (runnerState.processing && runnerState.waitingFor === "export") {
+                      appendRunnerLog("Preview uploaded");
+                    }
                     if (artifactsState.initialized) {
                       fetchArtifacts();
                     }
@@ -5056,27 +5638,53 @@
                       } catch (_) {}
                     }
                     rlog(`Preview upload failed: ${message}`);
+                    runnerPostErrorMessage = runnerPostErrorMessage || message;
                   }
                 } catch (previewErr) {
                   rlog(
                     "Preview upload error: " +
                       (previewErr && previewErr.message ? previewErr.message : previewErr)
                   );
+                  runnerPostErrorMessage =
+                    runnerPostErrorMessage ||
+                    (previewErr && previewErr.message
+                      ? previewErr.message
+                      : String(previewErr));
                 }
               } else if (previewError) {
                 rlog(`Preview unavailable: ${previewError}`);
+                if (runnerState.processing && runnerState.waitingFor === "export") {
+                  appendRunnerLog(`Preview unavailable: ${previewError}`);
+                }
               }
             } catch (err) {
               rlog(
                 "Post result error: " +
                   (err && err.message ? err.message : err)
               );
+              runnerPostErrorMessage =
+                runnerPostErrorMessage || (err && err.message ? err.message : String(err));
+            }
+          } else if (runnerState.processing && runnerState.waitingFor === "export") {
+            runnerPostErrorMessage = runnerPostErrorMessage || "Task ID missing";
+          }
+          if (runnerState.processing && runnerState.waitingFor === "export") {
+            if (runnerPostErrorMessage) {
+              appendRunnerLog(`Runner export failed: ${runnerPostErrorMessage}`);
+              await finalizeRunnerFailure(runnerPostErrorMessage);
+            } else {
+              appendRunnerLog("Export OK");
+              await finalizeRunnerSuccess();
             }
           }
           return;
         }
         if (msg.type === "error") {
           log("ERROR: " + msg.error);
+          if (runnerState.processing) {
+            appendRunnerLog(`Plugin error: ${msg.error}`);
+            await finalizeRunnerFailure(msg.error);
+          }
           return;
         }
         log(msg);
