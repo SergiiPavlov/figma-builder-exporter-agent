@@ -61,15 +61,15 @@
 2. Превью и дифф-артефакты укладываются в лимиты размера.
 3. При перегрузке (превышение лимита) возвращается ожидаемая ошибка/отказ.
 
-### AT-06 — Runner Auto Mode (Pull → Build → Export → Results)
-1. Запустите Relay (`API_KEYS=dev123 npm run dev --prefix relay`).
-2. Создайте задачу: `bash examples/curl/create-task.sh` и сохраните `taskId` из ответа.
-3. В плагине включите **Enable Runner**, предварительно указав Relay Base URL, API Key, Plugin ID и Pull interval.
-   - Убедитесь, что Runner отображает активный `taskId`, состояния Pull/Build/Export, тайминги и последние строки логов.
-4. Дождитесь завершения цикла: Runner обрабатывает задачу, выполняет `POST /tasks/{taskId}/result` и после нажатия **Stop** возвращает доступ к ручным действиям.
-5. Проверьте артефакты в истории задачи — доступны `exportSpec`, `build.log.jsonl` и превью.
-6. Проверьте API: `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'`.
-   - Ожидание: `status: "done"`, заполненный `summary` (created/updated/removed, warnings) и ссылки на `export.artifacts`/`preview`.
+### AT-06 — Runner end-to-end
+1. Запустите Relay:
+   - `npm ci --prefix relay`
+   - `API_KEYS=dev123 npm run dev --prefix relay`
+2. В плагине включите Runner в auto-режиме и заполните поля: Relay Base URL, API Key, Plugin ID, Pull interval.
+3. Создайте задачу: `bash examples/curl/create-task.sh` и зафиксируйте `taskId`.
+4. Дождитесь цикла Runner: Pull → Build → Export → `POST /results`.
+5. Проверьте API: `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` — ожидаются артефакты `exportSpec.json`, `build.log.jsonl` и (при наличии) `preview.png`.
+6. В UI убедитесь, что отображаются `taskId`, сводка `created/updated/removed`, предупреждения и последние строки логов.
 
 ## Milestone status
 - **M1** — ✅ источник правды (Validate → Build → Export + Relay lifecycle)
