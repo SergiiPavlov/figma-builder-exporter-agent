@@ -7,6 +7,7 @@
     "test:ci": "npm --prefix relay test -- --runInBand",
     "lint": "npm --prefix relay run lint",
     "format": "prettier -w .",
+    "dev:relay": "npm --prefix relay run dev",
     "relay:dev:key": "cross-env API_KEYS=dev123 npm run dev --prefix relay",
     "e2e": "node e2e/run.js",
     "e2e:ci": "node e2e/run.js --ci",
