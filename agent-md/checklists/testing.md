@@ -1,23 +1,39 @@
 # Чек-лист тестирования перед мержем
 
-1. **Документация**
-   - [ ] Обновлены соответствующие файлы в `agent-md/` и корневой `README.md`.
-   - [ ] Статусы задач актуализированы в `tasks/overview.md`.
-2. **Relay**
-   - [ ] Сервер запускается: `cd relay && npm install && npm run dev`.
-   - [ ] `curl http://localhost:3000/health` возвращает `{ "ok": true }`.
-   - [ ] Тестовые вызовы `/tasks`, `/tasks/:id/log`, `/tasks/:id/result`, `/tasks/latest`, `/validate/*` работают без ошибок.
-3. **Плагин**
-   - [ ] Плагин устанавливается через `plugin/manifest.json`.
-   - [ ] Кнопка Fetch отправляет TaskSpec и отображает успех.
-   - [ ] Validate показывает ошибки для невалидного JSON.
-   - [ ] Export выполняет валидацию и выгружает результат.
-4. **OpenAPI и схемы**
-   - [ ] `relay/actions.yaml` проходит локальную проверку (`spectral lint` или аналог).
-   - [ ] Обновлённые схемы валидируют ожидаемые и отрицательные сценарии через `/validate/*`.
-5. **Smoke-команды**
-   - [ ] Выполнен набор команд из раздела Smoke-тестов соответствующей задачи и зафиксирован вывод.
-   - [ ] Smoke Runner: включить Runner, создать задачу, убедиться, что статус перешёл в `done`, превью загрузилось, share-токен отображается при авто-share.
-6. **PR-подготовка**
-   - [ ] Описаны все проверки в секции «Укажи проверки и тесты» PR-шаблона.
-   - [ ] Приложены необходимые логи/скриншоты, если менялся UI.
+## Документация
+- [ ] Обновлены релевантные файлы в `agent-md/`, `README.md` и примеры в `examples/curl/`.
+- [ ] Статусы задач синхронизированы с milestone M1 (источник правды для Validate → Build → Export).
+
+## Команды (Relay)
+- [ ] `npm ci --prefix relay`
+- [ ] `npm test --prefix relay`
+- [ ] `API_KEYS=dev123 npm run dev --prefix relay` (smoke-запуск перед ручными сценариями)
+- [ ] (Опционально) `RELAY_URL=http://localhost:3000 API_KEY=dev123 npm run e2e`
+
+## Acceptance Tests (AT-01…AT-05)
+- [ ] **AT-01 Validate / UX**
+    1. Вставить `examples/taskspecs/marketing-landing.json`, нажать **Validate** → «валидно», **Build/Export** активны.
+    2. Вставить невалидный JSON → отрисовался список ошибок, **Build/Export** заблокированы.
+    3. Очистить API key, воспроизвести Validate при 401 → отображается дружелюбное сообщение о ключе/режиме.
+- [ ] **AT-02 Deterministic Build**
+    1. Выполнить **Build** → секции hero/features/cta/footer/custom созданы с auto-layout и токенами.
+    2. Изменить `grid.gap`/padding в TaskSpec → повторный **Build** обновляет ноды (без дублей), отчёт показывает `created/updated/removed`.
+- [ ] **AT-03 Export / Compare**
+    1. Выполнить **Export** → padding/itemSpacing/layout нормализованы (целые значения).
+    2. Предупреждения выдаются только для отсутствующих ресурсов (шрифты и т. п.).
+- [ ] **AT-04 Relay API Lifecycle**
+    1. `POST /tasks` (Bearer `dev123`).
+    2. `GET /tasks/pull` (multi-pull + лимит + метаданные).
+    3. `POST /results`.
+    4. `GET /tasks/{id}/result` — ответы соответствуют README.
+- [ ] **AT-05 Limits & Free Validators**
+    1. `/validate/*` доступен без ключа.
+    2. Превью/дифф артефакты укладываются в лимиты; превышение → ожидаемая ошибка/отказ.
+
+## Плагин
+- [ ] Плагин установлен через `plugin/manifest.json`.
+- [ ] Ручной прогон: Validate → Build → Export на маркетинговом TaskSpec.
+- [ ] Список артефактов, Compare и экспорт HTML/ZIP работают.
+
+## PR-подготовка
+- [ ] В PR перечислены выполненные проверки и приложены логи/скриншоты по UI-изменениям.

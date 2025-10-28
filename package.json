@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "test": "npm --prefix relay test",
+    "test:relay": "npm test --prefix relay",
     "test:ci": "npm --prefix relay test -- --runInBand",
     "lint": "npm --prefix relay run lint",
     "format": "prettier -w .",
@@ -11,7 +12,7 @@
     "relay:dev:key": "cross-env API_KEYS=dev123 npm run dev --prefix relay",
     "e2e": "node e2e/run.js",
     "e2e:ci": "node e2e/run.js --ci",
-    "e2e:local": "cross-env API_KEY=dev123 RELAY_URL=http://localhost:3000 npm run e2e",
+    "e2e:local": "cross-env RELAY_URL=http://localhost:3000 API_KEY=dev123 npm run e2e",
     "docker:build": "docker build -f relay/Dockerfile -t ${RELAY_IMAGE:-figma-relay:local} .",
     "docker:up": "docker compose --profile dev up -d",
     "docker:down": "docker compose down",

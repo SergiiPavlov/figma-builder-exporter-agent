@@ -2,7 +2,6 @@
 set -euo pipefail
 
 : "${RELAY_URL:=http://localhost:3000}"
-: "${API_KEY:?API_KEY environment variable is required}"
 
 TASK_SPEC_PATH="${1:-$(dirname "$0")/../taskspecs/marketing-landing.json}"
 
@@ -11,8 +10,6 @@ if [[ ! -f "$TASK_SPEC_PATH" ]]; then
   exit 1
 fi
 
-jq -c '{taskSpec: .}' "$TASK_SPEC_PATH" | \
-  curl -sS -X POST "$RELAY_URL/tasks" \
-    -H "Authorization: Bearer $API_KEY" \
-    -H "Content-Type: application/json" \
-    -d @- | jq .
+curl -sS -X POST "$RELAY_URL/validate/taskSpec" \
+  -H "Content-Type: application/json" \
+  -d @"$TASK_SPEC_PATH" | jq .
