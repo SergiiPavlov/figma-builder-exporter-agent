@@ -12,6 +12,467 @@ function isObject(value) {
   return value !== null && _typeof(value) === 'object';
 }
 
+function roundToInt(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.round(value);
+}
+
+function truncateText(value) {
+  var limit = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 160;
+  if (typeof value !== 'string') return '';
+  var trimmed = value.trim();
+  if (trimmed.length <= limit) return trimmed;
+  return "".concat(trimmed.slice(0, limit - 1), "\u2026");
+}
+
+function sanitizeFilename(value) {
+  var fallback = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 'ExportSpec';
+  if (typeof value !== 'string') return fallback;
+  var trimmed = value.trim();
+  if (!trimmed) return fallback;
+  var cleaned = trimmed.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, ' ').trim();
+  cleaned = cleaned.replace(/\.+$/, '');
+  if (!cleaned) return fallback;
+  if (cleaned.length > 120) {
+    cleaned = cleaned.slice(0, 120);
+  }
+  return cleaned;
+}
+
+function toHex(value) {
+  var hex = value.toString(16);
+  if (hex.length === 1) return "0".concat(hex);
+  if (hex.length === 0) return '00';
+  return hex;
+}
+
+function clampColorComponent(value) {
+  if (!Number.isFinite(value)) return 0;
+  var scaled = Math.round(value * 255);
+  if (scaled < 0) scaled = 0;
+  if (scaled > 255) scaled = 255;
+  return scaled;
+}
+
+function convertSolidPaintToColor(paint) {
+  if (!paint || paint.type !== 'SOLID' || !isObject(paint.color)) return null;
+  var color = paint.color;
+  var opacity = typeof paint.opacity === 'number' && Number.isFinite(paint.opacity) ? paint.opacity : 1;
+  if (opacity < 0) opacity = 0;
+  if (opacity > 1) opacity = 1;
+  var r = clampColorComponent(color.r);
+  var g = clampColorComponent(color.g);
+  var b = clampColorComponent(color.b);
+  var alpha = Math.round(opacity * 255);
+  var hex = "#".concat(toHex(r)).concat(toHex(g)).concat(toHex(b));
+  if (alpha < 255) {
+    hex += toHex(alpha);
+  }
+  var roundedOpacity = Math.round(opacity * 100) / 100;
+  return {
+    hex: hex,
+    rgba: "rgba(".concat(r, ", ").concat(g, ", ").concat(b, ", ").concat(roundedOpacity, ")"),
+    opacity: opacity
+  };
+}
+
+function extractNodeSolidFill(node, warnings, context) {
+  if (!node || !('fills' in node)) return null;
+  var fills = node.fills;
+  if (fills == null) return null;
+  if (fills === figma.mixed) {
+    if (warnings) warnings.push("".concat(context, ": \u0441\u043c\u0435\u0448\u0430\u043d\u043d\u044b\u0435 fills"));
+    return null;
+  }
+  if (!Array.isArray(fills) || fills.length === 0) return null;
+  var visible = [];
+  for (var i = 0; i < fills.length; i++) {
+    var paint = fills[i];
+    if (paint && paint.visible !== false) {
+      visible.push(paint);
+    }
+  }
+  if (visible.length === 0) return null;
+  var solid = null;
+  for (var j = 0; j < visible.length; j++) {
+    if (visible[j].type === 'SOLID') {
+      solid = visible[j];
+      break;
+    }
+  }
+  if (!solid) {
+    if (warnings) warnings.push("".concat(context, ": \u0431\u0430\u0437\u043e\u0432\u0430\u044f \u0437\u0430\u043b\u0438\u0432\u043a\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430"));
+    return null;
+  }
+  if (visible.length > 1 && warnings) {
+    warnings.push("".concat(context, ": \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0437\u0430\u043b\u0438\u0432\u043e\u043a, \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u043c \u043f\u0435\u0440\u0432\u0443\u044e SOLID"));
+  }
+  return convertSolidPaintToColor(solid);
+}
+
+function normalizeLineHeightValue(raw, warnings, context) {
+  if (raw === figma.mixed) {
+    if (warnings) warnings.push("".concat(context, ": \u0441\u043c\u0435\u0448\u0430\u043d\u043d\u044b\u0439 lineHeight"));
+    return null;
+  }
+  if (raw === 'AUTO') {
+    return { value: null, unit: 'AUTO' };
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return { value: Math.round(raw), unit: 'PIXELS' };
+  }
+  if (isObject(raw)) {
+    var unit = typeof raw.unit === 'string' ? raw.unit : null;
+    var value = Number.isFinite(raw.value) ? Math.round(raw.value) : null;
+    return { value: value, unit: unit };
+  }
+  return null;
+}
+
+function analyzeTextNode(textNode, sectionWarnings, context) {
+  if (!textNode) return null;
+  var characters = typeof textNode.characters === 'string' ? textNode.characters : '';
+  var info = {
+    id: textNode.id,
+    name: textNode.name || null,
+    characters: truncateText(characters, 200),
+    characterCount: characters.length,
+    fontFamily: null,
+    fontStyle: null,
+    fontSize: null,
+    lineHeight: null,
+    fill: null
+  };
+  var label = context || 'Text';
+  try {
+    var fontName = textNode.fontName;
+    if (fontName === figma.mixed) {
+      if (typeof textNode.getRangeFontName === 'function' && characters.length > 0) {
+        try {
+          var sampleFont = textNode.getRangeFontName(0, 1);
+          if (sampleFont && sampleFont !== figma.mixed) {
+            info.fontFamily = sampleFont.family || null;
+            info.fontStyle = sampleFont.style || null;
+          }
+        } catch (err) {
+          if (sectionWarnings) sectionWarnings.push("".concat(label, ": \u0448\u0440\u0438\u0444\u0442: ").concat(err && err.message ? err.message : err));
+        }
+      } else if (sectionWarnings) {
+        sectionWarnings.push("".concat(label, ": \u0448\u0440\u0438\u0444\u0442 \u043d\u0435 \u0441\u0447\u0438\u0442\u0430\u043d"));
+      }
+    } else if (isObject(fontName)) {
+      info.fontFamily = fontName.family || null;
+      info.fontStyle = fontName.style || null;
+    }
+  } catch (err) {
+    if (sectionWarnings) sectionWarnings.push("".concat(label, ": \u0448\u0440\u0438\u0444\u0442: ").concat(err && err.message ? err.message : err));
+  }
+  try {
+    if (textNode.fontSize === figma.mixed) {
+      if (typeof textNode.getRangeFontSize === 'function' && characters.length > 0) {
+        var fontSize = textNode.getRangeFontSize(0, 1);
+        if (Number.isFinite(fontSize)) {
+          info.fontSize = Math.round(fontSize);
+        }
+      }
+    } else if (Number.isFinite(textNode.fontSize)) {
+      info.fontSize = Math.round(textNode.fontSize);
+    }
+  } catch (err) {
+    if (sectionWarnings) sectionWarnings.push("".concat(label, ": fontSize: ").concat(err && err.message ? err.message : err));
+  }
+  var lineHeight = null;
+  try {
+    lineHeight = textNode.lineHeight;
+    if (lineHeight === figma.mixed && typeof textNode.getRangeLineHeight === 'function' && characters.length > 0) {
+      try {
+        lineHeight = textNode.getRangeLineHeight(0, 1);
+      } catch (err) {
+        if (sectionWarnings) sectionWarnings.push("".concat(label, ": lineHeight: ").concat(err && err.message ? err.message : err));
+      }
+    }
+  } catch (err) {
+    if (sectionWarnings) sectionWarnings.push("".concat(label, ": lineHeight: ").concat(err && err.message ? err.message : err));
+  }
+  info.lineHeight = normalizeLineHeightValue(lineHeight, sectionWarnings, label);
+  info.fill = extractNodeSolidFill(textNode, sectionWarnings, "".concat(label, " — \u0446\u0432\u0435\u0442"));
+  return info;
+}
+
+function collectTextSamples(sectionNode, sectionWarnings) {
+  var samples = [];
+  if (!sectionNode || !('children' in sectionNode) || !Array.isArray(sectionNode.children)) return samples;
+  var queue = sectionNode.children.slice();
+  while (queue.length && samples.length < 3) {
+    var current = queue.shift();
+    if (!current || current.visible === false) continue;
+    if (current.type === 'TEXT') {
+      var textInfo = analyzeTextNode(current, sectionWarnings, "\u0422\u0435\u043a\u0441\u0442 \u201C".concat(current.name || '', "\u201D"));
+      if (textInfo) samples.push(textInfo);
+    }
+    if ('children' in current && Array.isArray(current.children)) {
+      for (var i = 0; i < current.children.length; i++) {
+        queue.push(current.children[i]);
+      }
+    }
+  }
+  return samples;
+}
+
+function detectGridSection(sectionNode, sectionWarnings) {
+  if (!sectionNode || sectionNode.layoutMode !== 'HORIZONTAL') return null;
+  if (!Array.isArray(sectionNode.children) || sectionNode.children.length === 0) return null;
+  var items = [];
+  for (var i = 0; i < sectionNode.children.length; i++) {
+    var child = sectionNode.children[i];
+    if (!child || child.visible === false) continue;
+    items.push(child);
+  }
+  if (items.length < 2) return null;
+  var baseWidth = Number.isFinite(items[0].width) ? items[0].width : null;
+  if (baseWidth == null) return null;
+  var tolerance = 2;
+  for (var j = 1; j < items.length; j++) {
+    var currentWidth = Number.isFinite(items[j].width) ? items[j].width : null;
+    if (currentWidth == null || Math.abs(currentWidth - baseWidth) > tolerance) {
+      if (sectionWarnings) {
+        sectionWarnings.push("\u0421\u0435\u043a\u0446\u0438\u044f \u201C".concat(sectionNode.name || '', "\u201D: \u0440\u0430\u0437\u043d\u0430\u044f \u0448\u0438\u0440\u0438\u043d\u0430 \u044d\u043b\u0435\u043c\u0435\u043d\u0442\u043e\u0432"));
+      }
+      return null;
+    }
+  }
+  return {
+    columns: items.length,
+    gap: roundToInt(sectionNode.itemSpacing),
+    columnWidth: roundToInt(baseWidth)
+  };
+}
+
+function buildSectionInfo(sectionNode, index, warnings) {
+  var sectionWarnings = [];
+  var name = sectionNode.name || "Section ".concat(index + 1);
+  var context = "\u0421\u0435\u043a\u0446\u0438\u044f \u201C".concat(name, "\u201D");
+  if (typeof sectionNode.layoutMode !== 'string' || !sectionNode.layoutMode) {
+    sectionWarnings.push("".concat(context, ": layoutMode \u043d\u0435 \u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0451\u043d"));
+  }
+  var padding = null;
+  if ('paddingTop' in sectionNode || 'paddingRight' in sectionNode || 'paddingBottom' in sectionNode || 'paddingLeft' in sectionNode) {
+    padding = {
+      top: roundToInt(sectionNode.paddingTop),
+      right: roundToInt(sectionNode.paddingRight),
+      bottom: roundToInt(sectionNode.paddingBottom),
+      left: roundToInt(sectionNode.paddingLeft)
+    };
+  }
+  var info = {
+    id: sectionNode.id,
+    name: sectionNode.name || null,
+    type: sectionNode.type,
+    layoutMode: typeof sectionNode.layoutMode === 'string' ? sectionNode.layoutMode : null,
+    padding: padding,
+    itemSpacing: 'itemSpacing' in sectionNode ? roundToInt(sectionNode.itemSpacing) : null,
+    size: { width: roundToInt(sectionNode.width), height: roundToInt(sectionNode.height) },
+    fill: extractNodeSolidFill(sectionNode, sectionWarnings, "".concat(context, " — \u0444\u043e\u043d")),
+    texts: collectTextSamples(sectionNode, sectionWarnings),
+    grid: detectGridSection(sectionNode, sectionWarnings),
+    warnings: sectionWarnings
+  };
+  if (sectionNode.counterAxisSizingMode) {
+    info.counterAxisSizingMode = sectionNode.counterAxisSizingMode;
+  }
+  if (Array.isArray(sectionWarnings) && sectionWarnings.length && Array.isArray(warnings)) {
+    for (var i = 0; i < sectionWarnings.length; i++) {
+      warnings.push(sectionWarnings[i]);
+    }
+  }
+  return info;
+}
+
+function collectDocumentNodes(frame) {
+  var nodes = [];
+  if (!frame) return nodes;
+  var queue = [frame];
+  while (queue.length) {
+    var current = queue.shift();
+    if (!current) continue;
+    nodes.push(collectNode(current, frame));
+    if ('children' in current && Array.isArray(current.children)) {
+      for (var i = 0; i < current.children.length; i++) {
+        queue.push(current.children[i]);
+      }
+    }
+  }
+  return nodes;
+}
+
+function buildImportFilename(frame, page) {
+  var parts = ['ExportSpec'];
+  if (page && typeof page.name === 'string' && page.name.trim()) {
+    parts.push(sanitizeFilename(page.name, 'Page'));
+  }
+  if (frame && typeof frame.name === 'string' && frame.name.trim()) {
+    parts.push(sanitizeFilename(frame.name, 'Frame'));
+  }
+  var base = parts.join(' - ');
+  if (!/\.json$/i.test(base)) {
+    base += '.json';
+  }
+  return base;
+}
+
+function getSelectionStateSummary() {
+  var info = {
+    count: 0,
+    isSingleFrame: false,
+    frameId: null,
+    frameName: null,
+    pageId: null,
+    pageName: null,
+    reason: ''
+  };
+  var currentPage = figma.currentPage;
+  if (!currentPage) {
+    info.reason = '\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430';
+    return info;
+  }
+  var selection = currentPage.selection;
+  var count = Array.isArray(selection) ? selection.length : 0;
+  info.count = count;
+  info.pageId = currentPage.id;
+  info.pageName = currentPage.name || null;
+  if (count === 0) {
+    info.reason = '\u0412\u044b\u0434\u0435\u043b\u0435\u043d\u0438\u0435 \u043e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442';
+    return info;
+  }
+  if (count !== 1) {
+    info.reason = '\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0440\u043e\u0432\u043d\u043e \u043e\u0434\u0438\u043d \u0444\u0440\u0435\u0439\u043c';
+    return info;
+  }
+  var node = selection[0];
+  if (!node || node.type !== 'FRAME') {
+    info.reason = '\u0412\u044b\u0431\u0440\u0430\u043d \u043d\u0435 \u0444\u0440\u0435\u0439\u043c';
+    return info;
+  }
+  info.isSingleFrame = true;
+  info.frameId = node.id;
+  info.frameName = node.name || null;
+  info.reason = '';
+  return info;
+}
+
+function notifySelectionState() {
+  try {
+    figma.ui.postMessage({ type: 'selection:update', selection: getSelectionStateSummary() });
+  } catch (err) {}
+}
+
+function buildExportSpecFromFrame(frame) {
+  if (!frame) throw new Error('Frame not found');
+  var warnings = [];
+  var page = frame.parent && frame.parent.type === 'PAGE' ? frame.parent : null;
+  if (!page) {
+    warnings.push('\u0421\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u0434\u043b\u044f \u0444\u0440\u0435\u0439\u043c\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430');
+  }
+  if (frame.layoutMode !== 'VERTICAL') {
+    warnings.push('\u041a\u043e\u0440\u043d\u0435\u0432\u043e\u0439 \u0444\u0440\u0435\u0439\u043c \u043d\u0435 \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442 VERTICAL Auto Layout');
+  }
+  var sections = [];
+  var children = Array.isArray(frame.children) ? frame.children : [];
+  if (children.length === 0) {
+    warnings.push('\u0424\u0440\u0435\u0439\u043c \u043d\u0435 \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u0442 \u0441\u0435\u043a\u0446\u0438\u0439');
+  }
+  for (var i = 0; i < children.length; i++) {
+    var child = children[i];
+    if (!child || child.visible === false) continue;
+    if (child.type !== 'FRAME') {
+      warnings.push("\u041f\u043e\u0442\u043e\u043c\u043e\u043a \u201C".concat(child.name || "#".concat(i + 1), "\u201D \u043d\u0435 FRAME \u0438 \u0431\u0443\u0434\u0435\u0442 \u043f\u0440\u043e\u043f\u0443\u0449\u0435\u043d"));
+      continue;
+    }
+    sections.push(buildSectionInfo(child, i, warnings));
+  }
+  var nodes = collectDocumentNodes(frame);
+  var pageId = page ? page.id : null;
+  var exportSpec = {
+    meta: {
+      source: 'import-from-selection',
+      importedAt: new Date().toISOString(),
+      frameId: frame.id,
+      frameName: frame.name || null,
+      frameSize: { width: roundToInt(frame.width), height: roundToInt(frame.height) },
+      layoutMode: typeof frame.layoutMode === 'string' ? frame.layoutMode : null
+    },
+    target: {
+      pageId: pageId,
+      pageName: page ? page.name : null,
+      frameId: frame.id,
+      frameName: frame.name || null
+    },
+    summary: {
+      sections: sections.length,
+      warnings: warnings.slice(),
+      deviations: []
+    },
+    sections: sections,
+    document: {
+      rootId: frame.id,
+      pageId: pageId,
+      nodes: nodes
+    },
+    warnings: warnings.slice(),
+    logs: []
+  };
+  var rootFill = extractNodeSolidFill(frame, warnings, '\u041a\u043e\u0440\u043d\u0435\u0432\u043e\u0439 \u0444\u0440\u0435\u0439\u043c — \u0444\u043e\u043d');
+  if (rootFill) {
+    exportSpec.meta.fill = rootFill;
+  }
+  exportSpec.summary.warnings = warnings.slice();
+  exportSpec.warnings = warnings.slice();
+  return {
+    exportSpec: exportSpec,
+    warnings: warnings,
+    filename: buildImportFilename(frame, page)
+  };
+}
+
+function handleImportFromSelectionMessage() {
+  var selectionInfo = getSelectionStateSummary();
+  if (!selectionInfo.isSingleFrame) {
+    figma.ui.postMessage({
+      type: 'import:error',
+      error: selectionInfo.reason || '\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0440\u043e\u0432\u043d\u043e \u043e\u0434\u0438\u043d \u0444\u0440\u0435\u0439\u043c',
+      selection: selectionInfo
+    });
+    return;
+  }
+  var currentPage = figma.currentPage;
+  var selection = currentPage && Array.isArray(currentPage.selection) ? currentPage.selection : [];
+  var frame = selection[0];
+  if (!frame || frame.type !== 'FRAME') {
+    figma.ui.postMessage({
+      type: 'import:error',
+      error: '\u0412\u044b\u0431\u0440\u0430\u043d\u043d\u044b\u0439 \u0443\u0437\u0435\u043b \u043d\u0435 \u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u0444\u0440\u0435\u0439\u043c\u043e\u043c',
+      selection: selectionInfo
+    });
+    return;
+  }
+  try {
+    var result = buildExportSpecFromFrame(frame);
+    figma.ui.postMessage({
+      type: 'import:ok',
+      exportSpec: result.exportSpec,
+      warnings: result.warnings,
+      filename: result.filename,
+      selection: selectionInfo
+    });
+  } catch (err) {
+    figma.ui.postMessage({
+      type: 'import:error',
+      error: err && err.message ? err.message : String(err),
+      selection: selectionInfo
+    });
+  }
+}
+
 function clampUnit(value) {
   if (!Number.isFinite(value)) return null;
   var rounded = Math.round(value);
@@ -1626,3 +2087,24 @@ figma.ui.onmessage = /*#__PURE__*/function () {var _ref = _asyncToGenerator(/*#_
           }case 11:_context.n = 13;break;case 12:_context.p = 12;_t = _context.v;
 
           figma.ui.postMessage({ type: 'error', error: String(_t && _t.message || _t) });case 13:return _context.a(2);}}, _callee, null, [[0, 12]]);}));return function (_x3) {return _ref.apply(this, arguments);};}();
+
+var _originalUiOnMessage = figma.ui.onmessage;
+
+figma.ui.onmessage = function (msg) {
+  if (msg && msg.type === 'import:selection') {
+    return handleImportFromSelectionMessage();
+  }
+  if (typeof _originalUiOnMessage === 'function') {
+    return _originalUiOnMessage(msg);
+  }
+};
+
+figma.on('selectionchange', function () {
+  notifySelectionState();
+});
+
+figma.on('currentpagechange', function () {
+  notifySelectionState();
+});
+
+notifySelectionState();
