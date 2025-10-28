@@ -1,6 +1,25 @@
 <!DOCTYPE html>
 <html>
   <head>
+  <script>
+  (() => {
+    function lsOk() {
+      try {
+        const k = '__ls_check_' + Math.random();
+        window.localStorage.setItem(k, '1');
+        window.localStorage.removeItem(k);
+        return true;
+      } catch (e) { return false; }
+    }
+    const mem = new Map();
+    window.__storage = {
+      getItem(k){ return lsOk() ? window.localStorage.getItem(k) : (mem.get(k) ?? null); },
+      setItem(k,v){ if (lsOk()) window.localStorage.setItem(k,v); else mem.set(k,v); },
+      removeItem(k){ if (lsOk()) window.localStorage.removeItem(k); else mem.delete(k); },
+      clear(){ if (lsOk()) window.localStorage.clear(); else mem.clear(); }
+    };
+  })();
+  </script>
     <meta charset="utf-8" />
     <title>Builder+Exporter (M1)</title>
     <style>

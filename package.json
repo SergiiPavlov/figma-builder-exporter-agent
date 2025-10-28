@@ -18,6 +18,12 @@
     "docker:up:prod": "docker compose --profile prod up -d"
   },
   "devDependencies": {
+    "@babel/cli": "^7.28.3",
+    "@babel/core": "^7.28.5",
+    "@babel/plugin-transform-nullish-coalescing-operator": "^7.27.1",
+    "@babel/plugin-transform-optional-catch-binding": "^7.27.1",
+    "@babel/plugin-transform-optional-chaining": "^7.28.5",
+    "@babel/preset-env": "^7.28.5",
     "cross-env": "^7.0.3",
     "eslint": "^8.57.0",
     "prettier": "^3.3.2"
