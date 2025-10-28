@@ -2206,7 +2206,7 @@ function createApp(options = {}) {
       ...task,
       status: 'running',
       runnerPluginId: pluginId ?? task.runnerPluginId ?? null,
-      startedAt: task.startedAt ?? task.createdAt ?? now,
+      startedAt: task.startedAt ?? now,
       finishedAt: null,
       error: null,
     };
