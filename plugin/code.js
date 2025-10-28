@@ -200,15 +200,15 @@ function analyzeTextNode(textNode, sectionWarnings, context) {
 }
 
 function collectTextSamples(sectionNode, sectionWarnings) {
-  var samples = [];
-  if (!sectionNode || !('children' in sectionNode) || !Array.isArray(sectionNode.children)) return samples;
+  var collected = [];
+  if (!sectionNode || !('children' in sectionNode) || !Array.isArray(sectionNode.children)) return collected;
   var queue = sectionNode.children.slice();
-  while (queue.length && samples.length < 3) {
+  while (queue.length && collected.length < 12) {
     var current = queue.shift();
     if (!current || current.visible === false) continue;
     if (current.type === 'TEXT') {
       var textInfo = analyzeTextNode(current, sectionWarnings, "\u0422\u0435\u043a\u0441\u0442 \u201C".concat(current.name || '', "\u201D"));
-      if (textInfo) samples.push(textInfo);
+      if (textInfo) collected.push(textInfo);
     }
     if ('children' in current && Array.isArray(current.children)) {
       for (var i = 0; i < current.children.length; i++) {
@@ -216,7 +216,16 @@ function collectTextSamples(sectionNode, sectionWarnings) {
       }
     }
   }
-  return samples;
+  if (collected.length <= 3) return collected;
+  collected.sort(function (a, b) {
+    var sizeA = Number.isFinite(a && a.fontSize) ? a.fontSize : 0;
+    var sizeB = Number.isFinite(b && b.fontSize) ? b.fontSize : 0;
+    if (sizeB !== sizeA) return sizeB - sizeA;
+    var lenA = Number.isFinite(a && a.characterCount) ? a.characterCount : 0;
+    var lenB = Number.isFinite(b && b.characterCount) ? b.characterCount : 0;
+    return lenB - lenA;
+  });
+  return collected.slice(0, 3);
 }
 
 function detectGridSection(sectionNode, sectionWarnings) {

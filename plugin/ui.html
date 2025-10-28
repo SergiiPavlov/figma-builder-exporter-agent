@@ -2217,6 +2217,21 @@
           const limited = withoutDots.slice(0, 120);
           return limited || fallbackName;
         });
+      const stringifyJson =
+        pluginUtils.stringifyJson ||
+        ((value) => {
+          if (value === undefined) return "";
+          try {
+            return JSON.stringify(value, null, 2);
+          } catch (_) {
+            if (value == null) return "";
+            try {
+              return String(value);
+            } catch (_) {
+              return "";
+            }
+          }
+        });
       const parseServerError =
         pluginUtils.parseServerError ||
         ((error, fallback = "Request failed") => {
@@ -7238,12 +7253,7 @@
             updateActionButtons();
             return;
           }
-          let specString = "";
-          try {
-            specString = JSON.stringify(exportSpec, null, 2);
-          } catch (_) {
-            specString = String(exportSpec);
-          }
+          const specString = stringifyJson(exportSpec) || "";
           let downloadUrl = null;
           try {
             downloadUrl = URL.createObjectURL(
