@@ -24,7 +24,13 @@
    curl http://localhost:3000/health
    ```
    Ответ должен содержать `200 OK` и JSON с состоянием.
-4. Импортируйте плагин в Figma и вручную прогоните `examples/taskspecs/marketing-landing.json`: **Validate → Build → Export**.
+4. Импортируйте плагин в Figma через `plugin/manifest.json`.
+5. Создайте задачу: `bash examples/curl/create-task.sh` (скрипт вернёт `taskId`).
+6. Откройте вкладку Runner, заполните настройки (Relay Base URL `http://localhost:3000`, API Key `dev123`, Plugin ID из TaskSpec, Pull interval `5` сек.) и включите **Enable Runner**.
+   - В UI появится активный `taskId`, индикаторы Pull/Build/Export, тайминги шагов, отчёт `created/updated/removed`, последние строки логов и уведомление об успешном `POST /results`.
+   - После завершения цикла кнопка **Stop** возвращает ручные действия; настройки сохраняются между перезапусками.
+7. Проверьте результат: `curl http://localhost:3000/tasks/<taskId>/result -H 'Authorization: Bearer dev123'` → ожидается `status: "done"`, блок `summary` (created/updated/removed, warnings) и ссылки на `export.artifacts`/`preview`.
+8. Для ручной проверки отключите Runner и воспроизведите **Validate → Build → Export**.
 
 ## Quickstart (Docker)
 
@@ -103,9 +109,10 @@
        -H 'Content-Type: application/json' \
        -d @-
    ```
-4. **Pull / Run** — агент выбирает задачи через `GET /tasks/pull`, переводит их в `running` и стримит логи `GET /tasks/{id}/watch`.
-5. **Export / Results** — плагин отправляет `POST /results`, после чего доступен `GET /tasks/{id}/result` и артефакты (`/compare`, `/artifacts`).
-6. **Artifacts** — `GET /artifacts?offset=0&limit=50&order=desc` позволяет просматривать историю экспортов и скачивать compare HTML/ZIP.
+4. **Runner auto-mode** — включите **Enable Runner** в плагине: он сам выполняет Pull → Build → Export, публикует `/results`, показывает тайминги и логи, блокируя ручные действия до завершения цикла.
+5. **Pull / Run (manual)** — агент (или скрипт) выбирает задачи через `GET /tasks/pull`, переводит их в `running` и стримит логи `GET /tasks/{id}/watch`.
+6. **Export / Results** — Runner или плагин вручную отправляет `POST /results`, после чего доступен `GET /tasks/{id}/result` и артефакты (`/compare`, `/artifacts`).
+7. **Artifacts** — `GET /artifacts?offset=0&limit=50&order=desc` позволяет просматривать историю экспортов и скачивать compare HTML/ZIP.
 
 ## Plugin UX
 
