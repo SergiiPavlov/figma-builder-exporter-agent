@@ -279,6 +279,26 @@
       .runner-panel__status {
         font-weight: 600;
       }
+      .runner-panel__meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 6px;
+        font-size: 11px;
+        color: #475569;
+        margin-bottom: 6px;
+      }
+      .runner-panel__meta[data-visible='false'] {
+        display: none;
+      }
+      .runner-panel__meta div {
+        display: flex;
+        gap: 4px;
+        align-items: baseline;
+      }
+      .runner-panel__meta-label {
+        color: #1e293b;
+        font-weight: 600;
+      }
       #runner-panel[data-state='idle'] .runner-panel__status {
         color: #475569;
       }
@@ -322,6 +342,37 @@
       }
       .runner-panel__hint[data-visible='true'] {
         display: block;
+      }
+      .runner-panel__report {
+        display: none;
+        font-size: 11px;
+        color: #1e293b;
+        margin-bottom: 6px;
+      }
+      .runner-panel__report[data-visible='true'] {
+        display: block;
+      }
+      .runner-panel__summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 4px;
+      }
+      .runner-panel__summary span {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 4px;
+      }
+      .runner-panel__warnings {
+        font-size: 11px;
+        color: #b45309;
+      }
+      .runner-panel__warnings[data-visible='false'] {
+        display: none;
+      }
+      .runner-panel__warnings ul {
+        margin: 0;
+        padding-left: 16px;
       }
       .runner-panel__share {
         display: none;
@@ -1384,7 +1435,16 @@
       <div class="runner-settings">
         <label class="mode-toggle">
           <input type="checkbox" id="runner-toggle" />
-          <span>Runner (auto)</span>
+          <span>Enable Runner</span>
+        </label>
+        <label>
+          Relay Base URL
+          <input
+            type="text"
+            id="runner-host"
+            placeholder="http://localhost:3000"
+            autocomplete="off"
+          />
         </label>
         <label>
           Plugin ID
@@ -1395,12 +1455,23 @@
             autocomplete="off"
           />
         </label>
+        <label>
+          Pull interval (sec)
+          <input
+            type="number"
+            id="runner-poll-interval"
+            min="1"
+            step="1"
+            placeholder="5"
+            autocomplete="off"
+          />
+        </label>
         <label class="runner-settings__checkbox">
           <input type="checkbox" id="runner-auto-share" />
           <span>Auto-share on success</span>
         </label>
         <small class="runner-settings__hint">
-          Runner polls <code>/tasks/pull</code>, performs Build → Export, uploads result and preview automatically.
+          Runner polls <code>/tasks/pull</code>, performs Build → Export, uploads results (ExportSpec, logs, preview) automatically. Settings persist in plugin storage.
         </small>
       </div>
       <div id="runner-panel" class="runner-panel" data-state="idle">
@@ -1417,6 +1488,37 @@
           data-visible="false"
           aria-live="polite"
         ></div>
+        <div id="runner-meta" class="runner-panel__meta" data-visible="false">
+          <div>
+            <span class="runner-panel__meta-label">Started</span>
+            <span id="runner-started-at">—</span>
+          </div>
+          <div>
+            <span class="runner-panel__meta-label">Finished</span>
+            <span id="runner-finished-at">—</span>
+          </div>
+          <div>
+            <span class="runner-panel__meta-label">Duration</span>
+            <span id="runner-duration">—</span>
+          </div>
+        </div>
+        <div id="runner-report" class="runner-panel__report" data-visible="false">
+          <div class="runner-panel__summary">
+            <span>
+              <span class="runner-panel__meta-label">Created</span>
+              <span id="runner-summary-created">0</span>
+            </span>
+            <span>
+              <span class="runner-panel__meta-label">Updated</span>
+              <span id="runner-summary-updated">0</span>
+            </span>
+            <span>
+              <span class="runner-panel__meta-label">Removed</span>
+              <span id="runner-summary-removed">0</span>
+            </span>
+          </div>
+          <div id="runner-warnings" class="runner-panel__warnings" data-visible="false"></div>
+        </div>
         <div id="runner-share" class="runner-panel__share" data-visible="false">
           <span>Share token:</span>
           <code id="runner-share-token">—</code>
@@ -2002,18 +2104,28 @@
         try {
           const raw = window.__storage.getItem(RUNNER_SETTINGS_STORAGE_KEY);
           const obj = raw ? JSON.parse(raw) : {};
-          return typeof obj.host === "string" && obj.host
-            ? obj.host
-            : DEFAULT_RELAY_URL;
+          if (typeof obj.host === "string") {
+            const normalized = obj.host.trim().replace(/\/+$/, "");
+            if (normalized) {
+              return normalized;
+            }
+          }
+          return DEFAULT_RELAY_URL;
         } catch (_) {
           return DEFAULT_RELAY_URL;
         }
       }
-      const RELAY_URL = loadRunnerHost();
+      let relayBaseUrl = loadRunnerHost();
       const API_KEY_STORAGE_KEY = "relay:api-key";
-      const RUNNER_POLL_INTERVAL_MS = 5000;
+      const RUNNER_DEFAULT_INTERVAL_SEC = 5;
+      const RUNNER_BACKOFF_SEQUENCE_MS = [1000, 5000, 15000];
       const RUNNER_LOG_LIMIT = 120;
+      const RUNNER_RESULT_LOG_LIMIT = 200;
       let RELAY_API_KEY = "";
+      const getRelayBaseUrl = () => {
+        const candidate = typeof relayBaseUrl === "string" ? relayBaseUrl.trim() : "";
+        return candidate || DEFAULT_RELAY_URL;
+      };
       let lastTaskId = null;
       let statusSource = null;
       let currentWatchTaskId = null;
@@ -2034,11 +2146,21 @@
         progressLabel: "",
         shareInfo: null,
         lastError: null,
-        host: RELAY_URL,
+        host: relayBaseUrl,
+        pollIntervalSec: RUNNER_DEFAULT_INTERVAL_SEC,
+        backoffStep: 0,
+        summary: null,
+        warnings: [],
+        hintMessage: null,
+        timings: { startedAt: null, finishedAt: null, durationMs: null },
       };
 
       const RUNNER_NETWORK_HINT =
         "Relay is not reachable. Start it: npm run dev:relay (root) or cd relay && npm run dev";
+      const RUNNER_AUTH_HINT =
+        "Unauthorized (401). Check Relay Base URL and API key in Runner settings.";
+      const RUNNER_PAYLOAD_HINT =
+        "Result rejected (413). Reduce ExportSpec size or simplify the task.";
 
       const isNetworkConnectivityError = (message) => {
         if (!message) return false;
@@ -2175,15 +2297,16 @@
       let validateInProgress = false;
 
       const buildRelayUrl = (path, { includeApiKey = false } = {}) => {
+        const baseUrl = getRelayBaseUrl();
         try {
-          const url = new URL(path, RELAY_URL);
+          const url = new URL(path, baseUrl);
           if (includeApiKey && RELAY_API_KEY) {
             url.searchParams.set("apiKey", RELAY_API_KEY);
           }
           return url.toString();
         } catch (err) {
           console.warn("Failed to build relay URL", err);
-          return `${RELAY_URL}${path}`;
+          return `${baseUrl}${path}`;
         }
       };
 
@@ -2235,6 +2358,7 @@
 
       const runnerElements = {
         toggle: document.getElementById("runner-toggle"),
+        hostInput: document.getElementById("runner-host"),
         pluginIdInput: document.getElementById("runner-plugin-id"),
         autoShare: document.getElementById("runner-auto-share"),
         panel: document.getElementById("runner-panel"),
@@ -2243,10 +2367,20 @@
         task: document.getElementById("runner-task-id"),
         progress: document.getElementById("runner-progress"),
         log: document.getElementById("runner-log"),
+        meta: document.getElementById("runner-meta"),
+        startedAt: document.getElementById("runner-started-at"),
+        finishedAt: document.getElementById("runner-finished-at"),
+        duration: document.getElementById("runner-duration"),
+        report: document.getElementById("runner-report"),
+        summaryCreated: document.getElementById("runner-summary-created"),
+        summaryUpdated: document.getElementById("runner-summary-updated"),
+        summaryRemoved: document.getElementById("runner-summary-removed"),
+        warnings: document.getElementById("runner-warnings"),
         shareContainer: document.getElementById("runner-share"),
         shareToken: document.getElementById("runner-share-token"),
         shareCopy: document.getElementById("runner-copy-share"),
         shareLink: document.getElementById("runner-share-link"),
+        intervalInput: document.getElementById("runner-poll-interval"),
       };
 
       const artifactDetailsElements = {
@@ -2370,15 +2504,70 @@
           }
         }
         if (runnerElements.hint) {
-          const showHint = isNetworkConnectivityError(runnerState.lastError);
-          runnerElements.hint.textContent = showHint ? RUNNER_NETWORK_HINT : "";
-          runnerElements.hint.dataset.visible = showHint ? "true" : "false";
+          let hint = "";
+          if (runnerState.hintMessage) {
+            hint = runnerState.hintMessage;
+          } else if (isNetworkConnectivityError(runnerState.lastError)) {
+            hint = RUNNER_NETWORK_HINT;
+          }
+          runnerElements.hint.textContent = hint;
+          runnerElements.hint.dataset.visible = hint ? "true" : "false";
         }
         if (runnerElements.task) {
           runnerElements.task.textContent = runnerState.currentTaskId || "—";
         }
         if (runnerElements.progress) {
           runnerElements.progress.textContent = runnerState.progressLabel || "";
+        }
+        if (runnerElements.meta) {
+          const timings = runnerState.timings || {};
+          const started = Number.isFinite(timings.startedAt) ? timings.startedAt : null;
+          const finished = Number.isFinite(timings.finishedAt) ? timings.finishedAt : null;
+          const duration = Number.isFinite(timings.durationMs)
+            ? timings.durationMs
+            : started != null && finished != null
+              ? Math.max(0, finished - started)
+              : null;
+          const hasTiming = started != null || finished != null || duration != null;
+          runnerElements.meta.dataset.visible = hasTiming ? "true" : "false";
+          if (runnerElements.startedAt) {
+            runnerElements.startedAt.textContent = started != null ? formatDateTime(started) : "—";
+          }
+          if (runnerElements.finishedAt) {
+            runnerElements.finishedAt.textContent = finished != null ? formatDateTime(finished) : "—";
+          }
+          if (runnerElements.duration) {
+            runnerElements.duration.textContent = duration != null ? formatDuration(duration) : "—";
+          }
+        }
+        if (runnerElements.report) {
+          const summary = runnerState.summary || null;
+          const warnings = Array.isArray(runnerState.warnings) ? runnerState.warnings : [];
+          const hasSummary =
+            summary &&
+            (Number.isFinite(summary.created) ||
+              Number.isFinite(summary.updated) ||
+              Number.isFinite(summary.removed));
+          const visible = hasSummary || warnings.length > 0;
+          runnerElements.report.dataset.visible = visible ? "true" : "false";
+          if (runnerElements.summaryCreated) {
+            runnerElements.summaryCreated.textContent = hasSummary
+              ? String(Number(summary.created) || 0)
+              : "0";
+          }
+          if (runnerElements.summaryUpdated) {
+            runnerElements.summaryUpdated.textContent = hasSummary
+              ? String(Number(summary.updated) || 0)
+              : "0";
+          }
+          if (runnerElements.summaryRemoved) {
+            runnerElements.summaryRemoved.textContent = hasSummary
+              ? String(Number(summary.removed) || 0)
+              : "0";
+          }
+          if (runnerElements.warnings) {
+            renderWarnings(runnerElements.warnings, warnings);
+          }
         }
         if (runnerElements.shareContainer) {
           const share = runnerState.shareInfo;
@@ -2398,6 +2587,7 @@
             }
           }
         }
+        updateActionButtons();
       };
 
       const appendRunnerLog = (message) => {
@@ -2415,6 +2605,7 @@
         }
         if (isNetworkConnectivityError(normalized)) {
           runnerState.lastError = normalized;
+          runnerState.hintMessage = RUNNER_NETWORK_HINT;
           renderRunnerState();
         }
         renderRunnerLogs();
@@ -2448,17 +2639,22 @@
           autoShare: false,
           enabled: false,
           host: DEFAULT_RELAY_URL,
+          pollIntervalSec: RUNNER_DEFAULT_INTERVAL_SEC,
         },
       });
 
       const persistRunnerSettings = () => {
+        const normalizedHost = getRelayBaseUrl();
+        const intervalSeconds = Number(runnerState.pollIntervalSec);
+        const safeInterval = Number.isFinite(intervalSeconds) && intervalSeconds >= 1
+          ? Math.floor(intervalSeconds)
+          : RUNNER_DEFAULT_INTERVAL_SEC;
         runnerPreferences.write({
           pluginId: runnerState.pluginId,
           autoShare: !!runnerState.autoShare,
           enabled: !!runnerState.enabled,
-          host: typeof runnerState.host === "string" && runnerState.host
-            ? runnerState.host
-            : DEFAULT_RELAY_URL,
+          host: normalizedHost,
+          pollIntervalSec: safeInterval,
         });
       };
 
@@ -2471,22 +2667,45 @@
         }
       };
 
-      const scheduleRunnerPoll = (delay = RUNNER_POLL_INTERVAL_MS) => {
+      const getRunnerPollIntervalMs = () => {
+        const seconds = Number(runnerState.pollIntervalSec);
+        if (!Number.isFinite(seconds) || seconds < 1) {
+          return RUNNER_DEFAULT_INTERVAL_SEC * 1000;
+        }
+        return Math.floor(seconds) * 1000;
+      };
+
+      const scheduleRunnerPoll = (delay = null, options = {}) => {
         if (!runnerState.enabled) return;
+        const { useBackoff = false } = options;
         clearRunnerTimer();
+        let nextDelay;
+        if (useBackoff) {
+          const nextStep = Math.min(runnerState.backoffStep + 1, RUNNER_BACKOFF_SEQUENCE_MS.length - 1);
+          runnerState.backoffStep = nextStep;
+          nextDelay = RUNNER_BACKOFF_SEQUENCE_MS[nextStep];
+        } else {
+          runnerState.backoffStep = 0;
+          if (typeof delay === "number" && delay >= 0) {
+            nextDelay = delay;
+          } else {
+            nextDelay = getRunnerPollIntervalMs();
+          }
+        }
         runnerState.pollTimer = setTimeout(() => {
           runnerState.pollTimer = null;
           runRunnerPoll().catch((err) => {
             const message = err && err.message ? err.message : String(err);
             runnerState.lastError = message;
+            runnerState.hintMessage = null;
             renderRunnerState();
             appendRunnerLog(`Poll error: ${message}`);
             setRunnerStatus("error", "poll failed");
             if (runnerState.enabled && !runnerState.processing) {
-              scheduleRunnerPoll(RUNNER_POLL_INTERVAL_MS * 2);
+              scheduleRunnerPoll(null, { useBackoff: true });
             }
           });
-        }, Math.max(0, delay));
+        }, Math.max(0, nextDelay));
       };
 
       const ensureRunnerSpecString = (taskSpec) => {
@@ -2499,6 +2718,78 @@
         } catch (err) {
           console.warn("Failed to stringify taskSpec", err);
           return null;
+        }
+      };
+
+      const buildRunnerResultLogs = (buildLogs, exportLogs) => {
+        const normalized = [];
+        const append = (entries, prefix) => {
+          if (!Array.isArray(entries)) return;
+          entries.forEach((entry) => {
+            if (entry == null) return;
+            let message = "";
+            if (typeof entry === "string") {
+              message = entry;
+            } else {
+              try {
+                message = JSON.stringify(entry);
+              } catch (_) {
+                message = String(entry);
+              }
+            }
+            const trimmed = message.trim();
+            if (!trimmed) return;
+            normalized.push(prefix ? `[${prefix}] ${trimmed}` : trimmed);
+          });
+        };
+        append(buildLogs, "build");
+        append(exportLogs, "export");
+        if (normalized.length > RUNNER_RESULT_LOG_LIMIT) {
+          return normalized.slice(-RUNNER_RESULT_LOG_LIMIT);
+        }
+        return normalized;
+      };
+
+      const refreshRunnerTaskInfo = async (taskId) => {
+        if (!taskId) return;
+        try {
+          const res = await relayFetch(buildRelayUrl(`/tasks/${taskId}`));
+          if (!res.ok) return;
+          const data = await res.json();
+          if (!data) return;
+          if (Number.isFinite(data.startedAt)) {
+            runnerState.timings.startedAt = data.startedAt;
+          }
+          if (Number.isFinite(data.finishedAt)) {
+            runnerState.timings.finishedAt = data.finishedAt;
+            if (Number.isFinite(runnerState.timings.startedAt)) {
+              runnerState.timings.durationMs = Math.max(0, data.finishedAt - runnerState.timings.startedAt);
+            }
+          }
+          const summarySource =
+            data.result && typeof data.result === "object" && data.result.summary && typeof data.result.summary === "object"
+              ? data.result.summary
+              : data.summary && typeof data.summary === "object"
+                ? data.summary
+                : null;
+          if (summarySource) {
+            runnerState.summary = {
+              created: Number(summarySource.created) || 0,
+              updated: Number(summarySource.updated) || 0,
+              removed: Number(summarySource.removed) || 0,
+            };
+          }
+          if (
+            data.result &&
+            typeof data.result === "object" &&
+            Array.isArray(data.result.warnings)
+          ) {
+            runnerState.warnings = data.result.warnings;
+          }
+        } catch (err) {
+          console.warn("Runner task info refresh failed", err);
+        } finally {
+          renderRunnerState();
         }
       };
 
@@ -2563,8 +2854,18 @@
         runnerState.processing = false;
         runnerState.waitingFor = null;
         runnerState.lastError = null;
+        runnerState.hintMessage = null;
+        const finishedAt = Date.now();
+        if (!Number.isFinite(runnerState.timings.startedAt)) {
+          runnerState.timings.startedAt = finishedAt;
+        }
+        runnerState.timings.finishedAt = finishedAt;
+        if (Number.isFinite(runnerState.timings.startedAt)) {
+          runnerState.timings.durationMs = Math.max(0, finishedAt - runnerState.timings.startedAt);
+        }
         setRunnerStatus("success", "done");
         renderRunnerState();
+        await refreshRunnerTaskInfo(taskId);
         if (runnerState.enabled) {
           scheduleRunnerPoll(1500);
         }
@@ -2578,10 +2879,19 @@
         runnerState.processing = false;
         runnerState.waitingFor = null;
         runnerState.lastError = reason || "Runner error";
+        const finishedAt = Date.now();
+        if (!Number.isFinite(runnerState.timings.startedAt)) {
+          runnerState.timings.startedAt = finishedAt;
+        }
+        runnerState.timings.finishedAt = finishedAt;
+        if (Number.isFinite(runnerState.timings.startedAt)) {
+          runnerState.timings.durationMs = Math.max(0, finishedAt - runnerState.timings.startedAt);
+        }
         setRunnerStatus("error", runnerState.lastError);
         renderRunnerState();
+        await refreshRunnerTaskInfo(taskId);
         if (runnerState.enabled) {
-          scheduleRunnerPoll(RUNNER_POLL_INTERVAL_MS * 2);
+          scheduleRunnerPoll(null, { useBackoff: true });
         }
       };
 
@@ -2592,6 +2902,10 @@
         runnerState.waitingFor = "build";
         runnerState.shareInfo = null;
         runnerState.lastError = null;
+        runnerState.hintMessage = null;
+        runnerState.summary = null;
+        runnerState.warnings = [];
+        runnerState.timings = { startedAt: Date.now(), finishedAt: null, durationMs: null };
         clearRunnerLogs();
         appendRunnerLog(`Pulled task ${taskId}`);
         if (!runnerState.currentSpecString) {
@@ -2630,9 +2944,11 @@
         try {
           const url = new URL(buildRelayUrl(`/tasks/pull`));
           url.searchParams.set("pluginId", pluginId);
+          url.searchParams.set("limit", "1");
           const res = await relayFetch(url.toString());
           if (res.status === 204) {
             runnerState.lastError = null;
+            runnerState.hintMessage = null;
             setRunnerStatus("polling", "no tasks");
             return;
           }
@@ -2642,15 +2958,29 @@
               `Pull failed (HTTP ${res.status}${text ? `: ${text.trim()}` : ""})`,
             );
             runnerState.lastError = `HTTP ${res.status}`;
+            if (res.status === 401) {
+              runnerState.hintMessage = RUNNER_AUTH_HINT;
+            } else {
+              runnerState.hintMessage = null;
+            }
             renderRunnerState();
             setRunnerStatus("error", "pull failed");
             return;
           }
           const data = await res.json();
           runnerState.lastError = null;
+          runnerState.hintMessage = null;
           renderRunnerState();
-          const taskId = data && (data.taskId || data.id);
-          const taskSpec = data ? data.taskSpec ?? data.spec ?? null : null;
+          const items = data && Array.isArray(data.items) ? data.items : [];
+          const firstItem = items.length > 0 ? items[0] : data;
+          const taskId = firstItem && (firstItem.taskId || firstItem.id);
+          const taskSpec = firstItem ? firstItem.taskSpec ?? firstItem.spec ?? null : null;
+          const pulledCount = Number.isFinite(data && data.pulled) ? data.pulled : null;
+          const remainingCount = Number.isFinite(data && data.remaining) ? data.remaining : null;
+          if (pulledCount != null) {
+            const remainingLabel = remainingCount != null ? `, remaining ${remainingCount}` : "";
+            appendRunnerLog(`Pull stats: pulled ${pulledCount}${remainingLabel}`);
+          }
           if (!taskId || taskSpec == null) {
             setRunnerStatus("polling", "no tasks");
             return;
@@ -2659,12 +2989,13 @@
         } catch (err) {
           const message = err && err.message ? err.message : String(err);
           runnerState.lastError = message;
+          runnerState.hintMessage = null;
           renderRunnerState();
           appendRunnerLog(`Pull error: ${message}`);
           setRunnerStatus("error", "pull failed");
         } finally {
           if (runnerState.enabled && !runnerState.processing) {
-            scheduleRunnerPoll(RUNNER_POLL_INTERVAL_MS);
+            scheduleRunnerPoll();
           }
         }
       }
@@ -2684,6 +3015,7 @@
           }
           runnerState.enabled = true;
           runnerState.lastError = null;
+          runnerState.hintMessage = null;
           persistRunnerSettings();
           appendRunnerLog("Runner enabled");
           if (!runnerState.processing) {
@@ -2694,6 +3026,7 @@
           runnerState.enabled = false;
           persistRunnerSettings();
           clearRunnerTimer();
+          runnerState.hintMessage = null;
           if (!runnerState.processing) {
             setRunnerStatus("idle", "");
           } else {
@@ -2741,6 +3074,58 @@
         }
       };
 
+      const applyRunnerHostChange = (value) => {
+        const inputValue = typeof value === "string" ? value.trim() : "";
+        const sanitized = inputValue.replace(/\/+$/, "");
+        const nextHost = sanitized || DEFAULT_RELAY_URL;
+        if (runnerState.host === nextHost && relayBaseUrl === nextHost) {
+          if (runnerElements.hostInput && runnerElements.hostInput.value !== nextHost) {
+            runnerElements.hostInput.value = nextHost;
+          }
+          return;
+        }
+        relayBaseUrl = nextHost;
+        runnerState.host = nextHost;
+        runnerState.lastError = null;
+        runnerState.hintMessage = null;
+        persistRunnerSettings();
+        if (runnerElements.hostInput && runnerElements.hostInput.value !== nextHost) {
+          runnerElements.hostInput.value = nextHost;
+        }
+        updateArtifactLinks();
+        renderArtifactDetails();
+        renderArtifactCompare();
+        if (statusSource) {
+          closeStatusSource();
+          if (currentWatchTaskId) {
+            openTaskWatch(currentWatchTaskId);
+          }
+        }
+        if (runnerState.enabled && !runnerState.processing) {
+          scheduleRunnerPoll(0);
+        }
+        renderRunnerState();
+      };
+
+      const applyRunnerIntervalChange = (value) => {
+        const num = Number(value);
+        const next = Number.isFinite(num) && num >= 1 ? Math.floor(num) : RUNNER_DEFAULT_INTERVAL_SEC;
+        if (runnerState.pollIntervalSec === next) {
+          if (runnerElements.intervalInput && runnerElements.intervalInput.value !== String(next)) {
+            runnerElements.intervalInput.value = String(next);
+          }
+          return;
+        }
+        runnerState.pollIntervalSec = next;
+        if (runnerElements.intervalInput && runnerElements.intervalInput.value !== String(next)) {
+          runnerElements.intervalInput.value = String(next);
+        }
+        persistRunnerSettings();
+        if (runnerState.enabled && !runnerState.processing) {
+          scheduleRunnerPoll();
+        }
+      };
+
       const storedKey = loadStoredApiKey();
       if (storedKey) {
         RELAY_API_KEY = storedKey;
@@ -2766,20 +3151,35 @@
           autoShare: false,
           enabled: false,
           host: DEFAULT_RELAY_URL,
+          pollIntervalSec: RUNNER_DEFAULT_INTERVAL_SEC,
         }) || {};
       if (typeof storedRunnerSettings.pluginId === "string") {
         runnerState.pluginId = storedRunnerSettings.pluginId;
       }
       runnerState.autoShare = !!storedRunnerSettings.autoShare;
       if (typeof storedRunnerSettings.host === "string") {
-        const normalizedHost = storedRunnerSettings.host.trim();
+        const normalizedHost = storedRunnerSettings.host.trim().replace(/\/+$/, "");
         if (normalizedHost) {
           runnerState.host = normalizedHost;
         }
       }
+      if (Number.isFinite(storedRunnerSettings.pollIntervalSec)) {
+        const sanitized = Math.max(1, Math.floor(storedRunnerSettings.pollIntervalSec));
+        runnerState.pollIntervalSec = sanitized;
+      }
+      relayBaseUrl = runnerState.host || DEFAULT_RELAY_URL;
+      runnerState.host = relayBaseUrl;
       const runnerAutoEnable = !!storedRunnerSettings.enabled;
       renderRunnerLogs();
       renderRunnerState();
+      if (runnerElements.hostInput) {
+        runnerElements.hostInput.value = runnerState.host;
+        const handleHostChange = (event) => {
+          applyRunnerHostChange(event.target.value || "");
+        };
+        runnerElements.hostInput.addEventListener("change", handleHostChange);
+        runnerElements.hostInput.addEventListener("blur", handleHostChange);
+      }
       if (runnerElements.pluginIdInput) {
         runnerElements.pluginIdInput.value = runnerState.pluginId;
         runnerElements.pluginIdInput.addEventListener("input", (event) => {
@@ -2792,6 +3192,15 @@
         runnerElements.autoShare.addEventListener("change", (event) => {
           runnerState.autoShare = !!event.target.checked;
           persistRunnerSettings();
+        });
+      }
+      if (runnerElements.intervalInput) {
+        runnerElements.intervalInput.value = String(runnerState.pollIntervalSec);
+        runnerElements.intervalInput.addEventListener("change", (event) => {
+          applyRunnerIntervalChange(event.target.value || "");
+        });
+        runnerElements.intervalInput.addEventListener("blur", (event) => {
+          applyRunnerIntervalChange(event.target.value || "");
         });
       }
       if (runnerElements.shareCopy) {
@@ -2932,6 +3341,24 @@
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return "—";
         return date.toLocaleString();
+      };
+
+      const formatDuration = (ms) => {
+        const value = Number(ms);
+        if (!Number.isFinite(value) || value < 0) return "—";
+        if (value < 1000) {
+          return `${value} ms`;
+        }
+        const seconds = Math.floor(value / 1000);
+        const mins = Math.floor(seconds / 60);
+        const hrs = Math.floor(mins / 60);
+        const remainingSeconds = seconds % 60;
+        const remainingMins = mins % 60;
+        const parts = [];
+        if (hrs > 0) parts.push(`${hrs}h`);
+        if (hrs > 0 || remainingMins > 0) parts.push(`${remainingMins}m`);
+        parts.push(`${remainingSeconds}s`);
+        return parts.join(" ");
       };
 
       const formatShareSummary = (type) => {
@@ -5524,12 +5951,16 @@
         }
       };
 
+      const isRunnerActive = () => runnerState.enabled || runnerState.processing;
+
       const canBuild = () =>
+        !isRunnerActive() &&
         flowState.validate.state === "valid" &&
         flowState.validate.lastSpecString === getCurrentSpecString() &&
         flowState.build.state !== "running";
 
       const canExport = () =>
+        !isRunnerActive() &&
         flowState.build.state === "done" &&
         flowState.build.lastSpecString === getCurrentSpecString() &&
         flowState.export.state !== "running";
@@ -5694,8 +6125,9 @@
       };
 
       const tryRemoteTaskSpecValidation = async (spec, guardToken) => {
-        const relayHost = typeof RELAY_URL === "string" ? RELAY_URL.trim() : "";
-        if (!relayHost || relayHost === "disabled") {
+        const relayHost = getRelayBaseUrl();
+        const normalizedHost = typeof relayHost === "string" ? relayHost.trim() : "";
+        if (!normalizedHost || normalizedHost === "disabled") {
           return { attempted: false };
         }
         const init = {
@@ -6445,6 +6877,12 @@
             });
           }
 
+          if (runnerState.processing) {
+            runnerState.summary = summary;
+            runnerState.warnings = warnings;
+            renderRunnerState();
+          }
+
           if (runnerState.processing && runnerState.waitingFor === "build") {
             appendRunnerLog(
               `Build OK${Number.isFinite(msg.sections) ? ` (sections=${msg.sections})` : ""}`,
@@ -6558,111 +6996,140 @@
 
           let runnerPostErrorMessage = null;
           if (lastTaskId) {
+            let resultPosted = false;
             try {
-              await relayFetch(buildRelayUrl(`/tasks/${lastTaskId}/result`), {
+              const resultPayload = {
+                taskId: lastTaskId,
+                exportSpec,
+                logs: buildRunnerResultLogs(flowState.build.logs, exportLogs),
+              };
+              if (runnerState.summary) {
+                resultPayload.summary = {
+                  created: Number(runnerState.summary.created) || 0,
+                  updated: Number(runnerState.summary.updated) || 0,
+                  removed: Number(runnerState.summary.removed) || 0,
+                };
+              }
+              if (Array.isArray(runnerState.warnings) && runnerState.warnings.length) {
+                resultPayload.warnings = runnerState.warnings;
+              }
+              const resultResponse = await relayFetch(buildRelayUrl(`/results`), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ result: exportSpec }),
+                body: JSON.stringify(resultPayload),
               });
-              rlog(`Result posted for task ${lastTaskId}`);
-              if (runnerState.processing && runnerState.waitingFor === "export") {
-                appendRunnerLog("Result posted");
-              }
-              updateArtifactLinks();
-              try {
-                await relayFetch(buildRelayUrl(`/tasks/${lastTaskId}/log`), {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    message: "Plugin: result posted (export:ok)",
-                  }),
-                });
-              } catch (logErr) {
-                rlog(
-                  "Log append error: " +
-                    (logErr && logErr.message ? logErr.message : logErr)
-                );
-                runnerPostErrorMessage =
-                  runnerPostErrorMessage ||
-                  (logErr && logErr.message ? logErr.message : String(logErr));
-              }
-              if (
-                previewPayload &&
-                typeof previewPayload.base64 === "string" &&
-                previewPayload.base64 &&
-                previewPayload.contentType === "image/png"
-              ) {
+              if (!resultResponse.ok) {
+                let message = `HTTP ${resultResponse.status}`;
                 try {
-                  const response = await relayFetch(
-                    buildRelayUrl(`/tasks/${lastTaskId}/preview`),
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        contentType: "image/png",
-                        base64: previewPayload.base64,
-                      }),
-                    },
-                  );
-                  if (response.ok) {
-                    rlog(
-                      `Preview uploaded for task ${lastTaskId}` +
-                        (previewPayload.size ? ` (${previewPayload.size} bytes)` : ""),
-                    );
-                    if (runnerState.processing && runnerState.waitingFor === "export") {
-                      appendRunnerLog("Preview uploaded");
+                  const payload = await resultResponse.json();
+                  message = parseServerError(payload, message);
+                } catch (_) {
+                  try {
+                    const text = await resultResponse.text();
+                    if (text && text.trim()) {
+                      message = text.trim();
                     }
-                    if (artifactsState.initialized) {
-                      fetchArtifacts();
-                    }
-                    if (artifactDetailsState.open && artifactDetailsState.taskId === lastTaskId) {
-                      artifactDetailsState.hasPreview = true;
-                      artifactDetailsState.previewUrl = `/tasks/${lastTaskId}/preview.png`;
-                      artifactDetailsState.previewUpdatedAt = Date.now();
-                      renderArtifactDetails();
-                    }
-                  } else {
-                    let message = `HTTP ${response.status}`;
-                    try {
-                      const payload = await response.json();
-                      if (payload && typeof payload.error === "string" && payload.error.trim()) {
-                        message = payload.error.trim();
-                      }
-                    } catch (err) {
-                      try {
-                        const text = await response.text();
-                        if (text && text.trim()) {
-                          message = text.trim();
-                        }
-                      } catch (_) {}
-                    }
-                    rlog(`Preview upload failed: ${message}`);
-                    runnerPostErrorMessage = runnerPostErrorMessage || message;
-                  }
-                } catch (previewErr) {
-                  rlog(
-                    "Preview upload error: " +
-                      (previewErr && previewErr.message ? previewErr.message : previewErr)
-                  );
-                  runnerPostErrorMessage =
-                    runnerPostErrorMessage ||
-                    (previewErr && previewErr.message
-                      ? previewErr.message
-                      : String(previewErr));
+                  } catch (_) {}
                 }
-              } else if (previewError) {
-                rlog(`Preview unavailable: ${previewError}`);
+                if (resultResponse.status === 401) {
+                  runnerState.hintMessage = RUNNER_AUTH_HINT;
+                } else if (resultResponse.status === 413) {
+                  runnerState.hintMessage = RUNNER_PAYLOAD_HINT;
+                }
+                rlog(`Result post failed: ${message}`);
+                runnerPostErrorMessage = runnerPostErrorMessage || message;
+              } else {
+                resultPosted = true;
+                runnerState.hintMessage = null;
+                rlog(`Result posted for task ${lastTaskId}`);
                 if (runnerState.processing && runnerState.waitingFor === "export") {
-                  appendRunnerLog(`Preview unavailable: ${previewError}`);
+                  appendRunnerLog("Result posted");
+                }
+                updateArtifactLinks();
+                const logOk = await runnerPostLog(
+                  lastTaskId,
+                  "Plugin: result posted (export:ok)",
+                );
+                if (!logOk) {
+                  runnerPostErrorMessage = runnerPostErrorMessage || "Task log append failed";
                 }
               }
             } catch (err) {
               rlog(
-                "Post result error: " +
+                "Result post error: " +
                   (err && err.message ? err.message : err)
               );
               runnerPostErrorMessage =
                 runnerPostErrorMessage || (err && err.message ? err.message : String(err));
+            }
+
+            if (
+              resultPosted &&
+              previewPayload &&
+              typeof previewPayload.base64 === "string" &&
+              previewPayload.base64 &&
+              previewPayload.contentType === "image/png"
+            ) {
+              try {
+                const response = await relayFetch(buildRelayUrl(`/tasks/${lastTaskId}/preview`), {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    contentType: "image/png",
+                    base64: previewPayload.base64,
+                  }),
+                });
+                if (response.ok) {
+                  rlog(
+                    `Preview uploaded for task ${lastTaskId}` +
+                      (previewPayload.size ? ` (${previewPayload.size} bytes)` : ""),
+                  );
+                  if (runnerState.processing && runnerState.waitingFor === "export") {
+                    appendRunnerLog("Preview uploaded");
+                  }
+                  if (artifactsState.initialized) {
+                    fetchArtifacts();
+                  }
+                  if (artifactDetailsState.open && artifactDetailsState.taskId === lastTaskId) {
+                    artifactDetailsState.hasPreview = true;
+                    artifactDetailsState.previewUrl = `/tasks/${lastTaskId}/preview.png`;
+                    artifactDetailsState.previewUpdatedAt = Date.now();
+                    renderArtifactDetails();
+                  }
+                } else {
+                  let message = `HTTP ${response.status}`;
+                  try {
+                    const payload = await response.json();
+                    if (payload && typeof payload.error === "string" && payload.error.trim()) {
+                      message = payload.error.trim();
+                    }
+                  } catch (err) {
+                    try {
+                      const text = await response.text();
+                      if (text && text.trim()) {
+                        message = text.trim();
+                      }
+                    } catch (_) {}
+                  }
+                  rlog(`Preview upload failed: ${message}`);
+                  runnerPostErrorMessage = runnerPostErrorMessage || message;
+                }
+              } catch (previewErr) {
+                rlog(
+                  "Preview upload error: " +
+                    (previewErr && previewErr.message ? previewErr.message : previewErr)
+                );
+                runnerPostErrorMessage =
+                  runnerPostErrorMessage ||
+                  (previewErr && previewErr.message
+                    ? previewErr.message
+                    : String(previewErr));
+              }
+            } else if (previewError) {
+              rlog(`Preview unavailable: ${previewError}`);
+              if (runnerState.processing && runnerState.waitingFor === "export") {
+                appendRunnerLog(`Preview unavailable: ${previewError}`);
+              }
             }
           } else if (runnerState.processing && runnerState.waitingFor === "export") {
             runnerPostErrorMessage = runnerPostErrorMessage || "Task ID missing";
