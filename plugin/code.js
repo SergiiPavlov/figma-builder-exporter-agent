@@ -12,6 +12,124 @@ function isObject(value) {
   return value !== null && _typeof(value) === 'object';
 }
 
+function validateTaskSpecSchema(value) {
+  var errors = [];
+  var addError = function addError(path, message) {
+    errors.push({ path: path, message: message });
+  };
+  var isFiniteNumber = function isFiniteNumber(input) {
+    return typeof input === 'number' && Number.isFinite(input);
+  };
+  if (!isObject(value)) {
+    addError('/', 'TaskSpec must be an object');
+    return { valid: false, errors: errors };
+  }
+
+  var meta = value.meta,
+      target = value.target,
+      grid = value.grid,
+      sections = value.sections,
+      acceptance = value.acceptance;
+
+  if (!isObject(meta)) {
+    addError('/meta', 'meta must be an object');
+  } else {
+    if (typeof meta.specVersion !== 'string') {
+      addError('/meta/specVersion', 'specVersion must be a string');
+    }
+    if (typeof meta.id !== 'string') {
+      addError('/meta/id', 'id must be a string');
+    }
+    if (Object.prototype.hasOwnProperty.call(meta, 'inferred') && typeof meta.inferred !== 'boolean') {
+      addError('/meta/inferred', 'inferred must be a boolean');
+    }
+  }
+
+  if (!isObject(target)) {
+    addError('/target', 'target must be an object');
+  } else {
+    if (typeof target.fileId !== 'string') {
+      addError('/target/fileId', 'fileId must be a string');
+    }
+    if (typeof target.pageName !== 'string') {
+      addError('/target/pageName', 'pageName must be a string');
+    }
+    if (typeof target.frameName !== 'string') {
+      addError('/target/frameName', 'frameName must be a string');
+    }
+    if (!isObject(target.frameSize)) {
+      addError('/target/frameSize', 'frameSize must be an object');
+    } else {
+      var frameSize = target.frameSize;
+      if (!isFiniteNumber(frameSize.w) || frameSize.w < 1) {
+        addError('/target/frameSize/w', 'w must be a number ≥ 1');
+      }
+      if (!isFiniteNumber(frameSize.h) || frameSize.h < 1) {
+        addError('/target/frameSize/h', 'h must be a number ≥ 1');
+      }
+      var allowedFrameSizeKeys = new Set(['w', 'h']);
+      Object.keys(frameSize).forEach(function (key) {
+        if (!allowedFrameSizeKeys.has(key)) {
+          addError('/target/frameSize/'.concat(key), 'Unknown property');
+        }
+      });
+    }
+  }
+
+  if (!isObject(grid)) {
+    addError('/grid', 'grid must be an object');
+  } else {
+    if (!isFiniteNumber(grid.container) || grid.container < 1) {
+      addError('/grid/container', 'container must be a number ≥ 1');
+    }
+    if (!Number.isInteger(grid.columns) || grid.columns < 1) {
+      addError('/grid/columns', 'columns must be an integer ≥ 1');
+    }
+    if (!isFiniteNumber(grid.gap) || grid.gap < 0) {
+      addError('/grid/gap', 'gap must be a number ≥ 0');
+    }
+    if (!isFiniteNumber(grid.margins) || grid.margins < 0) {
+      addError('/grid/margins', 'margins must be a number ≥ 0');
+    }
+  }
+
+  if (!Array.isArray(sections)) {
+    addError('/sections', 'sections must be an array');
+  } else if (sections.length === 0) {
+    addError('/sections', 'sections must contain at least one item');
+  } else {
+    var allowedTypes = new Set(['hero', 'features', 'gallery', 'cta', 'footer', 'custom']);
+    sections.forEach(function (section, index) {
+      var basePath = '/sections/'.concat(index);
+      if (!isObject(section)) {
+        addError(basePath, 'section must be an object');
+        return;
+      }
+      if (typeof section.type !== 'string' || !allowedTypes.has(section.type)) {
+        addError(basePath.concat('/type'), 'type must be one of hero, features, gallery, cta, footer, custom');
+      }
+      if (typeof section.name !== 'string') {
+        addError(basePath.concat('/name'), 'name must be a string');
+      }
+    });
+  }
+
+  if (acceptance != null) {
+    if (!isObject(acceptance)) {
+      addError('/acceptance', 'acceptance must be an object');
+    } else {
+      if (Object.prototype.hasOwnProperty.call(acceptance, 'maxSpacingDeviation') && !isFiniteNumber(acceptance.maxSpacingDeviation)) {
+        addError('/acceptance/maxSpacingDeviation', 'maxSpacingDeviation must be a number');
+      }
+      if (Object.prototype.hasOwnProperty.call(acceptance, 'checkAutoLayout') && typeof acceptance.checkAutoLayout !== 'boolean') {
+        addError('/acceptance/checkAutoLayout', 'checkAutoLayout must be a boolean');
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors: errors };
+}
+
 function roundToInt(value) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null;
   return Math.round(value);
@@ -2049,15 +2167,14 @@ maybeExportPreview() {return _maybeExportPreview.apply(this, arguments);}functio
           null);}}, _callee4, null, [[1, 5, 6, 7], [0, 10]]);}));return _maybeExportPreview.apply(this, arguments);}
 
 
-figma.ui.onmessage = /*#__PURE__*/function () {var _ref = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(msg) {var spec, _spec, _yield$runBuild, page, rootFrame, sections, logs, _spec2, _yield$runExport, exportSpec, _logs, previewResult, previewPayload, previewError, _t;return _regenerator().w(function (_context) {while (1) switch (_context.p = _context.n) {case 0:_context.p = 0;if (!(
+figma.ui.onmessage = /*#__PURE__*/function () {var _ref = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(msg) {var spec, validationResult, _spec, _yield$runBuild, page, rootFrame, sections, logs, _spec2, _yield$runExport, exportSpec, _logs, previewResult, previewPayload, previewError, _t;return _regenerator().w(function (_context) {while (1) switch (_context.p = _context.n) {case 0:_context.p = 0;if (!(
 
           msg.type === 'validate')) {_context.n = 3;break;}
           spec = safeParseJSON(msg.taskSpec);if (
           spec) {_context.n = 1;break;}return _context.a(2,
-          figma.ui.postMessage({ type: 'validate:error', error: 'Invalid JSON' }));case 1:if (!(
-
-          !spec.meta || !spec.target)) {_context.n = 2;break;}return _context.a(2,
-          figma.ui.postMessage({ type: 'validate:error', error: 'Missing meta/target' }));case 2:
+          figma.ui.postMessage({ type: 'validate:error', error: 'Invalid JSON' }));case 1:
+          validationResult = validateTaskSpecSchema(spec);if (!(validationResult.valid)) {_context.n = 2;break;}return _context.a(2,
+          figma.ui.postMessage({ type: 'validate:error', error: 'TaskSpec не проходит проверку схемы', errors: validationResult.errors }));case 2:
 
           figma.ui.postMessage({ type: 'validate:ok' });_context.n = 11;break;case 3:if (!(
           msg.type === 'build')) {_context.n = 6;break;}

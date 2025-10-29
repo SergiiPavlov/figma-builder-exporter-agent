@@ -7544,8 +7544,23 @@
           inflightOperations.validate = false;
           operationContext.validateSpec = null;
           validateInProgress = false;
-          const message = msg.error ? String(msg.error) : "Validate error";
-          setValidateState("error", { message });
+          const rawMessage = msg.error ? String(msg.error) : "Validate error";
+          const normalizedErrors = normalizeSchemaErrors(msg.errors);
+          const message =
+            normalizedErrors.length && (!rawMessage || rawMessage === "Validate error")
+              ? "TaskSpec не проходит проверку схемы"
+              : rawMessage;
+          if (normalizedErrors.length) {
+            setValidateState("invalid", { message, errors: normalizedErrors });
+            log("TaskSpec schema validation failed:");
+            normalizedErrors.forEach((entry) => {
+              const path = entry && entry.path ? entry.path : "/";
+              const text = entry && entry.message ? entry.message : "Invalid value";
+              log(` - ${path}: ${text}`);
+            });
+          } else {
+            setValidateState("error", { message });
+          }
           showToast({ message, type: "error" });
           log(`ERROR: ${message}`);
           updateActionButtons();

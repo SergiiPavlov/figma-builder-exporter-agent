@@ -117,7 +117,7 @@ describe("validateTaskSpecSchema", () => {
     assert.equal(result.valid, false);
     assert.deepEqual(result.errors[0], {
       path: "/sections/0/type",
-      message: "type must be one of hero, features, gallery, cta, footer",
+      message: "type must be one of hero, features, gallery, cta, footer, custom",
     });
   });
 });
