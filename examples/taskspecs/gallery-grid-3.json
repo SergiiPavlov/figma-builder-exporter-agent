@@ -1,0 +1,54 @@
+{
+  "meta": {
+    "specVersion": "0.1",
+    "id": "gallery-grid-3"
+  },
+  "target": {
+    "fileId": "EXAMPLE",
+    "pageName": "Gallery",
+    "frameName": "Gallery Grid",
+    "frameSize": { "w": 1200, "h": 960 }
+  },
+  "grid": {
+    "container": 1024,
+    "columns": 12,
+    "gap": 24,
+    "margins": 32
+  },
+  "sections": [
+    {
+      "type": "gallery",
+      "name": "Portfolio Highlights",
+      "itemSpacing": 24,
+      "grid": { "type": "grid-3", "gap": 32 },
+      "items": [
+        {
+          "title": "Brand Refresh",
+          "caption": "Updated visuals and messaging for a fast-growing startup.",
+          "imageUrl": "https://example.com/gallery/brand-refresh.png"
+        },
+        {
+          "title": "Mobile App UI",
+          "caption": "Design system and UI for a cross-platform mobile product."
+        },
+        {
+          "title": "Campaign Landing Page",
+          "caption": "High-converting marketing page built from the task spec builder.",
+          "imageUrl": "https://example.com/gallery/campaign.png"
+        },
+        {
+          "title": "Analytics Dashboard",
+          "caption": "Compact overview with real-time KPIs and team activities."
+        },
+        {
+          "title": "Customer Testimonials",
+          "caption": "Social proof section with curated client quotes."
+        },
+        {
+          "title": "Product Gallery",
+          "caption": "A mix of imagery and copy for the latest product line."
+        }
+      ]
+    }
+  ]
+}
