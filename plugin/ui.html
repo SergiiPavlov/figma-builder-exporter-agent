@@ -87,6 +87,11 @@
         gap: 8px;
         margin: 8px 0;
       }
+      .row__note {
+        font-size: 10px;
+        color: #b45309;
+        align-self: center;
+      }
       .flow-panels {
         display: grid;
         gap: 8px;
@@ -1587,6 +1592,8 @@
         <button id="btn-validate">Validate</button>
         <button id="btn-build">Build</button>
         <button id="btn-import">Import</button>
+        <button id="btn-propose" aria-disabled="true" disabled>Propose TaskSpec</button>
+        <span class="row__note">черновик — проверьте руками</span>
         <button id="btn-infer">Generate TaskSpec</button>
         <button id="btn-export">Export</button>
         <button id="btn-fetch">Fetch</button>
@@ -6523,12 +6530,19 @@
         !inflightOperations.import &&
         (flowState.import.exportSpec != null || selectionState.isSingleFrame);
 
+      const canProposeTaskSpec = () =>
+        !isRunnerActive() &&
+        !inflightOperations.import &&
+        flowState.import.state === "done" &&
+        flowState.import.exportSpec != null;
+
       const updateActionButtons = () => {
         setButtonDisabled(validateButton, validateInProgress);
         setButtonDisabled(buildButton, !canBuild());
         setButtonDisabled(importButton, !canImport());
         setButtonDisabled(exportButton, !canExport());
         setButtonDisabled(inferButton, !canInferTaskSpec());
+        setButtonDisabled(proposeButton, !canProposeTaskSpec());
       };
 
       function setBuildState(state, options = {}) {
@@ -6818,6 +6832,7 @@
       const validateButton = document.getElementById("btn-validate");
       const buildButton = document.getElementById("btn-build");
       const importButton = document.getElementById("btn-import");
+      const proposeButton = document.getElementById("btn-propose");
       const inferButton = document.getElementById("btn-infer");
       const importSaveButton = document.getElementById("btn-import-save");
       const exportButton = document.getElementById("btn-export");
@@ -7345,6 +7360,18 @@
           requestSelectionImport();
         });
       }
+      if (proposeButton) {
+        proposeButton.addEventListener("click", () => {
+          if (!canProposeTaskSpec()) {
+            showToast({
+              message: "Сначала выполните Import из выделения.",
+              type: "error",
+            });
+            return;
+          }
+          post("propose:taskspec");
+        });
+      }
       if (inferButton) {
         inferButton.addEventListener("click", () => {
           if (isRunnerActive()) {
@@ -7523,6 +7550,31 @@
           }
           showToast({ message, type: "error" });
           log(`Import error: ${message}`);
+          updateActionButtons();
+          return;
+        }
+        if (msg.type === "propose:taskspec:ok") {
+          const draft = msg.taskSpec || null;
+          const warnings = Array.isArray(msg.warnings) ? msg.warnings : [];
+          if (draft) {
+            setTaskSpecTextarea(draft);
+            log("Propose TaskSpec OK");
+            showToast({ message: "Черновик TaskSpec вставлен", type: "success" });
+          }
+          if (warnings.length) {
+            warnings.forEach((entry) => {
+              const text = typeof entry === "string" ? entry : String(entry);
+              log(`Propose warning: ${text}`);
+            });
+            showToast({ message: warnings[0], type: "warning" });
+          }
+          updateActionButtons();
+          return;
+        }
+        if (msg.type === "propose:taskspec:error") {
+          const message = msg.error ? String(msg.error) : "Propose error";
+          showToast({ message, type: "error" });
+          log(`Propose error: ${message}`);
           updateActionButtons();
           return;
         }
