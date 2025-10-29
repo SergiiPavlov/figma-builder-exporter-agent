@@ -2433,12 +2433,18 @@ function computeDeviationSummary(spec, rootFrame, logs) {var _spec$acceptance, _
     bottom: Number.isFinite(rootFrame.paddingBottom) ? rootFrame.paddingBottom : undefined,
     left: Number.isFinite(rootFrame.paddingLeft) ? rootFrame.paddingLeft : undefined
   };
+  var autoLayoutChecksEnabled = Boolean(isObject(spec.acceptance) && spec.acceptance.checkAutoLayout);
   var rootActual = {
     itemSpacing: Number.isFinite(rootFrame.itemSpacing) ? rootFrame.itemSpacing : undefined,
-    padding: rootPadding,
-    layoutMode: typeof rootFrame.layoutMode === 'string' ? rootFrame.layoutMode : undefined
+    padding: rootPadding
   };
+  if (autoLayoutChecksEnabled) {
+    rootActual.layoutMode = typeof rootFrame.layoutMode === 'string' ? rootFrame.layoutMode : undefined;
+  }
   var rootExpected = resolveRootAutoLayout(spec) || {};
+  if (!autoLayoutChecksEnabled && isObject(rootExpected) && Object.prototype.hasOwnProperty.call(rootExpected, 'layoutMode')) {
+    delete rootExpected.layoutMode;
+  }
   var rootDeviations = computeBasicDeviations(rootExpected, rootActual, tolerance);
   addEntries('root', 'Root frame', null, rootDeviations);
 

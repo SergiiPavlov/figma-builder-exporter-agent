@@ -478,6 +478,28 @@
       return null;
     };
 
+    const normalizeSectionKey = (value) => {
+      const normalized = ensureString(value);
+      return normalized ? normalized.toLowerCase() : null;
+    };
+
+    const collectSectionDocumentNodes = (exportSpec) => {
+      const map = new Map();
+      if (!isObject(exportSpec)) return map;
+      const document = isObject(exportSpec.document) ? exportSpec.document : null;
+      const nodes = document && Array.isArray(document.nodes) ? document.nodes : [];
+      nodes.forEach((node) => {
+        if (!isObject(node)) return;
+        const key = normalizeSectionKey(node.section);
+        if (!key) return;
+        if (!map.has(key)) {
+          map.set(key, []);
+        }
+        map.get(key).push(node);
+      });
+      return map;
+    };
+
     const normalizePadding = (input) => {
       if (!isObject(input)) return null;
       const result = {};
@@ -574,12 +596,144 @@
       return uniqueTexts.size >= Math.min(grid.columns, 2);
     };
 
-    const determineDraftSectionType = (section, index) => {
+    const detectGalleryDraft = (section, sectionNodes) => {
+      const grid = isObject(section && section.grid) ? section.grid : null;
+      const columns = grid && Number.isFinite(grid.columns) ? grid.columns : null;
+      if (!columns || columns < 2) {
+        return { match: false, warning: null };
+      }
+
+      const textCount = Array.isArray(sectionNodes)
+        ? sectionNodes.filter((node) => node && node.type === "TEXT").length
+        : 0;
+      if (textCount > 3) {
+        return { match: false, warning: null };
+      }
+
+      if (!Array.isArray(sectionNodes) || !sectionNodes.length) {
+        return { match: false, warning: null };
+      }
+
+      const sectionWidth = isObject(section) && isObject(section.size)
+        ? toInt(
+            section.size.width != null
+              ? section.size.width
+              : section.size.w,
+          )
+        : null;
+
+      const rectangleWidths = sectionNodes
+        .filter((node) => node && node.type === "RECTANGLE")
+        .map((node) => {
+          const bounds = isObject(node.absBounds) ? node.absBounds : null;
+          if (!bounds || !Number.isFinite(bounds.w)) return null;
+          const width = Math.round(bounds.w);
+          if (width < 24) return null;
+          if (sectionWidth && width >= sectionWidth - 4) return null;
+          return width;
+        })
+        .filter((value) => Number.isFinite(value));
+
+      if (!rectangleWidths.length) {
+        return { match: false, warning: null };
+      }
+
+      const minItems = columns >= 3 ? columns + 1 : Math.max(columns, 4);
+      if (rectangleWidths.length < minItems) {
+        return { match: false, warning: null };
+      }
+
+      const columnWidth = Number.isFinite(grid.columnWidth) ? Math.round(grid.columnWidth) : null;
+      const widthMedian = rectangleWidths.length ? Math.round(median(rectangleWidths)) : null;
+      const baseWidth = columnWidth != null ? columnWidth : widthMedian;
+      const tolerance = Math.max(4, baseWidth != null ? Math.round(Math.abs(baseWidth) * 0.08) : 6);
+
+      const groups = [];
+      rectangleWidths.forEach((width) => {
+        let match = null;
+        for (let i = 0; i < groups.length; i += 1) {
+          const candidate = groups[i];
+          if (Math.abs(candidate.avg - width) <= tolerance) {
+            match = candidate;
+            break;
+          }
+        }
+        if (match) {
+          match.sum += width;
+          match.count += 1;
+          match.avg = match.sum / match.count;
+          match.min = Math.min(match.min, width);
+          match.max = Math.max(match.max, width);
+        } else {
+          groups.push({ sum: width, count: 1, avg: width, min: width, max: width });
+        }
+      });
+
+      if (!groups.length) {
+        return {
+          match: false,
+          warning: "Секция похожа на галерею (grid), но повторяющиеся элементы не обнаружены — проверьте вручную.",
+        };
+      }
+
+      const dominant = groups.reduce((best, group) => (group.count > (best ? best.count : 0) ? group : best), null);
+      if (!dominant) {
+        return {
+          match: false,
+          warning: "Секция похожа на галерею (grid), но анализ размеров не удался — проверьте вручную.",
+        };
+      }
+
+      if (dominant.count < Math.max(3, columns)) {
+        return {
+          match: false,
+          warning: "Сетка изображений найдена, но элементов недостаточно для уверенности — проверьте вручную.",
+        };
+      }
+
+      const uniformRatio = dominant.count / rectangleWidths.length;
+      if (uniformRatio < 0.7) {
+        return {
+          match: false,
+          warning: "Изображения в сетке сильно отличаются по ширине — проверьте вручную.",
+        };
+      }
+
+      if (columnWidth != null) {
+        const diff = Math.abs(dominant.avg - columnWidth);
+        const allowed = Math.max(tolerance * 2, Math.max(8, Math.abs(columnWidth) * 0.12));
+        if (diff > allowed) {
+          return {
+            match: false,
+            warning: "Ширина изображений не совпадает с колонками сетки — проверьте вручную.",
+          };
+        }
+      }
+
+      if (dominant.max - dominant.min > Math.max(tolerance, 12)) {
+        return {
+          match: false,
+          warning: "Изображения в сетке различаются по размеру больше допустимого — проверьте вручную.",
+        };
+      }
+
+      return { match: true, warning: null };
+    };
+
+    const determineDraftSectionType = (section, index, context = {}) => {
+      const sectionNodes = Array.isArray(context.sectionNodes) ? context.sectionNodes : [];
       if (isHeroDraftCandidate(section, index)) {
         return { type: "hero" };
       }
+      const galleryDetection = detectGalleryDraft(section, sectionNodes);
+      if (galleryDetection.match) {
+        return { type: "gallery" };
+      }
       if (isFeaturesDraftCandidate(section)) {
         return { type: "features" };
+      }
+      if (galleryDetection.warning) {
+        return { type: "custom", warning: galleryDetection.warning };
       }
       if (index === 0) {
         return {
@@ -876,6 +1030,7 @@
       const sectionsRaw = Array.isArray(exportSpec.sections)
         ? exportSpec.sections.filter((item) => isObject(item))
         : [];
+      const sectionNodesMap = collectSectionDocumentNodes(exportSpec);
 
       const pageName = ensureString(target.pageName) || ensureString(meta.pageName) || null;
       const frameName = ensureString(target.frameName) || ensureString(meta.frameName) || null;
@@ -938,12 +1093,15 @@
       };
 
       sectionsRaw.forEach((section, index) => {
-        const name = ensureString(section.name) || `Section ${index + 1}`;
+        const rawName = ensureString(section.name);
+        const name = rawName || `Section ${index + 1}`;
         const layoutMode = ensureString(section.layoutMode);
         const layout = layoutMode && layoutMode.toUpperCase() === "HORIZONTAL" ? "row" : "stack";
         const padding = normalizePadding(section.padding);
         const spacing = toInt(section.itemSpacing);
-        const detection = determineDraftSectionType(section, index);
+        const sectionKey = normalizeSectionKey(rawName);
+        const sectionNodes = sectionKey ? sectionNodesMap.get(sectionKey) || [] : [];
+        const detection = determineDraftSectionType(section, index, { sectionNodes });
         if (detection.warning) {
           pushWarning(detection.warning);
         }

@@ -126,6 +126,20 @@
 6. **Export / Results** — Runner или плагин вручную отправляет `POST /results`, после чего доступен `GET /tasks/{id}/result` и артефакты (`/compare`, `/artifacts`).
 7. **Artifacts** — `GET /artifacts?offset=0&limit=50&order=desc` позволяет просматривать историю экспортов и скачивать compare HTML/ZIP.
 
+## Propose TaskSpec (draft)
+
+Кнопка **Generate TaskSpec** формирует черновой TaskSpec (`meta.proposed: true`), который нужно проверить и дополнить перед запуском Build/Export.
+
+При обнаружении сетки повторяющихся изображений черновик включает секцию галереи:
+
+```json
+{
+  "type": "gallery",
+  "name": "Showcase",
+  "layout": "stack"
+}
+```
+
 ## Acceptance сценарии (Import/Infer)
 
 - **AT-07 — Import ExportSpec.** Выделите фрейм в Figma и нажмите **Import**. Панель должна отобразить `ExportSpec` с типами секций, `meta.typeConfidence` и предупреждениями. Сохраните JSON, повторите Import на том же фрейме — результат должен совпадать byte-for-byte.
