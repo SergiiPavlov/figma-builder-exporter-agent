@@ -513,6 +513,83 @@
         .filter(Boolean);
     };
 
+    const ACTION_WORD_PATTERN =
+      /\b(get|start|try|join|learn|book|buy|shop|download|sign|contact|discover|explore|view|see|request|schedule|create|launch|build|watch|order|upgrade|subscribe)\b/i;
+
+    const collectDraftTextInsights = (section) => {
+      const samples = collectTextSamples(section);
+      const entries = samples
+        .map((sample) => {
+          const characters = ensureString(sample && sample.characters);
+          if (!characters) return null;
+          const fontSize = toInt(sample.fontSize);
+          const words = characters.trim().split(/\s+/).filter(Boolean);
+          return {
+            characters,
+            fontSize: Number.isFinite(fontSize) ? fontSize : null,
+            length: characters.length,
+            wordCount: words.length,
+            hasAction: ACTION_WORD_PATTERN.test(characters),
+          };
+        })
+        .filter(Boolean);
+      const fontSizes = entries
+        .map((entry) => entry.fontSize)
+        .filter((value) => value != null && Number.isFinite(value));
+      const maxFontSize = fontSizes.length ? Math.max(...fontSizes) : null;
+      const mediumContentCount = entries.filter(
+        (entry) => entry.wordCount >= 4 || entry.length >= 16,
+      ).length;
+      const hasActionWord = entries.some((entry) => entry.hasAction);
+      return { entries, maxFontSize, mediumContentCount, hasActionWord };
+    };
+
+    const isHeroDraftCandidate = (section, index) => {
+      if (!section) return false;
+      if (index > 1) return false;
+      const insights = collectDraftTextInsights(section);
+      if (!insights.entries.length) return false;
+      if (insights.maxFontSize == null || insights.maxFontSize < 34) return false;
+      if (insights.mediumContentCount === 0 && !insights.hasActionWord) {
+        return false;
+      }
+      return true;
+    };
+
+    const isFeaturesDraftCandidate = (section) => {
+      if (!section) return false;
+      const grid = isObject(section.grid) ? section.grid : null;
+      if (!grid || !Number.isFinite(grid.columns) || grid.columns < 2) {
+        return false;
+      }
+      const samples = collectTextSamples(section);
+      if (!samples.length) return false;
+      const uniqueTexts = new Set(
+        samples
+          .map((sample) => ensureString(sample && sample.characters))
+          .filter(Boolean)
+          .map((text) => text.trim())
+          .filter(Boolean),
+      );
+      return uniqueTexts.size >= Math.min(grid.columns, 2);
+    };
+
+    const determineDraftSectionType = (section, index) => {
+      if (isHeroDraftCandidate(section, index)) {
+        return { type: "hero" };
+      }
+      if (isFeaturesDraftCandidate(section)) {
+        return { type: "features" };
+      }
+      if (index === 0) {
+        return {
+          type: "custom",
+          warning: "Первая секция не распознана автоматически. Проверьте вручную.",
+        };
+      }
+      return { type: "custom" };
+    };
+
     const clamp01 = (value) => {
       if (!Number.isFinite(value)) return 0;
       if (value < 0) return 0;
@@ -777,6 +854,137 @@
         confidence: clamp01(best.confidence),
         warnings,
       };
+    };
+
+    const proposeTaskSpecFromExport = (exportSpec, options = {}) => {
+      const { specVersion = "0.1", fallbackFileId = "REPLACE_WITH_FILE_ID" } = options;
+      const warningSet = new Set();
+      const pushWarning = (message) => {
+        const normalized = ensureString(message);
+        if (!normalized) return;
+        if (warningSet.has(normalized)) return;
+        warningSet.add(normalized);
+      };
+
+      if (!isObject(exportSpec)) {
+        pushWarning("ExportSpec отсутствует. Сначала выполните Import.");
+        return { taskSpec: null, warnings: Array.from(warningSet.values()) };
+      }
+
+      const meta = isObject(exportSpec.meta) ? exportSpec.meta : {};
+      const target = isObject(exportSpec.target) ? exportSpec.target : {};
+      const sectionsRaw = Array.isArray(exportSpec.sections)
+        ? exportSpec.sections.filter((item) => isObject(item))
+        : [];
+
+      const pageName = ensureString(target.pageName) || ensureString(meta.pageName) || null;
+      const frameName = ensureString(target.frameName) || ensureString(meta.frameName) || null;
+      const pageId = ensureString(target.pageId) || null;
+      const frameId = ensureString(target.frameId) || ensureString(meta.frameId) || null;
+      const fileId = ensureString(target.fileId) || fallbackFileId;
+
+      if (!pageName) {
+        pushWarning("target.pageName не найден в ExportSpec. Заполните вручную.");
+      }
+      if (!frameName) {
+        pushWarning("target.frameName не найден в ExportSpec. Заполните вручную.");
+      }
+      if (!ensureString(target.fileId)) {
+        pushWarning("target.fileId не найден. Заполните вручную.");
+      }
+
+      const frameSizeRaw = isObject(meta.frameSize) ? meta.frameSize : target.frameSize;
+      const frameSize = normalizeFrameSize(frameSizeRaw);
+      let finalFrameSize = frameSize;
+      if (!frameSize) {
+        finalFrameSize = { w: 1440, h: 900 };
+        pushWarning("Размер фрейма не найден. Используются значения по умолчанию 1440×900.");
+      }
+
+      const idBase = [pageName, frameName].filter(Boolean).join("-") || "selection";
+      const specId = slugify(idBase);
+
+      const spacingCandidates = sectionsRaw
+        .map((section) => toInt(section.itemSpacing))
+        .filter((value) => Number.isFinite(value) && value >= 0);
+      const draftGap = spacingCandidates.length ? median(spacingCandidates) : 24;
+      const normalizedGap = Number.isFinite(draftGap) ? Math.max(0, Math.round(draftGap)) : 24;
+      const normalizedContainer = finalFrameSize && Number.isFinite(finalFrameSize.w)
+        ? Math.max(320, Math.round(finalFrameSize.w))
+        : 1200;
+
+      const taskSpec = {
+        meta: {
+          specVersion,
+          id: specId ? `${specId}-draft` : "selection-draft",
+          proposed: true,
+          source: "propose-task-spec",
+          frameId: frameId || undefined,
+          pageId: pageId || undefined,
+        },
+        target: {
+          fileId,
+          pageName: pageName || "REPLACE_PAGE_NAME",
+          frameName: frameName || "REPLACE_FRAME_NAME",
+          frameSize: finalFrameSize,
+        },
+        grid: {
+          container: normalizedContainer,
+          columns: 12,
+          gap: normalizedGap,
+          margins: 24,
+        },
+        sections: [],
+      };
+
+      sectionsRaw.forEach((section, index) => {
+        const name = ensureString(section.name) || `Section ${index + 1}`;
+        const layoutMode = ensureString(section.layoutMode);
+        const layout = layoutMode && layoutMode.toUpperCase() === "HORIZONTAL" ? "row" : "stack";
+        const padding = normalizePadding(section.padding);
+        const spacing = toInt(section.itemSpacing);
+        const detection = determineDraftSectionType(section, index);
+        if (detection.warning) {
+          pushWarning(detection.warning);
+        }
+        const textSamples = collectTextSamples(section)
+          .map((sample) => ensureString(sample.characters))
+          .filter(Boolean)
+          .slice(0, 6);
+
+        const specSection = {
+          type: detection.type,
+          name,
+          layout,
+        };
+        if (spacing != null && Number.isFinite(spacing)) {
+          specSection.spacing = spacing;
+        }
+        if (padding) {
+          specSection.padding = padding;
+        }
+        if (textSamples.length) {
+          specSection.textSamples = textSamples;
+        }
+        const sectionMeta = { proposed: true };
+        const sourceId = ensureString(section.id);
+        if (sourceId) {
+          sectionMeta.sourceId = sourceId;
+        }
+        if (layoutMode) {
+          sectionMeta.layoutMode = layoutMode;
+        }
+        if (Object.keys(sectionMeta).length) {
+          specSection.meta = sectionMeta;
+        }
+        taskSpec.sections.push(specSection);
+      });
+
+      if (!taskSpec.sections.length) {
+        pushWarning("Секции не распознаны автоматически. Добавьте их вручную.");
+      }
+
+      return { taskSpec, warnings: Array.from(warningSet.values()) };
     };
 
     const inferTaskSpecFromExportSpec = (exportSpec, options = {}) => {
@@ -1167,6 +1375,7 @@
       validateTaskSpecSchema,
       sanitizeFilename,
       stringifyJson,
+      proposeTaskSpecFromExport,
       inferTaskSpecFromExportSpec,
     };
   },
