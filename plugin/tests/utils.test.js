@@ -6,6 +6,7 @@ const {
   createRaceGuard,
   createPersistentState,
   normalizeSchemaErrors,
+  computeBasicDeviations,
   validateTaskSpecSchema,
 } = require("../utils.js");
 
@@ -76,6 +77,41 @@ describe("normalizeSchemaErrors", () => {
 
   test("handles non-array inputs", () => {
     assert.deepEqual(normalizeSchemaErrors(null), []);
+  });
+});
+
+describe("computeBasicDeviations", () => {
+  test("detects deviations above tolerance", () => {
+    const deviations = computeBasicDeviations(
+      { itemSpacing: 16, padding: { top: 24, left: 32 } },
+      { itemSpacing: 20, paddingTop: 28, paddingLeft: 27 },
+      2,
+    );
+
+    assert.deepEqual(deviations, [
+      { property: "itemSpacing", expected: 16, actual: 20, delta: 4 },
+      { property: "paddingTop", expected: 24, actual: 28, delta: 4 },
+      { property: "paddingLeft", expected: 32, actual: 27, delta: -5 },
+    ]);
+  });
+
+  test("respects custom tolerance", () => {
+    const deviations = computeBasicDeviations(
+      { padding: { right: 24 } },
+      { paddingRight: 27 },
+      4,
+    );
+
+    assert.deepEqual(deviations, []);
+  });
+
+  test("ignores missing or non-finite values", () => {
+    const deviations = computeBasicDeviations(
+      { itemSpacing: 12, padding: { bottom: 16 } },
+      { itemSpacing: null, paddingBottom: "auto" },
+    );
+
+    assert.deepEqual(deviations, []);
   });
 });
 

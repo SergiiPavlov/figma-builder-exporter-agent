@@ -123,6 +123,72 @@
       return { read, write };
     };
 
+    const readBasicAutoLayoutValue = (source, key) => {
+      if (!isObject(source)) {
+        return null;
+      }
+
+      if (Number.isFinite(source[key])) {
+        return source[key];
+      }
+
+      if (!key || !key.startsWith("padding")) {
+        return null;
+      }
+
+      const side = key.slice("padding".length);
+      if (!side) {
+        return null;
+      }
+
+      const normalizedSide = side.charAt(0).toLowerCase() + side.slice(1);
+      const paddingSource = source.padding;
+
+      if (Number.isFinite(paddingSource)) {
+        return paddingSource;
+      }
+
+      if (isObject(paddingSource)) {
+        if (Number.isFinite(paddingSource[normalizedSide])) {
+          return paddingSource[normalizedSide];
+        }
+        if (Number.isFinite(paddingSource[side])) {
+          return paddingSource[side];
+        }
+      }
+
+      return null;
+    };
+
+    const computeBasicDeviations = (expected, actual, tolerancePx) => {
+      const tolerance = Number.isFinite(tolerancePx) ? Math.max(0, Math.abs(tolerancePx)) : 2;
+      const properties = [
+        "itemSpacing",
+        "paddingTop",
+        "paddingRight",
+        "paddingBottom",
+        "paddingLeft",
+      ];
+
+      const result = [];
+
+      for (const property of properties) {
+        const expectedValue = readBasicAutoLayoutValue(expected, property);
+        const actualValue = readBasicAutoLayoutValue(actual, property);
+
+        if (!Number.isFinite(expectedValue) || !Number.isFinite(actualValue)) {
+          continue;
+        }
+
+        const delta = actualValue - expectedValue;
+        if (Math.abs(delta) > tolerance) {
+          result.push({ property, expected: expectedValue, actual: actualValue, delta });
+        }
+      }
+
+      return result;
+    };
+
     const normalizeSchemaErrors = (errors) => {
       if (!Array.isArray(errors)) return [];
       return errors
@@ -1080,6 +1146,7 @@
       createRaceGuard,
       createPersistentState,
       normalizeSchemaErrors,
+      computeBasicDeviations,
       validateTaskSpecSchema,
       sanitizeFilename,
       stringifyJson,

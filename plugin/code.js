@@ -2239,97 +2239,189 @@ function collectNode(node, rootFrame) {
   return result;
 }
 
+function readBasicAutoLayoutValue(source, key) {
+  if (!isObject(source)) {
+    return null;
+  }
+
+  if (Number.isFinite(source[key])) {
+    return source[key];
+  }
+
+  if (!key || key.indexOf('padding') !== 0) {
+    return null;
+  }
+
+  var side = key.slice('padding'.length);
+  if (!side) {
+    return null;
+  }
+
+  var normalizedSide = side.charAt(0).toLowerCase() + side.slice(1);
+  var paddingSource = source.padding;
+
+  if (Number.isFinite(paddingSource)) {
+    return paddingSource;
+  }
+
+  if (isObject(paddingSource)) {
+    if (Number.isFinite(paddingSource[normalizedSide])) {
+      return paddingSource[normalizedSide];
+    }
+    if (Number.isFinite(paddingSource[side])) {
+      return paddingSource[side];
+    }
+  }
+
+  return null;
+}
+
+function computeBasicDeviations(expected, actual, tolerancePx) {
+  var tolerance = Number.isFinite(tolerancePx) ? Math.max(0, Math.abs(tolerancePx)) : 2;
+  var properties = ['itemSpacing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
+  var result = [];
+
+  for (var i = 0; i < properties.length; i++) {var property = properties[i];
+    var expectedValue = readBasicAutoLayoutValue(expected, property);
+    var actualValue = readBasicAutoLayoutValue(actual, property);
+
+    if (!Number.isFinite(expectedValue) || !Number.isFinite(actualValue)) {
+      continue;
+    }
+
+    var delta = actualValue - expectedValue;
+    if (Math.abs(delta) > tolerance) {
+      result.push({ property: property, expected: expectedValue, actual: actualValue, delta: delta });
+    }
+  }
+
+  return result;
+}
+
+function formatDeviationProperty(property) {
+  var map = {
+    itemSpacing: 'item spacing',
+    paddingTop: 'padding top',
+    paddingRight: 'padding right',
+    paddingBottom: 'padding bottom',
+    paddingLeft: 'padding left'
+  };
+  return map[property] || property;
+}
+
+function formatDeviationDelta(delta) {
+  if (!Number.isFinite(delta)) {
+    return '';
+  }
+
+  var normalized = Math.round(delta * 100) / 100;
+  if (Object.is(normalized, -0)) {
+    normalized = 0;
+  }
+  var str = normalized.toFixed(2).replace(/\.?0+$/, '');
+  if (normalized > 0) {
+    return "+".concat(str, "px");
+  }
+  return "".concat(str, "px");
+}
+
 function computeDeviationSummary(spec, rootFrame, logs) {var _spec$acceptance, _spec$acceptance2;
-  var sections = Array.isArray(spec.sections) ? spec.sections : [];
-  var tolerance = Number.isFinite((_spec$acceptance = spec.acceptance) === null || _spec$acceptance === void 0 ? void 0 : _spec$acceptance.maxSpacingDeviation) ?
-  spec.acceptance.maxSpacingDeviation :
-  2;
+  var toleranceSource = (_spec$acceptance = spec.acceptance) === null || _spec$acceptance === void 0 ? void 0 : _spec$acceptance.maxSpacingDeviation;
+  var tolerance = Number.isFinite(toleranceSource) ? Math.max(0, Math.abs(toleranceSource)) : 2;
   var deviations = [];
   var warnings = [];
+
+  if (!rootFrame) {
+    return { deviations: deviations, warnings: warnings };
+  }
+
   if ((_spec$acceptance2 = spec.acceptance) !== null && _spec$acceptance2 !== void 0 && _spec$acceptance2.checkAutoLayout && rootFrame.layoutMode !== 'VERTICAL') {
     warnings.push('Root frame is not using VERTICAL auto layout');
-  }var _iterator3 = _createForOfIteratorHelper(
-      sections),_step3;try {var _loop2 = function _loop2() {var section = _step3.value;
-      var sectionNode = rootFrame.children.find(
-        function (child) {return child.type === 'FRAME' && child.name === section.name;}
-      );
-      if (!sectionNode) {
-        warnings.push("Section \u201C".concat(section.name, "\u201D not found on canvas"));return 1; // continue
+  }
 
+  var addEntries = function addEntries(scope, label, meta, entries) {
+    if (!Array.isArray(entries) || !entries.length) {
+      return;
+    }
+
+    var baseMeta = isObject(meta) ? meta : {};
+    for (var idx = 0; idx < entries.length; idx++) {
+      var entry = entries[idx];
+      if (!entry) continue;
+      deviations.push(_objectSpread(_objectSpread({ scope: scope }, baseMeta), entry));
+      warnings.push("".concat(label, ": ").concat(formatDeviationProperty(entry.property), " ").concat(formatDeviationDelta(entry.delta)));
+    }
+  };
+
+  var rootPadding = {
+    top: Number.isFinite(rootFrame.paddingTop) ? rootFrame.paddingTop : undefined,
+    right: Number.isFinite(rootFrame.paddingRight) ? rootFrame.paddingRight : undefined,
+    bottom: Number.isFinite(rootFrame.paddingBottom) ? rootFrame.paddingBottom : undefined,
+    left: Number.isFinite(rootFrame.paddingLeft) ? rootFrame.paddingLeft : undefined
+  };
+  var rootActual = {
+    itemSpacing: Number.isFinite(rootFrame.itemSpacing) ? rootFrame.itemSpacing : undefined,
+    padding: rootPadding
+  };
+  var rootExpected = resolveRootAutoLayout(spec) || {};
+  var rootDeviations = computeBasicDeviations(rootExpected, rootActual, tolerance);
+  addEntries('root', 'Root frame', null, rootDeviations);
+
+  var sections = Array.isArray(spec.sections) ? spec.sections : [];
+  var childFrames = Array.isArray(rootFrame.children) ? rootFrame.children.filter(function (node) {return node && node.type === 'FRAME';}) : [];
+
+  for (var index = 0; index < sections.length; index++) {
+    var section = sections[index];
+    if (!isObject(section)) {
+      continue;
+    }
+
+    var rawName = typeof section.name === 'string' ? section.name : '';
+    var sectionName = rawName && rawName.trim() ? rawName.trim() : null;
+    var sectionLabel = sectionName ? "Section \u201C".concat(sectionName, "\u201D") : "Section #".concat(index + 1);
+    var sectionNode = null;
+
+    for (var childIndex = 0; childIndex < childFrames.length; childIndex++) {
+      var candidate = childFrames[childIndex];
+      if (!candidate || candidate.type !== 'FRAME') continue;
+      if (sectionName && candidate.name === sectionName) {
+        sectionNode = candidate;
+        break;
       }
-      var expected = resolveSectionAutoLayout(spec, section);
-      var actualSpacing = Number.isFinite(sectionNode.itemSpacing) ? sectionNode.itemSpacing : null;
-      if (Number.isFinite(expected.itemSpacing) && actualSpacing != null) {
-        var delta = actualSpacing - expected.itemSpacing;
-        if (Math.abs(delta) > tolerance) {
-          deviations.push({
-            section: section.name,
-            property: 'itemSpacing',
-            expected: expected.itemSpacing,
-            actual: actualSpacing,
-            delta: delta
-          });
-          warnings.push("Spacing deviation in \u201C".concat(section.name, "\u201D: \u0394=").concat(delta.toFixed(2), "px"));
-        }
+      if (!sectionName && sectionNode == null && childIndex === index) {
+        sectionNode = candidate;
       }
-      var expectedPadding = normalizePadding(expected.padding || section.padding || null);
-      if (expectedPadding) {
-        var actualPadding = {
-          top: Number.isFinite(sectionNode.paddingTop) ? sectionNode.paddingTop : 0,
-          right: Number.isFinite(sectionNode.paddingRight) ? sectionNode.paddingRight : 0,
-          bottom: Number.isFinite(sectionNode.paddingBottom) ? sectionNode.paddingBottom : 0,
-          left: Number.isFinite(sectionNode.paddingLeft) ? sectionNode.paddingLeft : 0
-        };
-        for (var _i7 = 0, _arr = ['top', 'right', 'bottom', 'left']; _i7 < _arr.length; _i7++) {var side = _arr[_i7];
-          var _delta = actualPadding[side] - expectedPadding[side];
-          if (Math.abs(_delta) > tolerance) {
-            deviations.push({
-              section: section.name,
-              property: "padding".concat(side[0].toUpperCase()).concat(side.slice(1)),
-              expected: expectedPadding[side],
-              actual: actualPadding[side],
-              delta: _delta
-            });
-            warnings.push("Padding deviation (".concat(
-              side, ") in \u201C").concat(section.name, "\u201D: \u0394=").concat(_delta.toFixed(2), "px")
-            );
-          }
-        }
-      }
-      var gridInfo = resolveSectionGrid(section, spec);
-      if (gridInfo && Number.isFinite(gridInfo.columns)) {
-        var containerId = 'relay:gridContainer';
-        var container = null;
-        if (Array.isArray(sectionNode.children)) {
-          container = sectionNode.children.find(function (child) {
-            if (child.type !== 'FRAME') return false;
-            try {
-              return child.getPluginData(containerId) === '1';
-            } catch (e) {
-              return false;
-            }
-          }) || null;
-          if (!container) {
-            container = sectionNode.children.find(
-              function (child) {return child.type === 'FRAME' && /·\s*Grid$/i.test(child.name || '');}
-            );
-          }
-        }
-        var actualColumns = 0;
-        if (container && 'children' in container && Array.isArray(container.children)) {
-          actualColumns = container.children.filter(function (child) {return child.type === 'FRAME';}).length;
-        }
-        if (actualColumns !== gridInfo.columns) {
-          warnings.push("Grid mismatch in \u201C".concat(
-            section.name, "\u201D: expected ").concat(gridInfo.columns, " columns, found ").concat(actualColumns)
-          );
-        }
-      }
-    };for (_iterator3.s(); !(_step3 = _iterator3.n()).done;) {if (_loop2()) continue;}} catch (err) {_iterator3.e(err);} finally {_iterator3.f();}
+    }
+
+    if (!sectionNode) {
+      continue;
+    }
+
+    var sectionPadding = {
+      top: Number.isFinite(sectionNode.paddingTop) ? sectionNode.paddingTop : undefined,
+      right: Number.isFinite(sectionNode.paddingRight) ? sectionNode.paddingRight : undefined,
+      bottom: Number.isFinite(sectionNode.paddingBottom) ? sectionNode.paddingBottom : undefined,
+      left: Number.isFinite(sectionNode.paddingLeft) ? sectionNode.paddingLeft : undefined
+    };
+    var sectionActual = {
+      itemSpacing: Number.isFinite(sectionNode.itemSpacing) ? sectionNode.itemSpacing : undefined,
+      padding: sectionPadding
+    };
+    var sectionExpected = resolveSectionAutoLayout(spec, section) || {};
+    var sectionDeviations = computeBasicDeviations(sectionExpected, sectionActual, tolerance);
+
+    if (sectionDeviations.length) {
+      addEntries('section', sectionLabel, { section: sectionName || null, sectionIndex: index }, sectionDeviations);
+    }
+  }
+
   if (deviations.length) {
     logs.push("[export] Detected ".concat(deviations.length, " layout deviations"));
   }
+
   return { deviations: deviations, warnings: warnings };
+}
+
 }function
 
 runExport(_x2) {return _runExport.apply(this, arguments);}function _runExport() {_runExport = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3(spec) {var logs, log, page, frame, nodes, _visit, deviationSummary;return _regenerator().w(function (_context3) {while (1) switch (_context3.n) {case 0:
