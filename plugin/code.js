@@ -2278,10 +2278,23 @@ function readBasicAutoLayoutValue(source, key) {
 
 function computeBasicDeviations(expected, actual, tolerancePx) {
   var tolerance = Number.isFinite(tolerancePx) ? Math.max(0, Math.abs(tolerancePx)) : 2;
-  var properties = ['itemSpacing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
+  var properties = ['itemSpacing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'gridGap', 'layoutMode'];
   var result = [];
 
   for (var i = 0; i < properties.length; i++) {var property = properties[i];
+    if (property === 'layoutMode') {
+      var expectedLayout = isObject(expected) && typeof expected.layoutMode === 'string' ? expected.layoutMode : null;
+      if (!expectedLayout) {
+        continue;
+      }
+
+      var actualLayout = isObject(actual) && typeof actual.layoutMode === 'string' ? actual.layoutMode : null;
+      if (expectedLayout !== actualLayout) {
+        result.push({ property: property, expected: expectedLayout, actual: actualLayout, delta: null });
+      }
+      continue;
+    }
+
     var expectedValue = readBasicAutoLayoutValue(expected, property);
     var actualValue = readBasicAutoLayoutValue(actual, property);
 
@@ -2304,7 +2317,9 @@ function formatDeviationProperty(property) {
     paddingTop: 'padding top',
     paddingRight: 'padding right',
     paddingBottom: 'padding bottom',
-    paddingLeft: 'padding left'
+    paddingLeft: 'padding left',
+    gridGap: 'grid gap',
+    layoutMode: 'layout mode'
   };
   return map[property] || property;
 }
@@ -2349,7 +2364,21 @@ function computeDeviationSummary(spec, rootFrame, logs) {var _spec$acceptance, _
       var entry = entries[idx];
       if (!entry) continue;
       deviations.push(_objectSpread(_objectSpread({ scope: scope }, baseMeta), entry));
-      warnings.push("".concat(label, ": ").concat(formatDeviationProperty(entry.property), " ").concat(formatDeviationDelta(entry.delta)));
+      var propertyLabel = formatDeviationProperty(entry.property);
+      var detail = formatDeviationDelta(entry.delta);
+      var message = '';
+
+      if (entry.property === 'layoutMode') {
+        var expectedLayout = typeof entry.expected === 'string' && entry.expected ? entry.expected : 'unspecified';
+        var actualLayout = typeof entry.actual === 'string' && entry.actual ? entry.actual : 'unspecified';
+        message = "".concat(label, ": ").concat(propertyLabel, " expected ").concat(expectedLayout, ", actual ").concat(actualLayout);
+      } else if (detail) {
+        message = "".concat(label, ": ").concat(propertyLabel, " ").concat(detail);
+      } else {
+        message = "".concat(label, ": ").concat(propertyLabel);
+      }
+
+      warnings.push(message);
     }
   };
 
@@ -2361,7 +2390,8 @@ function computeDeviationSummary(spec, rootFrame, logs) {var _spec$acceptance, _
   };
   var rootActual = {
     itemSpacing: Number.isFinite(rootFrame.itemSpacing) ? rootFrame.itemSpacing : undefined,
-    padding: rootPadding
+    padding: rootPadding,
+    layoutMode: typeof rootFrame.layoutMode === 'string' ? rootFrame.layoutMode : undefined
   };
   var rootExpected = resolveRootAutoLayout(spec) || {};
   var rootDeviations = computeBasicDeviations(rootExpected, rootActual, tolerance);
@@ -2394,6 +2424,7 @@ function computeDeviationSummary(spec, rootFrame, logs) {var _spec$acceptance, _
     }
 
     if (!sectionNode) {
+      warnings.push("".concat(sectionLabel, ": matching frame not found (skipped)"));
       continue;
     }
 
@@ -2405,9 +2436,31 @@ function computeDeviationSummary(spec, rootFrame, logs) {var _spec$acceptance, _
     };
     var sectionActual = {
       itemSpacing: Number.isFinite(sectionNode.itemSpacing) ? sectionNode.itemSpacing : undefined,
-      padding: sectionPadding
+      padding: sectionPadding,
+      layoutMode: typeof sectionNode.layoutMode === 'string' ? sectionNode.layoutMode : undefined
     };
     var sectionExpected = resolveSectionAutoLayout(spec, section) || {};
+    var gridInfo = resolveSectionGrid(section, spec);
+    if (gridInfo && Number.isFinite(gridInfo.gap)) {
+      sectionExpected.gridGap = gridInfo.gap;
+      var gridContainer = null;
+      if (Array.isArray(sectionNode.children)) {
+        for (var childIndex2 = 0; childIndex2 < sectionNode.children.length; childIndex2++) {
+          var gridCandidate = sectionNode.children[childIndex2];
+          if (!gridCandidate || gridCandidate.type !== 'FRAME') continue;
+          if (typeof gridCandidate.getPluginData !== 'function') continue;
+          try {
+            if (gridCandidate.getPluginData('relay:gridContainer') === '1') {
+              gridContainer = gridCandidate;
+              break;
+            }
+          } catch (error) {}
+        }
+      }
+      if (gridContainer && Number.isFinite(gridContainer.itemSpacing)) {
+        sectionActual.gridGap = gridContainer.itemSpacing;
+      }
+    }
     var sectionDeviations = computeBasicDeviations(sectionExpected, sectionActual, tolerance);
 
     if (sectionDeviations.length) {

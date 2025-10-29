@@ -168,11 +168,28 @@
         "paddingRight",
         "paddingBottom",
         "paddingLeft",
+        "gridGap",
+        "layoutMode",
       ];
 
       const result = [];
 
       for (const property of properties) {
+        if (property === "layoutMode") {
+          const expectedLayout =
+            isObject(expected) && typeof expected.layoutMode === "string" ? expected.layoutMode : null;
+          if (!expectedLayout) {
+            continue;
+          }
+
+          const actualLayout =
+            isObject(actual) && typeof actual.layoutMode === "string" ? actual.layoutMode : null;
+          if (expectedLayout !== actualLayout) {
+            result.push({ property, expected: expectedLayout, actual: actualLayout, delta: null });
+          }
+          continue;
+        }
+
         const expectedValue = readBasicAutoLayoutValue(expected, property);
         const actualValue = readBasicAutoLayoutValue(actual, property);
 
