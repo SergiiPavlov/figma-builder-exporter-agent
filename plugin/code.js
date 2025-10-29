@@ -1070,6 +1070,122 @@ function buildFeaturesSection(frame, section, basePath, context, gridResult) {
   return { nodes: nodes, paths: paths };
 }
 
+function buildGallerySection(frame, section, basePath, context, gridResult) {
+  var nodes = [];
+  var paths = [];
+  var textColor = resolveTokenColor(context ? context.tokens : null, 'text');
+  var sectionSpacing = Number.isFinite(section.itemSpacing) ? section.itemSpacing : Number.isFinite(frame.itemSpacing) ? frame.itemSpacing : null;
+  var normalizedSpacing = clampUnit(sectionSpacing != null ? sectionSpacing : 16);
+  var itemSpacing = normalizedSpacing != null ? normalizedSpacing : 16;
+  var items = Array.isArray(section.items) ? section.items : [];
+  items.forEach(function (item, index) {
+    var itemPath = ''.concat(basePath, '/items[').concat(index, ']');
+    var itemFrame = ensureBuilderNode(frame, {
+      path: itemPath,
+      type: 'FRAME',
+      name: 'Gallery Item '.concat(index + 1),
+      setup: function setup(node) {
+        ensureFrameAutoLayout(node, 'VERTICAL');
+        if ('itemSpacing' in node) {
+          node.itemSpacing = itemSpacing;
+        }
+        if ('layoutGrow' in node) {
+          node.layoutGrow = 1;
+        }
+        if ('layoutAlign' in node) {
+          node.layoutAlign = 'STRETCH';
+        }
+        if ('fills' in node) {
+          node.fills = [];
+        }
+      }
+    }, context).node;
+    applyTokensToNode(itemFrame, context ? context.tokens : null, { type: section.type, role: 'item', index: index });
+    nodes.push(itemFrame);
+    paths.push(itemPath);
+    var childNodes = [];
+    var childPaths = [];
+    var imagePath = ''.concat(itemPath, '/image');
+    var imageNode = ensureBuilderNode(itemFrame, {
+      path: imagePath,
+      type: 'RECTANGLE',
+      name: 'Gallery Image',
+      setup: function setup(node) {
+        var heightValue = Number.isFinite(item && item.imageHeight) ? clampUnit(item.imageHeight) : clampUnit(180);
+        var imageHeight = heightValue != null ? heightValue : 180;
+        var width = Math.max(1, Math.round(node.width || frame.width || 320));
+        if (typeof node.resizeWithoutConstraints === 'function') {
+          try {
+            node.resizeWithoutConstraints(width, imageHeight);
+          } catch (e) {}
+        } else if (typeof node.resize === 'function') {
+          try {
+            node.resize(width, imageHeight);
+          } catch (e2) {}
+        }
+        if ('layoutAlign' in node) {
+          node.layoutAlign = 'STRETCH';
+        }
+        var borderColor = resolveTokenColor(context ? context.tokens : null, 'border');
+        var placeholderFill = resolveTokenColor(context ? context.tokens : null, 'surface') || '#F3F4F6';
+        var hasImage = item && typeof item.imageUrl === 'string' && item.imageUrl.trim();
+        if (hasImage) {
+          if ('strokes' in node) {
+            node.strokes = [];
+          }
+          if ('fills' in node) {
+            node.fills = [];
+          }
+          try {
+            node.setPluginData('relay:imageUrl', item.imageUrl);
+          } catch (e3) {}
+        } else {
+          if ('strokeWeight' in node) {
+            node.strokeWeight = 1;
+          }
+          if (borderColor) {
+            applyStroke(node, borderColor);
+          } else {
+            applyStroke(node, '#D4D4D8');
+          }
+          if (placeholderFill) {
+            applyFill(node, placeholderFill);
+          }
+          try {
+            node.setPluginData('relay:imageUrl', '');
+          } catch (e4) {}
+        }
+        applyTokensToNode(node, context ? context.tokens : null, { type: section.type, role: 'image', index: index });
+      }
+    }, context).node;
+    childNodes.push(imageNode);
+    childPaths.push(imagePath);
+    if (item && typeof item.title === 'string' && item.title.trim()) {
+      var titlePath = ''.concat(itemPath, '/title');
+      childNodes.push(ensureTextNode(itemFrame, titlePath, 'Gallery Item Title', item.title, context, {
+        fontSize: 18,
+        fillColor: textColor,
+        tokenContext: { type: section.type, role: 'itemTitle', index: index }
+      }));
+      childPaths.push(titlePath);
+    }
+    if (item && typeof item.caption === 'string' && item.caption.trim()) {
+      var captionPath = ''.concat(itemPath, '/caption');
+      childNodes.push(ensureTextNode(itemFrame, captionPath, 'Gallery Item Caption', item.caption, context, {
+        fontSize: 14,
+        fillColor: textColor,
+        tokenContext: { type: section.type, role: 'itemCaption', index: index }
+      }));
+      childPaths.push(captionPath);
+    }
+    reorderBuilderChildren(itemFrame, childNodes);
+    cleanupBuilderChildren(itemFrame, childPaths, context);
+  });
+  reorderBuilderChildren(frame, nodes);
+  cleanupBuilderChildren(frame, paths, context);
+  return { nodes: nodes, paths: paths };
+}
+
 function buildCTASection(frame, section, basePath, context) {
   var nodes = [];
   var paths = [];
@@ -1818,6 +1934,13 @@ runBuild(_x) {return _runBuild.apply(this, arguments);}function _runBuild() {_ru
           _iterator4 = _createForOfIteratorHelper(
             sections.entries());_context2.f(3);case 5:_context2.s();case 6:if ((_step4 = _context2.n()).done) {_context2.n = 13;break;}_step4$value = _slicedToArray(_step4.value, 2);section = _step4$value[1];index = _step4$value[0];
           sectionResult = ensureSectionFrame(rootFrame, spec, section, log, index, buildContext);
+          if (section && section.type === 'gallery') {
+            try {
+              sectionResult.content = buildGallerySection(sectionResult.frame, section, "sections[".concat(index, "]"), buildContext, sectionResult.grid);
+            } catch (error) {
+              log(String(error && error.message ? error.message : error), 'error', { section: section && section.name ? section.name : section && section.type ? section.type : 'gallery' });
+            }
+          }
           sectionNodes.push(sectionResult.frame);_context2.n = 11;break;case 8:_context2.p = 8;_context2.t0 = _context2.v;
 
           log(String(_context2.t0 || 'Section build failed'), 'error');case 11:_context2.n = 6;break;case 13:_context2.f(3);case 14:
