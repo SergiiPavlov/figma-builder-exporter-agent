@@ -1,0 +1,61 @@
+{
+  "meta": {
+    "specVersion": "0.1",
+    "id": "gallery-grid-4"
+  },
+  "target": {
+    "fileId": "EXAMPLE",
+    "pageName": "Gallery",
+    "frameName": "Gallery Grid 4",
+    "frameSize": { "w": 1280, "h": 960 }
+  },
+  "grid": {
+    "container": 1200,
+    "columns": 12,
+    "gap": 24,
+    "margins": 32
+  },
+  "sections": [
+    {
+      "type": "gallery",
+      "name": "Case Studies",
+      "itemSpacing": 20,
+      "grid": { "type": "grid-4", "gap": 24 },
+      "items": [
+        {
+          "title": "Growth Dashboard",
+          "caption": "Metrics overview with cohort comparison charts.",
+          "imageUrl": "https://example.com/gallery/growth-dashboard.png"
+        },
+        {
+          "title": "Product Launch",
+          "caption": "Multi-channel launch plan with milestones and owners."
+        },
+        {
+          "title": "Lifecycle Emails",
+          "caption": "Automations for onboarding, engagement, and retention."
+        },
+        {
+          "title": "Sales Collateral",
+          "caption": "Sales one-pager with updated value propositions."
+        },
+        {
+          "title": "Support Portal",
+          "caption": "Help center reimagined with AI suggestions."
+        },
+        {
+          "title": "Partner Program",
+          "caption": "A toolkit for partner onboarding and co-marketing."
+        },
+        {
+          "title": "Vision Deck",
+          "caption": "Investor-ready story about the next product horizon."
+        },
+        {
+          "title": "Team Retreat",
+          "caption": "Agenda and highlights from the annual offsite."
+        }
+      ]
+    }
+  ]
+}

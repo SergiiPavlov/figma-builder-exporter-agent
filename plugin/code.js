@@ -1235,7 +1235,16 @@ function buildGallerySection(frame, section, basePath, context, gridResult) {
   } else if (isObject(section.grid) && typeof section.grid.type === 'string') {
     layoutType = section.grid.type;
   }
-  var isGrid3 = typeof layoutType === 'string' && layoutType.toLowerCase() === 'grid-3';
+  var layoutColumns = null;
+  if (typeof layoutType === 'string') {
+    var layoutMatch = layoutType.toLowerCase().match(/^grid-(\d+)/);
+    if (layoutMatch) {
+      var parsedColumns = parseInt(layoutMatch[1], 10);
+      if (Number.isFinite(parsedColumns) && parsedColumns > 1) {
+        layoutColumns = parsedColumns;
+      }
+    }
+  }
   var gridGap = null;
   if (isObject(section.grid) && Number.isFinite(section.grid.gap)) {
     var gapValue = clampUnit(section.grid.gap);
@@ -1244,7 +1253,7 @@ function buildGallerySection(frame, section, basePath, context, gridResult) {
     }
   }
 
-  if (isGrid3 && frame) {
+  if (layoutColumns && frame) {
     var containerPath = ''.concat(basePath, '/grid');
     var container;
     if (gridResult && gridResult.container) {
@@ -1285,10 +1294,11 @@ function buildGallerySection(frame, section, basePath, context, gridResult) {
     if ('fills' in container) {
       container.fills = [];
     }
-    if (gridGap != null && 'itemSpacing' in container) {
-      container.itemSpacing = gridGap;
+    if ('itemSpacing' in container) {
+      var containerSpacing = gridGap != null ? gridGap : itemSpacing;
+      container.itemSpacing = containerSpacing;
     }
-    var columnCount = 3;
+    var columnCount = layoutColumns;
     var columnNodes = [];
     var columnPaths = [];
     for (var columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
