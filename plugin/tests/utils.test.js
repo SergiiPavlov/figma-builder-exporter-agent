@@ -8,6 +8,7 @@ const {
   normalizeSchemaErrors,
   computeBasicDeviations,
   validateTaskSpecSchema,
+  proposeTaskSpecFromExport,
 } = require("../utils.js");
 
 describe("parseServerError", () => {
@@ -178,5 +179,73 @@ describe("validateTaskSpecSchema", () => {
       path: "/sections/0/type",
       message: "type must be one of hero, features, gallery, cta, footer, custom",
     });
+  });
+});
+
+describe("proposeTaskSpecFromExport", () => {
+  test("detects gallery sections", () => {
+    const rectangles = Array.from({ length: 6 }).map((_, index) => ({
+      id: `rect-${index + 1}`,
+      name: `Item ${index + 1}`,
+      type: "RECTANGLE",
+      section: "Gallery",
+      absBounds: { x: index * 10, y: 0, w: 320, h: 200 },
+    }));
+
+    const exportSpec = {
+      meta: {
+        frameId: "1:1",
+        frameName: "Frame",
+        frameSize: { width: 1200, height: 800 },
+      },
+      target: {
+        fileId: "FILE123",
+        pageName: "Marketing",
+        frameName: "Frame",
+        frameSize: { width: 1200, height: 800 },
+      },
+      sections: [
+        {
+          id: "10:1",
+          name: "Gallery",
+          layoutMode: "VERTICAL",
+          itemSpacing: 24,
+          padding: { top: 32, right: 32, bottom: 32, left: 32 },
+          grid: { columns: 3, gap: 24, columnWidth: 320 },
+          size: { width: 1024, height: 768 },
+          texts: [],
+        },
+      ],
+      document: {
+        nodes: [
+          ...rectangles,
+          {
+            id: "text-1",
+            name: "Caption",
+            type: "TEXT",
+            section: "Gallery",
+            absBounds: { x: 0, y: 210, w: 200, h: 24 },
+          },
+          {
+            id: "text-2",
+            name: "Subcaption",
+            type: "TEXT",
+            section: "Gallery",
+            absBounds: { x: 0, y: 240, w: 220, h: 24 },
+          },
+        ],
+      },
+    };
+
+    const { taskSpec, warnings } = proposeTaskSpecFromExport(exportSpec, {
+      fallbackFileId: "FILE123",
+    });
+
+    assert.ok(taskSpec);
+    assert.equal(Array.isArray(taskSpec.sections), true);
+    assert.equal(taskSpec.sections[0].type, "gallery");
+    assert.equal(taskSpec.sections[0].name, "Gallery");
+    assert.equal(taskSpec.sections[0].layout, "stack");
+    assert.equal(Array.isArray(warnings) && warnings.length, 0);
   });
 });
