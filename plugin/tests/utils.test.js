@@ -106,6 +106,16 @@ describe("computeBasicDeviations", () => {
     assert.deepEqual(deviations, []);
   });
 
+  test("ignores deviations at tolerance threshold", () => {
+    const deviations = computeBasicDeviations(
+      { padding: { top: 20 } },
+      { paddingTop: 22 },
+      2,
+    );
+
+    assert.deepEqual(deviations, []);
+  });
+
   test("ignores missing or non-finite values", () => {
     const deviations = computeBasicDeviations(
       { itemSpacing: 12, padding: { bottom: 16 } },
