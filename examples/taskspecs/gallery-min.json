@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "specVersion": "0.1",
+    "id": "gallery-minimal"
+  },
+  "target": {
+    "fileId": "EXAMPLE",
+    "pageName": "Gallery",
+    "frameName": "Gallery Root",
+    "frameSize": { "w": 1200, "h": 900 }
+  },
+  "grid": {
+    "container": 960,
+    "columns": 12,
+    "gap": 24,
+    "margins": 24
+  },
+  "sections": [
+    {
+      "type": "gallery",
+      "name": "Gallery",
+      "itemSpacing": 24,
+      "items": [
+        {
+          "title": "Project One",
+          "caption": "A short description for the first project.",
+          "imageUrl": "https://example.com/image-1.png"
+        },
+        {
+          "title": "Project Two",
+          "caption": "Second item caption explaining the visuals."
+        },
+        {
+          "title": "Project Three",
+          "caption": "Another description to showcase variety.",
+          "imageUrl": "https://example.com/image-3.png"
+        }
+      ]
+    }
+  ]
+}
