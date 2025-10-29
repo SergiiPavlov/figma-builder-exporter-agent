@@ -113,6 +113,29 @@ describe("computeBasicDeviations", () => {
 
     assert.deepEqual(deviations, []);
   });
+
+  test("detects grid gap deviations", () => {
+    const deviations = computeBasicDeviations(
+      { gridGap: 24 },
+      { gridGap: 32 },
+      2,
+    );
+
+    assert.deepEqual(deviations, [
+      { property: "gridGap", expected: 24, actual: 32, delta: 8 },
+    ]);
+  });
+
+  test("detects layout mode mismatches", () => {
+    const deviations = computeBasicDeviations(
+      { layoutMode: "VERTICAL" },
+      { layoutMode: "HORIZONTAL" },
+    );
+
+    assert.deepEqual(deviations, [
+      { property: "layoutMode", expected: "VERTICAL", actual: "HORIZONTAL", delta: null },
+    ]);
+  });
 });
 
 describe("validateTaskSpecSchema", () => {
