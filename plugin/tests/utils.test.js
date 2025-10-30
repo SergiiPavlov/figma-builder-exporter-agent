@@ -1,5 +1,9 @@
 const { test, describe, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const url = require("node:url");
+const vm = require("node:vm");
 
 const {
   parseServerError,
@@ -257,5 +261,26 @@ describe("proposeTaskSpecFromExport", () => {
     assert.equal(taskSpec.sections[0].name, "Gallery");
     assert.equal(taskSpec.sections[0].layout, "stack");
     assert.equal(Array.isArray(warnings) && warnings.length, 0);
+  });
+});
+
+describe("PluginUtils UMD exports", () => {
+  test("default import returns object", async () => {
+    const moduleUrl = url.pathToFileURL(path.resolve(__dirname, "../utils.js"));
+    const imported = await import(moduleUrl);
+    assert.equal(typeof imported.default, "object");
+    assert.ok(imported.default);
+    assert.equal(typeof imported.default.parseServerError, "function");
+  });
+
+  test("exposes PluginUtils on window when evaluated globally", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "../utils.js"), "utf8");
+    const context = {
+      window: {},
+      globalThis: {},
+    };
+    vm.runInNewContext(source, context);
+    assert.equal(typeof context.window.PluginUtils, "object");
+    assert.equal(typeof context.window.PluginUtils.parseServerError, "function");
   });
 });

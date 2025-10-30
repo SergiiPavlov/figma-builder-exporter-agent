@@ -1,14 +1,5 @@
-(function (global, factory) {
-  if (typeof module === "object" && typeof module.exports === "object") {
-    module.exports = factory();
-  } else {
-    const result = factory();
-    global.PluginUtils = Object.assign({}, global.PluginUtils || {}, result);
-  }
-})(
-  typeof window !== "undefined" ? window : typeof globalThis !== "undefined" ? globalThis : global,
-  function () {
-    const isObject = (value) => value !== null && typeof value === "object";
+const PluginUtils = (() => {
+  const isObject = (value) => value !== null && typeof value === "object";
 
     const parseServerError = (payload, fallback = "Request failed") => {
       if (payload instanceof Error) {
@@ -1524,17 +1515,33 @@
       return { taskSpec, warnings: uniqueWarnings };
     };
 
-    return {
-      parseServerError,
-      createRaceGuard,
-      createPersistentState,
-      normalizeSchemaErrors,
-      computeBasicDeviations,
-      validateTaskSpecSchema,
-      sanitizeFilename,
-      stringifyJson,
-      proposeTaskSpecFromExport,
-      inferTaskSpecFromExportSpec,
-    };
-  },
-);
+  return {
+    parseServerError,
+    createRaceGuard,
+    createPersistentState,
+    normalizeSchemaErrors,
+    computeBasicDeviations,
+    validateTaskSpecSchema,
+    sanitizeFilename,
+    stringifyJson,
+    proposeTaskSpecFromExport,
+    inferTaskSpecFromExportSpec,
+  };
+})();
+
+if (typeof module === "object" && typeof module.exports === "object") {
+  module.exports = PluginUtils;
+  module.exports.default = PluginUtils;
+}
+
+if (typeof window !== "undefined") {
+  window.PluginUtils = PluginUtils;
+}
+
+if (typeof globalThis !== "undefined") {
+  globalThis.PluginUtils = PluginUtils;
+}
+
+if (typeof exports === "object" && exports) {
+  exports.default = PluginUtils;
+}
