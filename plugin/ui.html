@@ -3817,7 +3817,8 @@ if (typeof exports === "object" && exports) {
       let RELAY_API_KEY = "";
       const getRelayBaseUrl = () => {
         const candidate = typeof relayBaseUrl === "string" ? relayBaseUrl.trim() : "";
-        return candidate || DEFAULT_RELAY_URL;
+        const base = candidate || DEFAULT_RELAY_URL;
+        return base.replace(/\/+$/, "");
       };
       let lastTaskId = null;
       let statusSource = null;
@@ -3965,15 +3966,18 @@ if (typeof exports === "object" && exports) {
 
       const buildRelayUrl = (path, { includeApiKey = false } = {}) => {
         const baseUrl = getRelayBaseUrl();
+        const sanitizedBase = baseUrl.replace(/\/+$/, "");
+        const normalizedPath = typeof path === "string" ? path : "";
         try {
-          const url = new URL(path, baseUrl);
+          const url = new URL(normalizedPath, `${sanitizedBase}/`);
           if (includeApiKey && RELAY_API_KEY) {
             url.searchParams.set("apiKey", RELAY_API_KEY);
           }
           return url.toString();
         } catch (err) {
           console.warn("Failed to build relay URL", err);
-          return `${baseUrl}${path}`;
+          const safePath = normalizedPath.startsWith("/") ? normalizedPath : `/${normalizedPath}`;
+          return `${sanitizedBase}${safePath}`;
         }
       };
 
@@ -3992,9 +3996,26 @@ if (typeof exports === "object" && exports) {
         return finalInit;
       };
 
+      const resolveRelayUrl = (input) => {
+        if (input instanceof URL) {
+          return input.toString();
+        }
+        if (typeof input === "string") {
+          if (/^[a-z][a-z0-9+.-]*:\/\//i.test(input)) {
+            return input;
+          }
+          const base = getRelayBaseUrl();
+          const sanitizedBase = base.replace(/\/+$/, "");
+          const normalizedPath = input.startsWith("/") ? input : `/${input}`;
+          return `${sanitizedBase}${normalizedPath}`;
+        }
+        return input;
+      };
+
       const relayFetch = (input, init = {}) => {
         try {
-          return fetch(input, applyApiKeyToInit(init));
+          const resolvedInput = resolveRelayUrl(input);
+          return fetch(resolvedInput, applyApiKeyToInit(init));
         } catch (err) {
           return Promise.reject(err);
         }
