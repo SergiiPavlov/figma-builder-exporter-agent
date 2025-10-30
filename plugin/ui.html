@@ -7467,7 +7467,7 @@ if (typeof exports === "object" && exports) {
         });
       };
 
-      const renderWarnings = (element, warnings) => {
+      function renderWarnings(element, warnings) {
         if (!element) return;
         element.innerHTML = "";
         if (!Array.isArray(warnings) || warnings.length === 0) {
@@ -8079,7 +8079,7 @@ if (typeof exports === "object" && exports) {
         flowState.import.state === "done" &&
         flowState.import.exportSpec != null;
 
-      const updateActionButtons = () => {
+      function updateActionButtons() {
         setButtonDisabled(validateButton, validateInProgress);
         setButtonDisabled(buildButton, !canBuild());
         setButtonDisabled(importButton, !canImport());
