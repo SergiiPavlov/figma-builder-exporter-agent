@@ -3,7 +3,6 @@
   <head>
     <meta charset="utf-8" />
     <title>Builder+Exporter (M1)</title>
-    <script src="./utils.js"></script>
     <script>
       (() => {
         function lsOk() {
@@ -2184,8 +2183,53 @@
       </div>
     </div>
 
-    <script src="utils.js"></script>
+    <script src="./utils.js"></script>
     <script>
+      if (!window.PluginUtils || typeof window.PluginUtils !== "object") {
+        const errorContainer = document.createElement("div");
+        errorContainer.style.fontFamily =
+          "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+        errorContainer.style.margin = "16px";
+        errorContainer.style.padding = "12px";
+        errorContainer.style.border = "1px solid #dc2626";
+        errorContainer.style.borderRadius = "8px";
+        errorContainer.style.background = "#fef2f2";
+        errorContainer.style.color = "#991b1b";
+        errorContainer.style.fontSize = "12px";
+        errorContainer.innerHTML =
+          "<strong>Plugin utils module is unavailable.</strong><br />" +
+          "Check that <code>plugin/utils.js</code> is packaged with the plugin and loaded before UI scripts.";
+        document.body.innerHTML = "";
+        document.body.appendChild(errorContainer);
+        throw new Error("Plugin utils module is unavailable");
+      }
+
+      const {
+        sanitizeFilename,
+        stringifyJson,
+        parseServerError,
+        createRaceGuard,
+        createPersistentState,
+        normalizeSchemaErrors,
+        inferTaskSpecFromExportSpec,
+        validateTaskSpecSchema,
+      } = window.PluginUtils;
+
+      Object.entries({
+        sanitizeFilename,
+        stringifyJson,
+        parseServerError,
+        createRaceGuard,
+        createPersistentState,
+        normalizeSchemaErrors,
+        inferTaskSpecFromExportSpec,
+        validateTaskSpecSchema,
+      }).forEach(([name, fn]) => {
+        if (typeof fn !== "function") {
+          throw new Error(`Plugin utils is missing required export: ${name}`);
+        }
+      });
+
       const RUNNER_SETTINGS_STORAGE_KEY = "plugin:runner-settings";
       const DEFAULT_RELAY_URL = "http://localhost:3000";
       function loadRunnerHost() {
@@ -2261,92 +2305,6 @@
           value.includes("connection refused")
         );
       };
-
-      const pluginUtils = window.PluginUtils || {};
-      const sanitizeFilename =
-        pluginUtils.sanitizeFilename ||
-        ((value, fallback = "ExportSpec") => {
-          const fallbackName =
-            typeof fallback === "string" && fallback.trim() ? fallback.trim() : "ExportSpec";
-          if (typeof value !== "string") return fallbackName;
-          const trimmed = value.trim();
-          if (!trimmed) return fallbackName;
-          const replaced = trimmed.replace(/[\\/:*?"<>|]+/g, "_");
-          const collapsed = replaced.replace(/\s+/g, " ").trim();
-          const withoutDots = collapsed.replace(/\.+$/, "");
-          const limited = withoutDots.slice(0, 120);
-          return limited || fallbackName;
-        });
-      const stringifyJson =
-        pluginUtils.stringifyJson ||
-        ((value) => {
-          if (value === undefined) return "";
-          try {
-            return JSON.stringify(value, null, 2);
-          } catch (_) {
-            if (value == null) return "";
-            try {
-              return String(value);
-            } catch (_) {
-              return "";
-            }
-          }
-        });
-      const parseServerError =
-        pluginUtils.parseServerError ||
-        ((error, fallback = "Request failed") => {
-          if (error && typeof error === "object" && typeof error.message === "string") {
-            return error.message;
-          }
-          if (typeof error === "string" && error.trim()) {
-            return error.trim();
-          }
-          return fallback;
-        });
-      const createRaceGuard =
-        pluginUtils.createRaceGuard ||
-        (() => ({
-          start: () => ({ token: Date.now(), signal: undefined }),
-          isActive: () => true,
-          finish: () => {},
-          get signal() {
-            return undefined;
-          },
-        }));
-      const createPersistentState =
-        pluginUtils.createPersistentState ||
-        (() => ({
-          read: (value) => value,
-          write: () => false,
-        }));
-
-      const normalizeSchemaErrors =
-        pluginUtils.normalizeSchemaErrors ||
-        ((errors) => {
-          if (!Array.isArray(errors)) return [];
-          return errors
-            .map((entry) => {
-              if (!entry) return null;
-              const path =
-                (typeof entry.path === "string" && entry.path) ||
-                (typeof entry.instancePath === "string" && entry.instancePath) ||
-                (typeof entry.dataPath === "string" && entry.dataPath) ||
-                "/";
-              const message =
-                entry && typeof entry.message === "string" && entry.message.trim()
-                  ? entry.message.trim()
-                  : "Invalid value";
-              return { path, message };
-            })
-            .filter(Boolean);
-        });
-      const inferTaskSpecFromExportSpec =
-        pluginUtils.inferTaskSpecFromExportSpec ||
-        (() => ({ taskSpec: null, warnings: ["Inference is not available"] }));
-
-      const validateTaskSpecSchema =
-        pluginUtils.validateTaskSpecSchema ||
-        (() => ({ valid: true, errors: [] }));
 
       const validateRequestGuard = createRaceGuard();
 
@@ -4747,11 +4705,10 @@
 
       const loadArtifactDetails = async (taskId) => {
         if (!taskId) return;
-        const requestId = (artifactDetailsState.requestId || 0) + 1;
-        artifactDetailsState.requestId = requestId;
-        const isCurrentRequest = () => requestId === artifactDetailsState.requestId;
+        const requestId = ++artifactDetailsState.requestId;
+        const isStaleRequest = () => requestId !== artifactDetailsState.requestId;
         const applyState = (fn) => {
-          if (!isCurrentRequest()) {
+          if (isStaleRequest()) {
             return false;
           }
           fn();
@@ -4780,7 +4737,7 @@
             buildRelayUrl(`/tasks/${encodeURIComponent(taskId)}`),
             { signal },
           );
-          if (!artifactDetailsGuard.isActive(token) || !isCurrentRequest()) {
+          if (!artifactDetailsGuard.isActive(token) || isStaleRequest()) {
             return;
           }
           if (!taskRes.ok) {
@@ -4792,7 +4749,7 @@
             throw new Error(`Task request failed: ${message}`);
           }
           const taskData = await taskRes.json();
-          if (!artifactDetailsGuard.isActive(token) || !isCurrentRequest()) {
+          if (!artifactDetailsGuard.isActive(token) || isStaleRequest()) {
             return;
           }
           applyState(() => {
@@ -4819,7 +4776,7 @@
               buildRelayUrl(`/tasks/${encodeURIComponent(taskId)}/result`),
               { signal },
             );
-            if (!artifactDetailsGuard.isActive(token) || !isCurrentRequest()) {
+            if (!artifactDetailsGuard.isActive(token) || isStaleRequest()) {
               return;
             }
             if (resultRes.status === 404) {
@@ -4838,7 +4795,7 @@
             if (error && error.name === "AbortError") {
               return;
             }
-            if (!artifactDetailsGuard.isActive(token) || !isCurrentRequest()) {
+            if (!artifactDetailsGuard.isActive(token) || isStaleRequest()) {
               return;
             }
             applyState(() => {
@@ -4851,7 +4808,7 @@
             return;
           }
 
-          if (!artifactDetailsGuard.isActive(token) || !isCurrentRequest()) {
+          if (!artifactDetailsGuard.isActive(token) || isStaleRequest()) {
             return;
           }
           applyState(() => {
@@ -4875,7 +4832,7 @@
           if (err && err.name === "AbortError") {
             return;
           }
-          if (!artifactDetailsGuard.isActive(token) || !isCurrentRequest()) {
+          if (!artifactDetailsGuard.isActive(token) || isStaleRequest()) {
             return;
           }
           applyState(() => {
