@@ -8936,9 +8936,16 @@ if (typeof exports === "object" && exports) {
               errors: [],
             });
             showToast({ message: finalMessage, type: "success" });
-            operationContext.validateSpec = raw;
-            inflightOperations.validate = true;
-            post("validate", raw);
+
+            const shouldNotifyPlugin = !remoteOk;
+            if (shouldNotifyPlugin) {
+              operationContext.validateSpec = raw;
+              inflightOperations.validate = true;
+              post("validate", raw);
+            } else {
+              operationContext.validateSpec = null;
+              inflightOperations.validate = false;
+            }
           } catch (error) {
             const message = parseServerError(error, "Ошибка валидации");
             setValidateState("error", { message });
