@@ -3,8 +3,18 @@ var pluginUtils = (function () {
   if (typeof require === "function") {
     return require("./utils.js");
   }
-  if (typeof PluginUtils !== "undefined") {
-    return PluginUtils;
+  var globalScope =
+    typeof globalThis !== "undefined"
+      ? globalThis
+      : typeof self !== "undefined"
+      ? self
+      : typeof window !== "undefined"
+      ? window
+      : typeof global !== "undefined"
+      ? global
+      : undefined;
+  if (globalScope && typeof globalScope.PluginUtils !== "undefined") {
+    return globalScope.PluginUtils;
   }
   throw new Error("Plugin utils module is unavailable");
 })();
