@@ -500,22 +500,54 @@ function parseApiKeys(config) {
   return set;
 }
 
+function getHeader(req, name) {
+  if (!req) {
+    return undefined;
+  }
+  if (typeof req.get === 'function') {
+    try {
+      return req.get(name);
+    } catch (err) {
+      return undefined;
+    }
+  }
+  const headers = req.headers;
+  if (headers && typeof headers === 'object') {
+    const value = headers[name.toLowerCase()];
+    if (Array.isArray(value)) {
+      return value.length > 0 ? value[0] : undefined;
+    }
+    return value;
+  }
+  return undefined;
+}
+
 function extractApiKeyFromRequest(req) {
-  if (!req || typeof req.get !== 'function') return null;
-  const authHeader = req.get('authorization');
+  if (!req) {
+    return null;
+  }
+
+  const headerKey = getHeader(req, 'x-api-key');
+  if (typeof headerKey === 'string' && headerKey.trim()) {
+    return headerKey.trim();
+  }
+
+  const authHeader = getHeader(req, 'authorization');
   if (typeof authHeader === 'string' && authHeader.trim()) {
     const match = authHeader.trim().match(/^Bearer\s+(.+)$/i);
     if (match && match[1]) {
       return match[1].trim();
     }
   }
-  const headerKey = req.get('x-api-key');
-  if (typeof headerKey === 'string' && headerKey.trim()) {
-    return headerKey.trim();
+
+  const query = req.query || {};
+  if (typeof query.apiKey === 'string' && query.apiKey.trim()) {
+    return query.apiKey.trim();
   }
-  if (req.query && typeof req.query.apiKey === 'string' && req.query.apiKey.trim()) {
-    return req.query.apiKey.trim();
+  if (typeof query.api_key === 'string' && query.api_key.trim()) {
+    return query.api_key.trim();
   }
+
   return null;
 }
 
@@ -909,19 +941,6 @@ function createApp(options = {}) {
   const app = express();
   app.set('trust proxy', trustProxySetting);
 
-  // --- CORS для Figma plugin (origin: 'null') ---
-  app.use((req, res, next) => {
-    const origin = req.headers.origin || 'null';
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Vary', 'Origin');
-    res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-API-Key');
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(204);
-    }
-    return next();
-  });
-
   app.use((req, res, next) => {
     const originalJson = res.json.bind(res);
     res.json = (body) => {
@@ -1037,11 +1056,32 @@ function createApp(options = {}) {
     options.corsOrigin != null ? options.corsOrigin : process.env.CORS_ORIGIN,
   );
   const allowAnyOrigin = corsOrigins.length === 0 || corsOrigins.includes('*');
+  const explicitOrigins = new Set(corsOrigins.filter((origin) => origin !== '*'));
   const corsOptions = {
-    origin: allowAnyOrigin ? '*' : corsOrigins,
+    origin(origin, callback) {
+      if (allowAnyOrigin) {
+        return callback(null, true);
+      }
+      if (origin == null) {
+        return callback(null, true);
+      }
+      const normalizedOrigin = String(origin).trim();
+      if (!normalizedOrigin) {
+        return callback(null, true);
+      }
+      if (normalizedOrigin === 'null') {
+        return callback(null, true);
+      }
+      if (explicitOrigins.has(normalizedOrigin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type', 'X-API-Key'],
+    credentials: false,
     maxAge: 86400,
+    optionsSuccessStatus: 204,
   };
 
   app.use(cors(corsOptions));
