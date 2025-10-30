@@ -4,19 +4,19 @@
     <meta charset="utf-8" />
     <title>Builder+Exporter (M1)</title>
     <script>
-      (() => {
-// --- early vars to avoid TDZ (ReferenceError before initialization) ---
-let specTextareaEl = null;
-let validateButton = null;
-let buildButton = null;
-let importButton = null;
-let exportButton = null;
-let inferButton = null;
-let proposeButton = null;
-let artifactLinkEl = null;
-let artifactZipLinkEl = null;
-// --- end early vars ---
+      // --- early vars to avoid TDZ (ReferenceError before initialization) ---
+      let specTextareaEl = null;
+      let validateButton = null;
+      let buildButton = null;
+      let importButton = null;
+      let exportButton = null;
+      let inferButton = null;
+      let proposeButton = null;
+      let artifactLinkEl = null;
+      let artifactZipLinkEl = null;
+      // --- end early vars ---
 
+      (() => {
         function lsOk() {
           try {
             const k = "__ls_check_" + Math.random();
@@ -3814,9 +3814,6 @@ if (typeof exports === "object" && exports) {
       const RUNNER_BACKOFF_SEQUENCE_MS = [1000, 5000, 15000];
       const RUNNER_LOG_LIMIT = 120;
       const RUNNER_RESULT_LOG_LIMIT = 200;
-      // предотвращаем TDZ для ссылок на ссылки загрузок
-      let artifactLinkEl = null;
-      let artifactZipLinkEl = null;
       let RELAY_API_KEY = "";
       const getRelayBaseUrl = () => {
         const candidate = typeof relayBaseUrl === "string" ? relayBaseUrl.trim() : "";
