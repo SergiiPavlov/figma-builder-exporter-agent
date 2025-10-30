@@ -926,37 +926,70 @@ function buildFontName(family) {
 }
 
 function ensureFontsForSpec(spec) {
-  return _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee() {var families, unique, loadedFamily, warnings, _iterator5, _step5, family, fontName;return _regenerator().w(function (_context3) {while (1) switch (_context3.n) {case 0:
-          families = collectFontFamilies(spec);
-          unique = [];
-          families.forEach(function (family) {
-            if (typeof family !== 'string') return;
-            var trimmed = family.trim();
-            if (!trimmed) return;
-            if (!unique.includes(trimmed)) unique.push(trimmed);
-          });
-          loadedFamily = null;
-          warnings = [];
-          fontName = null;_iterator5 = _createForOfIteratorHelper(
-            unique);_context3.f(1);case 4:_context3.s();case 5:if ((_step5 = _context3.n()).done) {_context3.n = 12;break;}family = _step5.value;_context3.n = 6;return (
-              figma.loadFontAsync(buildFontName(family)));case 6:_context3.n = 7;break;case 7:
+  var families = collectFontFamilies(spec);
+  var unique = [];
+  families.forEach(function (family) {
+    if (typeof family !== 'string') return;
+    var trimmed = family.trim();
+    if (!trimmed) return;
+    if (!unique.includes(trimmed)) unique.push(trimmed);
+  });
 
-            if (!loadedFamily) {
-              loadedFamily = family;
-            }_context3.n = 11;break;case 8:_context3.p = 8;_context3.t0 = _context3.v;
+  var warnings = [];
+  var loadedFamily = null;
 
-            warnings.push("Font \u201C".concat(family, "\u201D unavailable; falling back"));case 11:_context3.n = 5;break;case 12:_context3.f(1);case 13:
-          fontName = buildFontName(loadedFamily);
-          if (!loadedFamily) {
-            loadedFamily = 'Roboto';
-            fontName = buildFontName(loadedFamily);_context3.n = 16;return (
-              figma.loadFontAsync(fontName));case 16:_context3.n = 17;break;case 17:_context3.p = 17;_context3.t1 = _context3.v;case 18:return _context3.a(0,
-          {
-            fontName: fontName,
-            family: loadedFamily,
-            warnings: warnings
-          });case 19:case "end":return _context3.stop();}}, null, null, [[4, 13, 13, 13], [5, 8], [16, 17]]);
-        }))();
+  function loadFamilyAtIndex(index) {
+    if (index >= unique.length) {
+      return Promise.resolve();
+    }
+
+    var family = unique[index];
+    var fontName = buildFontName(family);
+    if (!fontName) {
+      return loadFamilyAtIndex(index + 1);
+    }
+
+    return figma.loadFontAsync(fontName).then(function () {
+      if (!loadedFamily) {
+        loadedFamily = family;
+      }
+    }).catch(function () {
+      warnings.push("Font \u201C".concat(family, "\u201D unavailable; falling back"));
+    }).then(function () {
+      return loadFamilyAtIndex(index + 1);
+    });
+  }
+
+  return loadFamilyAtIndex(0).then(function () {
+    if (!loadedFamily) {
+      loadedFamily = 'Roboto';
+      var fallbackFontName = buildFontName(loadedFamily);
+
+      if (!fallbackFontName) {
+        return {
+          fontName: fallbackFontName,
+          family: loadedFamily,
+          warnings: warnings
+        };
+      }
+
+      return figma.loadFontAsync(fallbackFontName).catch(function () {
+        warnings.push("Font \u201C".concat('Roboto', "\u201D unavailable; using fallback definition"));
+      }).then(function () {
+        return {
+          fontName: fallbackFontName,
+          family: loadedFamily,
+          warnings: warnings
+        };
+      });
+    }
+
+    return {
+      fontName: buildFontName(loadedFamily),
+      family: loadedFamily,
+      warnings: warnings
+    };
+  });
 }
 
 function buildHeroSection(frame, section, basePath, context) {
