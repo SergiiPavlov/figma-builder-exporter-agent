@@ -6,7 +6,8 @@
   "ui": "ui.html",
   "editorType": ["figma", "figjam"],
   "networkAccess": {
-    "reasoning": "Uses local Relay in development for validate/build/export. No network calls in production build.",
-    "allowedDomains": ["http://localhost:3000"]
+    "reasoning": "Local Relay only during development; no network in production.",
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:3000/"]
   }
 }
