@@ -1,7 +1,11 @@
 "use strict";
 var pluginUtils = (function () {
   if (typeof require === "function") {
-    return require("./utils.js");
+    try {
+      return require("./utils.js");
+    } catch (error) {
+      return {};
+    }
   }
   var globalScope =
     typeof globalThis !== "undefined"
