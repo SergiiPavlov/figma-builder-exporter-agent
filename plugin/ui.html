@@ -1697,9 +1697,9 @@
       ></pre>
       <div id="status-panel" data-state="idle">
         <div class="status-header">
-          <span>Status:</span>
+          <span>Runner status:</span>
           <span id="status-text">idle</span>
-          <span id="status-connection" data-state="closed">disconnected</span>
+          <span id="status-connection" data-state="closed">RUNNER: DISCONNECTED</span>
         </div>
         <pre id="status-log"></pre>
       </div>
@@ -8575,11 +8575,29 @@ if (typeof exports === "object" && exports) {
         }
       };
 
+      const getRunnerConnectionLabel = (state) => {
+        switch (state) {
+          case "connected":
+          case "open":
+            return "RUNNER: CONNECTED";
+          case "connecting":
+            return "RUNNER: CONNECTING";
+          case "error":
+            return "RUNNER: ERROR";
+          default:
+            return "RUNNER: DISCONNECTED";
+        }
+      };
+
       const setConnectionState = (state, label) => {
         if (!statusConnectionEl) return;
         const value = state || "closed";
         statusConnectionEl.dataset.state = value;
-        statusConnectionEl.textContent = label || value;
+        const normalizedLabel =
+          typeof label === "string" && label.trim()
+            ? label.trim()
+            : getRunnerConnectionLabel(value);
+        statusConnectionEl.textContent = normalizedLabel;
       };
 
       const closeStatusSource = () => {
@@ -8588,7 +8606,7 @@ if (typeof exports === "object" && exports) {
           statusSource = null;
         }
         currentWatchTaskId = null;
-        setConnectionState("closed", "disconnected");
+        setConnectionState("closed");
       };
 
       const openTaskWatch = (taskId) => {
@@ -8598,7 +8616,7 @@ if (typeof exports === "object" && exports) {
         currentWatchTaskId = taskId;
         setStatusLogs([]);
         setStatusState("pending");
-        setConnectionState("connecting", "connecting...");
+        setConnectionState("connecting");
         try {
           const watchUrl = buildRelayUrl(`/tasks/${taskId}/watch`, {
             includeApiKey: !!RELAY_API_KEY,
@@ -8606,7 +8624,7 @@ if (typeof exports === "object" && exports) {
           const source = new EventSource(watchUrl);
           statusSource = source;
           source.onopen = () => {
-            setConnectionState("connected", "connected");
+            setConnectionState("connected");
           };
           source.addEventListener("status", (event) => {
             try {
@@ -8715,14 +8733,14 @@ if (typeof exports === "object" && exports) {
           });
           source.onerror = () => {
             if (source.readyState === EventSource.CLOSED) {
-              setConnectionState("closed", "disconnected");
+              setConnectionState("closed");
             } else {
-              setConnectionState("error", "error (retrying)");
+              setConnectionState("error", "RUNNER: ERROR (RETRYING)");
             }
             rlog(`SSE connection error for task ${taskId}`);
           };
         } catch (err) {
-          setConnectionState("error", "error");
+          setConnectionState("error");
           rlog(
             "Failed to open SSE subscription: " +
               (err && err.message ? err.message : err)
@@ -8736,7 +8754,7 @@ if (typeof exports === "object" && exports) {
 
       setStatusLogs([]);
       setStatusState("idle");
-      setConnectionState("closed", "disconnected");
+      setConnectionState("closed");
       updateArtifactLinks();
       const sample = {
         meta: { specVersion: "0.1", id: "landing-v1" },
@@ -8854,29 +8872,45 @@ if (typeof exports === "object" && exports) {
             }
 
             const localResult = validateTaskSpecSchema(parsed);
+            const remoteOk = remoteResult && remoteResult.attempted && remoteResult.ok;
             let finalState = "valid";
             let finalMessage = "TaskSpec валиден";
             let errors = [];
 
-            if (remoteResult && remoteResult.attempted && remoteResult.ok && !remoteResult.valid) {
-              finalState = "invalid";
-              errors = normalizeSchemaErrors(remoteResult.errors);
-              finalMessage = "TaskSpec не проходит проверку схемы";
-            } else if (!localResult.valid) {
-              finalState = "invalid";
-              errors = localResult.errors;
-              finalMessage = "TaskSpec не проходит проверку схемы";
-            } else if (remoteResult && remoteResult.attempted && !remoteResult.ok) {
-              finalMessage = "TaskSpec валиден (offline)";
+            if (remoteOk) {
+              const remoteErrors = normalizeSchemaErrors(remoteResult.errors || []);
+              if (remoteResult.valid) {
+                finalState = "valid";
+                finalMessage = "TaskSpec валиден";
+                errors = [];
+              } else {
+                finalState = "invalid";
+                finalMessage = "TaskSpec не проходит проверку схемы";
+                errors = remoteErrors;
+                if (!errors.length) {
+                  const fallbackMessage =
+                    (remoteResult.message && String(remoteResult.message).trim()) ||
+                    (remoteResult.raw &&
+                      typeof remoteResult.raw === "object" &&
+                      remoteResult.raw !== null &&
+                      remoteResult.raw.message &&
+                      String(remoteResult.raw.message).trim()) ||
+                    "Сервер не вернул детали ошибки";
+                  errors = [{ path: "/", message: fallbackMessage }];
+                }
+              }
+            } else {
+              finalState = localResult.valid ? "valid" : "invalid";
+              finalMessage = localResult.valid
+                ? "TaskSpec валиден (offline)"
+                : "TaskSpec не проходит проверку схемы (offline)";
+              errors = Array.isArray(localResult.errors) ? localResult.errors : [];
+              if (finalState === "invalid" && !errors.length) {
+                errors = [{ path: "/", message: "Схема не прошла локальную проверку" }];
+              }
             }
 
             if (finalState === "invalid") {
-              if (!errors.length && remoteResult && remoteResult.errors) {
-                errors = normalizeSchemaErrors(remoteResult.errors);
-              }
-              if (!errors.length && localResult && Array.isArray(localResult.errors)) {
-                errors = localResult.errors;
-              }
               if (errors.length) {
                 log("TaskSpec schema validation failed:");
                 errors.forEach((entry) => {
@@ -8891,6 +8925,10 @@ if (typeof exports === "object" && exports) {
               return;
             }
 
+            if (!remoteOk && remoteResult && remoteResult.attempted && !remoteResult.ok) {
+              finalMessage = "TaskSpec валиден (offline)";
+            }
+
             setValidateState("valid", {
               message: finalMessage,
               hint,
@@ -8898,9 +8936,16 @@ if (typeof exports === "object" && exports) {
               errors: [],
             });
             showToast({ message: finalMessage, type: "success" });
-            operationContext.validateSpec = raw;
-            inflightOperations.validate = true;
-            post("validate", raw);
+
+            const shouldNotifyPlugin = !remoteOk;
+            if (shouldNotifyPlugin) {
+              operationContext.validateSpec = raw;
+              inflightOperations.validate = true;
+              post("validate", raw);
+            } else {
+              operationContext.validateSpec = null;
+              inflightOperations.validate = false;
+            }
           } catch (error) {
             const message = parseServerError(error, "Ошибка валидации");
             setValidateState("error", { message });
