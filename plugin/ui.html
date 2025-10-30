@@ -4,19 +4,19 @@
     <meta charset="utf-8" />
     <title>Builder+Exporter (M1)</title>
     <script>
-      (() => {
-// --- early vars to avoid TDZ (ReferenceError before initialization) ---
-let specTextareaEl = null;
-let validateButton = null;
-let buildButton = null;
-let importButton = null;
-let exportButton = null;
-let inferButton = null;
-let proposeButton = null;
-let artifactLinkEl = null;
-let artifactZipLinkEl = null;
-// --- end early vars ---
+      // --- early vars to avoid TDZ (ReferenceError before initialization) ---
+      let specTextareaEl = null;
+      let validateButton = null;
+      let buildButton = null;
+      let importButton = null;
+      let exportButton = null;
+      let inferButton = null;
+      let proposeButton = null;
+      let artifactLinkEl = null;
+      let artifactZipLinkEl = null;
+      // --- end early vars ---
 
+      (() => {
         function lsOk() {
           try {
             const k = "__ls_check_" + Math.random();
