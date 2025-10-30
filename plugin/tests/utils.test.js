@@ -271,16 +271,25 @@ describe("PluginUtils UMD exports", () => {
     assert.equal(typeof imported.default, "object");
     assert.ok(imported.default);
     assert.equal(typeof imported.default.parseServerError, "function");
+    const required = require("../utils.js");
+    assert.equal(imported.default, required);
   });
 
   test("exposes PluginUtils on window when evaluated globally", () => {
     const source = fs.readFileSync(path.resolve(__dirname, "../utils.js"), "utf8");
     const context = {
       window: {},
-      globalThis: {},
+    };
+    context.globalThis = context.window;
+    context.AbortController = class {
+      constructor() {
+        this.signal = {};
+      }
+      abort() {}
     };
     vm.runInNewContext(source, context);
     assert.equal(typeof context.window.PluginUtils, "object");
     assert.equal(typeof context.window.PluginUtils.parseServerError, "function");
+    assert.equal(context.window.PluginUtils, context.globalThis.PluginUtils);
   });
 });
