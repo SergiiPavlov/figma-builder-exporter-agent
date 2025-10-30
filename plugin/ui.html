@@ -7946,7 +7946,9 @@ if (typeof exports === "object" && exports) {
         flowState.import.downloadUrl = null;
       };
 
-      const isRunnerActive = () => runnerState.enabled || runnerState.processing;
+      function isRunnerActive() {
+        return runnerState.enabled || runnerState.processing;
+      }
 
       function setImportState(state, options = {}) {
         const {
