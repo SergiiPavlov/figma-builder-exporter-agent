@@ -7946,7 +7946,9 @@ if (typeof exports === "object" && exports) {
         flowState.import.downloadUrl = null;
       };
 
-      const isRunnerActive = () => runnerState.enabled || runnerState.processing;
+      function isRunnerActive() {
+        return runnerState.enabled || runnerState.processing;
+      }
 
       function setImportState(state, options = {}) {
         const {
@@ -8063,34 +8065,49 @@ if (typeof exports === "object" && exports) {
         }
       };
 
-      const canBuild = () =>
-        !isRunnerActive() &&
-        flowState.validate.state === "valid" &&
-        flowState.validate.lastSpecString === getCurrentSpecString() &&
-        flowState.build.state !== "running";
+      function canBuild() {
+        return (
+          !isRunnerActive() &&
+          flowState.validate.state === "valid" &&
+          flowState.validate.lastSpecString === getCurrentSpecString() &&
+          flowState.build.state !== "running"
+        );
+      }
 
-      const canExport = () =>
-        !isRunnerActive() &&
-        flowState.build.state === "done" &&
-        flowState.build.lastSpecString === getCurrentSpecString() &&
-        flowState.export.state !== "running";
+      function canExport() {
+        return (
+          !isRunnerActive() &&
+          flowState.build.state === "done" &&
+          flowState.build.lastSpecString === getCurrentSpecString() &&
+          flowState.export.state !== "running"
+        );
+      }
 
-      const canImport = () =>
-        !isRunnerActive() &&
-        !inflightOperations.import &&
-        selectionState.isSingleFrame &&
-        flowState.import.state !== "running";
+      function canImport() {
+        return (
+          !isRunnerActive() &&
+          !inflightOperations.import &&
+          selectionState.isSingleFrame &&
+          flowState.import.state !== "running"
+        );
+      }
 
-      const canInferTaskSpec = () =>
-        !isRunnerActive() &&
-        !inflightOperations.import &&
-        (flowState.import.exportSpec != null || selectionState.isSingleFrame);
+      function canInferTaskSpec() {
+        return (
+          !isRunnerActive() &&
+          !inflightOperations.import &&
+          (flowState.import.exportSpec != null || selectionState.isSingleFrame)
+        );
+      }
 
-      const canProposeTaskSpec = () =>
-        !isRunnerActive() &&
-        !inflightOperations.import &&
-        flowState.import.state === "done" &&
-        flowState.import.exportSpec != null;
+      function canProposeTaskSpec() {
+        return (
+          !isRunnerActive() &&
+          !inflightOperations.import &&
+          flowState.import.state === "done" &&
+          flowState.import.exportSpec != null
+        );
+      }
 
       function updateActionButtons() {
         setButtonDisabled(validateButton, validateInProgress);
