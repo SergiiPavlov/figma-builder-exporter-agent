@@ -7431,13 +7431,14 @@ if (typeof exports === "object" && exports) {
       renderArtifactsTable();
       setActiveTab("panel-builder");
 
-      const log = (m) => {
+      function log(m) {
         const el = document.getElementById("log");
+        if (!el) return;
 
         el.textContent +=
           (typeof m === "string" ? m : JSON.stringify(m, null, 2)) + "\n";
         el.scrollTop = el.scrollHeight;
-      };
+      }
 
       const rlog = (m) => {
         const el = document.getElementById("relay-log");
@@ -7454,12 +7455,12 @@ if (typeof exports === "object" && exports) {
       const getCurrentSpecString = () =>
         specTextareaEl && typeof specTextareaEl.value === "string" ? specTextareaEl.value : "";
 
-      const setButtonDisabled = (button, disabled) => {
+      function setButtonDisabled(button, disabled) {
         if (!button) return;
         const isDisabled = !!disabled;
         button.disabled = isDisabled;
         button.setAttribute("aria-disabled", isDisabled ? "true" : "false");
-      };
+      }
 
       const renderErrorList = (element, items) => {
         if (!element) return;
