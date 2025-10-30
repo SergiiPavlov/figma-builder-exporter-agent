@@ -5,6 +5,18 @@
     <title>Builder+Exporter (M1)</title>
     <script>
       (() => {
+// --- early vars to avoid TDZ (ReferenceError before initialization) ---
+let specTextareaEl = null;
+let validateButton = null;
+let buildButton = null;
+let importButton = null;
+let exportButton = null;
+let inferButton = null;
+let proposeButton = null;
+let artifactLinkEl = null;
+let artifactZipLinkEl = null;
+// --- end early vars ---
+
         function lsOk() {
           try {
             const k = "__ls_check_" + Math.random();
@@ -8371,22 +8383,22 @@ if (typeof exports === "object" && exports) {
           logs: document.getElementById("export-logs"),
         },
       };
-      const specTextareaEl = document.getElementById("spec");
-      const validateButton = document.getElementById("btn-validate");
-      const buildButton = document.getElementById("btn-build");
-      const importButton = document.getElementById("btn-import");
-      const proposeButton = document.getElementById("btn-propose");
-      const inferButton = document.getElementById("btn-infer");
+      specTextareaEl = document.getElementById("spec");
+      validateButton = document.getElementById("btn-validate");
+      buildButton = document.getElementById("btn-build");
+      importButton = document.getElementById("btn-import");
+      proposeButton = document.getElementById("btn-propose");
+      inferButton = document.getElementById("btn-infer");
       const importSaveButton = document.getElementById("btn-import-save");
-      const exportButton = document.getElementById("btn-export");
+      exportButton = document.getElementById("btn-export");
       const exportDownloadLink = document.getElementById("download");
 
       const statusPanelEl = document.getElementById("status-panel");
       const statusTextEl = document.getElementById("status-text");
       const statusLogEl = document.getElementById("status-log");
       const statusConnectionEl = document.getElementById("status-connection");
-      const artifactLinkEl = document.getElementById("artifact-download");
-      const artifactZipLinkEl = document.getElementById("artifact-zip-download");
+      artifactLinkEl = document.getElementById("artifact-download");
+      artifactZipLinkEl = document.getElementById("artifact-zip-download");
       const pullModeEl = document.getElementById("pull-mode");
       if (pullModeEl) {
         pullModeEnabled = !!pullModeEl.checked;
