@@ -3773,9 +3773,13 @@ runBuild(_x) {return _runBuild.apply(this, arguments);}function _runBuild() {_ru
             var entry = { ts: new Date().toISOString(), level: level, message: message };
             if (isObject(meta)) Object.assign(entry, meta);
             logs.push(JSON.stringify(entry));
-          };if (!(
-          !isObject(spec.meta) || !isObject(spec.target))) {_context2.n = 1;break;}throw (
-            new Error('TaskSpec meta/target are required'));case 1:
+          };
+          if (!isObject(spec) || !isObject(spec.meta) || !isObject(spec.target)) {
+            throw new Error('TaskSpec meta/target are required');
+          }
+          _context2.n = 1;
+          break;
+        case 1:
 
           page = ensurePage(spec.target.pageName, log);
           rootFrame = ensureRootFrame(page, spec, log);
