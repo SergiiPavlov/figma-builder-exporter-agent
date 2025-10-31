@@ -9336,8 +9336,10 @@ if (typeof exports === "object" && exports) {
             msg.message && String(msg.message).trim()
               ? String(msg.message).trim()
               : "Build error";
-          const logEntries = Array.isArray(msg.logs) && msg.logs.length ? msg.logs : [message];
-          setBuildState("error", { message, logs: logEntries, specString });
+          const normalizedLogs = Array.isArray(msg.logs) ? [...msg.logs] : [];
+          const failureLog = `Build failed: ${message}`;
+          normalizedLogs.push(failureLog);
+          setBuildState("error", { message, logs: normalizedLogs, specString });
           showToast({ message, type: "error" });
           log(`ERROR: ${message}`);
           if (Array.isArray(msg.logs)) {
