@@ -1491,6 +1491,11 @@
       <p>
         Вставьте <b>TaskSpec (JSON)</b> ниже и нажмите <b>Validate</b>. Перед
         Build/Export замените <code>REPLACE_WITH_FILE_ID</code> на свой fileId.
+        <br />
+        <small
+          >Рекомендуем плоскую форму секций; допускается
+          <code>content.*</code> для совместимости.</small
+        >
       </p>
       <textarea id="spec"></textarea>
       <div class="auth-settings">
@@ -8777,11 +8782,13 @@ if (typeof exports === "object" && exports) {
             name: "Hero",
             padding: [64, 24],
             spacing: 24,
-            layout: "stack",
+            headline: "Заголовок",
+            subheading: "Подзаголовок",
+            primaryAction: "Купить",
             content: {
-              title: "Заголовок",
-              subtitle: "Подзаголовок",
-              cta: "Купить",
+              headline: "Заголовок",
+              subheading: "Подзаголовок",
+              primaryAction: "Купить",
             },
           },
           {
@@ -8789,6 +8796,11 @@ if (typeof exports === "object" && exports) {
             name: "Преимущества",
             layout: "grid-3",
             spacing: 32,
+            items: [
+              { title: "Быстро" },
+              { title: "Дёшево" },
+              { title: "Точно" },
+            ],
             content: {
               items: [
                 { title: "Быстро" },
@@ -8801,9 +8813,28 @@ if (typeof exports === "object" && exports) {
             type: "cta",
             name: "Призыв",
             padding: [48, 24],
-            content: { text: "Начать сейчас", button: "Попробовать" },
+            ctaText: "Начать сейчас",
+            secondaryAction: "Попробовать позже",
+            content: {
+              ctaText: "Начать сейчас",
+              secondaryAction: "Попробовать позже",
+            },
           },
-          { type: "footer", name: "Подвал", padding: [48, 24] },
+          {
+            type: "footer",
+            name: "Подвал",
+            padding: [48, 24],
+            links: [
+              { label: "Поддержка", href: "https://example.com/support" },
+              { label: "Документация", href: "https://example.com/docs" },
+            ],
+            content: {
+              links: [
+                { label: "Поддержка", href: "https://example.com/support" },
+                { label: "Документация", href: "https://example.com/docs" },
+              ],
+            },
+          },
         ],
         acceptance: { maxSpacingDeviation: 2, checkAutoLayout: true },
       };

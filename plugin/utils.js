@@ -1,6 +1,114 @@
 const PluginUtils = (() => {
   const isObject = (value) => value !== null && typeof value === "object";
 
+  const clampUnit = (value) => {
+    if (!Number.isFinite(value)) return null;
+    const rounded = Math.round(value);
+    if (rounded < -10000) return -10000;
+    if (rounded > 10000) return 10000;
+    return rounded;
+  };
+
+  const normalizeSectionPadding = (raw) => {
+    if (typeof raw === "number") {
+      const normalized = clampUnit(raw);
+      if (normalized == null) return null;
+      return { top: normalized, right: normalized, bottom: normalized, left: normalized };
+    }
+    if (Array.isArray(raw)) {
+      const values = raw.map((value) => clampUnit(value));
+      if (values.length === 2) {
+        const [vertical, horizontal] = values;
+        return {
+          top: vertical != null ? vertical : 0,
+          right: horizontal != null ? horizontal : 0,
+          bottom: vertical != null ? vertical : 0,
+          left: horizontal != null ? horizontal : 0,
+        };
+      }
+      if (values.length === 4) {
+        return {
+          top: values[0] != null ? values[0] : 0,
+          right: values[1] != null ? values[1] : 0,
+          bottom: values[2] != null ? values[2] : 0,
+          left: values[3] != null ? values[3] : 0,
+        };
+      }
+      return null;
+    }
+    if (!isObject(raw)) return null;
+    const aliases = {
+      top: ["top", "t"],
+      right: ["right", "r"],
+      bottom: ["bottom", "b"],
+      left: ["left", "l"],
+    };
+    const result = { top: null, right: null, bottom: null, left: null };
+    for (const side of Object.keys(aliases)) {
+      for (const key of aliases[side]) {
+        if (Number.isFinite(raw[key])) {
+          result[side] = clampUnit(raw[key]);
+          break;
+        }
+      }
+      if (result[side] == null) {
+        result[side] = 0;
+      }
+    }
+    if (Object.values(result).every((value) => value === 0)) {
+      const hasSource = Object.keys(raw).some((key) => Number.isFinite(raw[key]));
+      if (!hasSource) {
+        return null;
+      }
+    }
+    return result;
+  };
+
+  const normalizeSectionSpec = (section) => {
+    if (!isObject(section)) return section;
+    const content = isObject(section.content) ? section.content : null;
+    if (content) {
+      const mapping = {
+        headline: "headline",
+        subheading: "subheading",
+        primaryAction: "primaryAction",
+        secondaryAction: "secondaryAction",
+        items: "items",
+        title: "title",
+        subtitle: "subtitle",
+        ctaText: "ctaText",
+        caption: "caption",
+        links: "links",
+        text: "text",
+        button: "button",
+        body: "body",
+        description: "description",
+      };
+      for (const [key, targetKey] of Object.entries(mapping)) {
+        if ((section[targetKey] === undefined || section[targetKey] === null) && content[key] != null) {
+          section[targetKey] = content[key];
+        }
+      }
+    }
+    const normalizedPadding = normalizeSectionPadding(section.padding);
+    if (normalizedPadding) {
+      section.padding = normalizedPadding;
+    }
+    return section;
+  };
+
+  const normalizeTaskSpecInput = (spec) => {
+    if (!isObject(spec)) return spec;
+    if (Array.isArray(spec.sections)) {
+      spec.sections.forEach((section, index) => {
+        if (isObject(section)) {
+          spec.sections[index] = normalizeSectionSpec(section);
+        }
+      });
+    }
+    return spec;
+  };
+
     const parseServerError = (payload, fallback = "Request failed") => {
       if (payload instanceof Error) {
         return payload.message || fallback;
@@ -1521,6 +1629,7 @@ const PluginUtils = (() => {
     createPersistentState,
     normalizeSchemaErrors,
     computeBasicDeviations,
+    normalizeTaskSpecInput,
     validateTaskSpecSchema,
     sanitizeFilename,
     stringifyJson,

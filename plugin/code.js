@@ -1696,7 +1696,11 @@ function normalizeSectionSpec(section) {
       subtitle: 'subtitle',
       ctaText: 'ctaText',
       caption: 'caption',
-      links: 'links'
+      links: 'links',
+      text: 'text',
+      button: 'button',
+      body: 'body',
+      description: 'description'
     };
     Object.keys(mapping).forEach(function (key) {
       var targetKey = mapping[key];

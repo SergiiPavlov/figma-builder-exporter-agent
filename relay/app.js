@@ -909,19 +909,6 @@ function createApp(options = {}) {
   const app = express();
   app.set('trust proxy', trustProxySetting);
 
-  // --- CORS для Figma plugin (origin: 'null') ---
-  app.use((req, res, next) => {
-    const origin = req.headers.origin || 'null';
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Vary', 'Origin');
-    res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-API-Key');
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(204);
-    }
-    return next();
-  });
-
   app.use((req, res, next) => {
     const originalJson = res.json.bind(res);
     res.json = (body) => {
@@ -1037,11 +1024,25 @@ function createApp(options = {}) {
     options.corsOrigin != null ? options.corsOrigin : process.env.CORS_ORIGIN,
   );
   const allowAnyOrigin = corsOrigins.length === 0 || corsOrigins.includes('*');
+  const explicitCorsOrigins = corsOrigins.filter((origin) => origin !== '*');
+  const corsOriginSet = new Set(explicitCorsOrigins);
   const corsOptions = {
-    origin: allowAnyOrigin ? '*' : corsOrigins,
+    origin(origin, callback) {
+      if (origin == null || origin === 'null') {
+        return callback(null, true);
+      }
+      if (allowAnyOrigin) {
+        return callback(null, true);
+      }
+      if (corsOriginSet.has(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type', 'X-API-Key'],
     maxAge: 86400,
+    optionsSuccessStatus: 204,
   };
 
   app.use(cors(corsOptions));

@@ -190,6 +190,56 @@ describe('Auth & Protection middleware', () => {
     });
   });
 
+  test('allows SSE watch with apiKey query parameter', async () => {
+    const createRes = await authPost('/tasks').send({ taskSpec: SAMPLE_TASK_SPEC });
+    const taskId = createRes.body.taskId;
+    expect(taskId).toBeDefined();
+
+    await new Promise((resolve, reject) => {
+      const req = request
+        .get(`/tasks/${taskId}/watch`)
+        .query({ apiKey: API_KEY })
+        .set('Accept', 'text/event-stream')
+        .buffer(false)
+        .parse((res, callback) => {
+          let done = false;
+          let collected = '';
+          res.on('data', (chunk) => {
+            if (done) return;
+            collected += chunk.toString('utf8');
+            if (collected.includes('\n\n')) {
+              done = true;
+              callback(null, collected);
+              res.destroy();
+            }
+          });
+          res.on('error', (err) => {
+            if (done) return;
+            done = true;
+            callback(err);
+          });
+          res.on('end', () => {
+            if (done) return;
+            done = true;
+            callback(null, collected);
+          });
+        });
+
+      req.end((err, res) => {
+        if (err && !res) {
+          reject(err);
+          return;
+        }
+        try {
+          expect(res.status).toBe(200);
+          resolve();
+        } catch (assertErr) {
+          reject(assertErr);
+        }
+      });
+    });
+  });
+
   test('CORS preflight exposes required headers', async () => {
     const corsApp = createApp({
       dataDir,
@@ -208,6 +258,40 @@ describe('Auth & Protection middleware', () => {
     expect(allowHeaders).toContain('authorization');
     expect(allowHeaders).toContain('content-type');
     expect(allowHeaders).toContain('x-api-key');
+    if (typeof corsApp.__webhooksIdle === 'function') {
+      await corsApp.__webhooksIdle();
+    }
+  });
+
+  test('allows null origin requests for Figma plugin clients', async () => {
+    const corsApp = createApp({
+      dataDir,
+      apiKeys: [API_KEY],
+      corsOrigin: ['https://allowed.example'],
+    });
+    const corsRequest = supertest(corsApp);
+
+    const preflight = await corsRequest
+      .options('/tasks/latest')
+      .set('Origin', 'null')
+      .set('Access-Control-Request-Method', 'GET')
+      .set('Access-Control-Request-Headers', 'Authorization,X-API-Key');
+    expect([200, 204]).toContain(preflight.status);
+    expect(preflight.headers['access-control-allow-origin']).toBe('null');
+
+    const createRes = await corsRequest
+      .post('/tasks')
+      .set('Authorization', `Bearer ${API_KEY}`)
+      .send({ taskSpec: SAMPLE_TASK_SPEC });
+    expect(createRes.status).toBe(200);
+
+    const latestRes = await corsRequest
+      .get('/tasks/latest')
+      .set('Origin', 'null')
+      .set('Authorization', `Bearer ${API_KEY}`);
+    expect(latestRes.status).toBe(200);
+    expect(latestRes.headers['access-control-allow-origin']).toBe('null');
+
     if (typeof corsApp.__webhooksIdle === 'function') {
       await corsApp.__webhooksIdle();
     }
