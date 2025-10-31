@@ -3953,6 +3953,8 @@ if (typeof exports === "object" && exports) {
       };
 
       let validateInProgress = false;
+      let validateOpSeq = 0;
+      let activeValidateOpId = 0;
       let pendingInference = null;
 
       const selectionState = {
@@ -8816,15 +8818,24 @@ if (typeof exports === "object" && exports) {
       renderExportState();
       updateActionButtons();
 
-      const post = (type, overrideSpec) => {
+      const post = (type, payload) => {
         const textarea = document.getElementById("spec");
-        const val =
-          overrideSpec != null
-            ? overrideSpec
-            : textarea && typeof textarea.value === "string"
-              ? textarea.value
-              : "";
-        parent.postMessage({ pluginMessage: { type, taskSpec: val } }, "*");
+        const message = { type };
+        if (typeof payload === "string") {
+          message.taskSpec = payload;
+        } else if (payload && typeof payload === "object") {
+          Object.assign(message, payload);
+          if (!("taskSpec" in message)) {
+            const val =
+              textarea && typeof textarea.value === "string" ? textarea.value : "";
+            message.taskSpec = val;
+          }
+        } else {
+          const val =
+            textarea && typeof textarea.value === "string" ? textarea.value : "";
+          message.taskSpec = val;
+        }
+        parent.postMessage({ pluginMessage: message }, "*");
       };
 
       if (validateButton) {
@@ -8939,10 +8950,13 @@ if (typeof exports === "object" && exports) {
 
             const shouldNotifyPlugin = !remoteOk;
             if (shouldNotifyPlugin) {
+              const opId = ++validateOpSeq;
+              activeValidateOpId = opId;
               operationContext.validateSpec = raw;
               inflightOperations.validate = true;
-              post("validate", raw);
+              post("validate", { taskSpec: raw, opId });
             } else {
+              activeValidateOpId = 0;
               operationContext.validateSpec = null;
               inflightOperations.validate = false;
             }
@@ -9198,6 +9212,12 @@ if (typeof exports === "object" && exports) {
           return;
         }
         if (msg.type === "validate:ok") {
+          const opId =
+            typeof msg.opId === "number" && Number.isFinite(msg.opId) ? msg.opId : null;
+          if (!inflightOperations.validate || opId !== activeValidateOpId) {
+            return;
+          }
+          activeValidateOpId = 0;
           inflightOperations.validate = false;
           operationContext.validateSpec = null;
           validateInProgress = false;
@@ -9212,6 +9232,12 @@ if (typeof exports === "object" && exports) {
           return;
         }
         if (msg.type === "validate:error") {
+          const opId =
+            typeof msg.opId === "number" && Number.isFinite(msg.opId) ? msg.opId : null;
+          if (!inflightOperations.validate || opId !== activeValidateOpId) {
+            return;
+          }
+          activeValidateOpId = 0;
           inflightOperations.validate = false;
           operationContext.validateSpec = null;
           validateInProgress = false;
@@ -9234,6 +9260,34 @@ if (typeof exports === "object" && exports) {
           }
           showToast({ message, type: "error" });
           log(`ERROR: ${message}`);
+          updateActionButtons();
+          return;
+        }
+        if (msg.type === "build:error") {
+          inflightOperations.build = false;
+          const specString = operationContext.buildSpec || getCurrentSpecString();
+          operationContext.buildSpec = null;
+          const message =
+            msg.message && String(msg.message).trim()
+              ? String(msg.message).trim()
+              : "Build error";
+          const logEntries = Array.isArray(msg.logs) && msg.logs.length ? msg.logs : [message];
+          setBuildState("error", { message, logs: logEntries, specString });
+          showToast({ message, type: "error" });
+          log(`ERROR: ${message}`);
+          if (Array.isArray(msg.logs)) {
+            msg.logs.forEach((entry) => {
+              if (typeof entry === "string" && entry.trim()) {
+                log(entry);
+              }
+            });
+          }
+          if (runnerState.processing) {
+            appendRunnerLog(`Build failed: ${message}`);
+            if (runnerState.waitingFor === "build" || runnerState.waitingFor === "export") {
+              await finalizeRunnerFailure(message);
+            }
+          }
           updateActionButtons();
           return;
         }
@@ -9563,6 +9617,7 @@ if (typeof exports === "object" && exports) {
             inflightOperations.validate = false;
             operationContext.validateSpec = null;
             validateInProgress = false;
+            activeValidateOpId = 0;
             setValidateState("error", { message: errorMessage });
           }
           updateActionButtons();

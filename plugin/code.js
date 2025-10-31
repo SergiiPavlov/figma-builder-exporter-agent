@@ -1682,6 +1682,79 @@ function validateTaskSpecSchema(value) {
   return { valid: errors.length === 0, errors: errors };
 }
 
+function normalizeSectionSpec(section) {
+  if (!isObject(section)) return section;
+  var content = isObject(section.content) ? section.content : null;
+  if (content) {
+    var mapping = {
+      headline: 'headline',
+      subheading: 'subheading',
+      primaryAction: 'primaryAction',
+      secondaryAction: 'secondaryAction',
+      items: 'items',
+      title: 'title',
+      subtitle: 'subtitle',
+      ctaText: 'ctaText',
+      caption: 'caption',
+      links: 'links'
+    };
+    Object.keys(mapping).forEach(function (key) {
+      var targetKey = mapping[key];
+      if ((section[targetKey] === undefined || section[targetKey] === null) && content[key] !== undefined && content[key] !== null) {
+        section[targetKey] = content[key];
+      }
+    });
+  }
+  if (Array.isArray(section.padding)) {
+    var values = section.padding.map(function (value) {
+      return clampUnit(value);
+    });
+    if (values.length === 2) {
+      var vertical = values[0];
+      var horizontal = values[1];
+      section.padding = {
+        top: vertical != null ? vertical : 0,
+        right: horizontal != null ? horizontal : 0,
+        bottom: vertical != null ? vertical : 0,
+        left: horizontal != null ? horizontal : 0
+      };
+    } else if (values.length === 4) {
+      section.padding = {
+        top: values[0] != null ? values[0] : 0,
+        right: values[1] != null ? values[1] : 0,
+        bottom: values[2] != null ? values[2] : 0,
+        left: values[3] != null ? values[3] : 0
+      };
+    }
+  } else if (Number.isFinite(section.padding)) {
+    var uniform = clampUnit(section.padding);
+    if (uniform != null) {
+      section.padding = { top: uniform, right: uniform, bottom: uniform, left: uniform };
+    }
+  }
+  return section;
+}
+
+function normalizeTaskSpecInput(spec) {
+  if (!isObject(spec)) return spec;
+  if (Array.isArray(spec.sections)) {
+    spec.sections.forEach(function (section, index) {
+      if (isObject(section)) {
+        spec.sections[index] = normalizeSectionSpec(section);
+      }
+    });
+  }
+  return spec;
+}
+
+function parseTaskSpec(raw) {
+  var spec = safeParseJSON(raw);
+  if (!spec) {
+    throw new Error('Invalid JSON');
+  }
+  return normalizeTaskSpecInput(spec);
+}
+
 function roundToInt(value) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null;
   return Math.round(value);
@@ -2205,6 +2278,30 @@ function normalizePadding(raw) {
     var normalized = clampUnit(raw);
     if (normalized == null) return null;
     return { top: normalized, right: normalized, bottom: normalized, left: normalized };
+  }
+  if (Array.isArray(raw)) {
+    var values = raw.map(function (value) {
+      return clampUnit(value);
+    });
+    if (values.length === 2) {
+      var vertical = values[0];
+      var horizontal = values[1];
+      return {
+        top: vertical != null ? vertical : 0,
+        right: horizontal != null ? horizontal : 0,
+        bottom: vertical != null ? vertical : 0,
+        left: horizontal != null ? horizontal : 0
+      };
+    }
+    if (values.length === 4) {
+      return {
+        top: values[0] != null ? values[0] : 0,
+        right: values[1] != null ? values[1] : 0,
+        bottom: values[2] != null ? values[2] : 0,
+        left: values[3] != null ? values[3] : 0
+      };
+    }
+    return null;
   }
   if (!isObject(raw)) return null;
   var out = { top: null, right: null, bottom: null, left: null };
@@ -4258,12 +4355,140 @@ figma.ui.onmessage = /*#__PURE__*/function () {var _ref = _asyncToGenerator(/*#_
 
 var _originalUiOnMessage = figma.ui.onmessage;
 
+function normalizeValidateOpId(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function attachValidateOpId(payload, opId) {
+  if (opId != null) {
+    payload.opId = opId;
+  }
+  return payload;
+}
+
+function handleValidateMessage(msg) {
+  var opId = normalizeValidateOpId(msg && msg.opId);
+  var spec;
+  try {
+    spec = parseTaskSpec(msg && msg.taskSpec);
+  } catch (error) {
+    var parseMessage = error && error.message ? error.message : 'Invalid JSON';
+    figma.ui.postMessage(attachValidateOpId({ type: 'validate:error', error: parseMessage }, opId));
+    return;
+  }
+  var validationResult = validateTaskSpecSchema(spec);
+  if (!validationResult.valid) {
+    figma.ui.postMessage(
+      attachValidateOpId(
+        {
+          type: 'validate:error',
+          error: 'TaskSpec не проходит проверку схемы',
+          errors: validationResult.errors
+        },
+        opId
+      )
+    );
+    return;
+  }
+  figma.ui.postMessage(attachValidateOpId({ type: 'validate:ok' }, opId));
+}
+
+function handleBuildMessage(msg) {
+  var spec;
+  try {
+    spec = parseTaskSpec(msg && msg.taskSpec);
+  } catch (error) {
+    var parseErrorMessage = error && error.message ? error.message : String(error);
+    figma.ui.postMessage({ type: 'build:error', message: parseErrorMessage });
+    return;
+  }
+  return Promise.resolve(runBuild(spec))
+    .then(function (result) {
+      if (!result) {
+        figma.ui.postMessage({ type: 'build:error', message: 'Build failed' });
+        return;
+      }
+      var sections = Array.isArray(result.sections) ? result.sections : [];
+      var page = result.page;
+      var rootFrame = result.rootFrame;
+      var logs = Array.isArray(result.logs) ? result.logs : [];
+      figma.ui.postMessage({
+        type: 'build:ok',
+        sections: sections.length,
+        pageId: page && page.id,
+        frameId: rootFrame && rootFrame.id,
+        logs: logs,
+        report: result.report
+      });
+    })
+    .catch(function (error) {
+      var message = error && error.message ? error.message : String(error);
+      figma.ui.postMessage({ type: 'build:error', message: message });
+    });
+}
+
+function handleExportMessage(msg) {
+  var spec;
+  try {
+    spec = parseTaskSpec(msg && msg.taskSpec);
+  } catch (error) {
+    var parseErrorMessage = error && error.message ? error.message : String(error);
+    figma.ui.postMessage({ type: 'error', error: parseErrorMessage });
+    return;
+  }
+  return Promise.resolve(runExport(spec))
+    .then(function (result) {
+      if (!result) {
+        figma.ui.postMessage({ type: 'error', error: 'Export failed' });
+        return;
+      }
+      var logs = Array.isArray(result.logs) ? result.logs : [];
+      Promise.resolve(maybeExportPreview())
+        .then(function (previewResult) {
+          var previewPayload = previewResult && !previewResult.error ? previewResult : null;
+          var previewError = previewResult && previewResult.error ? previewResult.error : null;
+          figma.ui.postMessage({
+            type: 'export:ok',
+            exportSpec: result.exportSpec,
+            filename: 'ExportSpec.json',
+            preview: previewPayload,
+            previewError: previewError,
+            logs: logs
+          });
+        })
+        .catch(function (previewError) {
+          var previewMessage = previewError && previewError.message ? previewError.message : String(previewError);
+          figma.ui.postMessage({
+            type: 'export:ok',
+            exportSpec: result.exportSpec,
+            filename: 'ExportSpec.json',
+            preview: null,
+            previewError: previewMessage,
+            logs: logs
+          });
+        });
+    })
+    .catch(function (error) {
+      var message = error && error.message ? error.message : String(error);
+      figma.ui.postMessage({ type: 'error', error: message });
+    });
+}
+
 figma.ui.onmessage = function (msg) {
   if (msg && msg.type === 'import:selection') {
     return handleImportFromSelectionMessage();
   }
   if (msg && msg.type === 'propose:taskspec') {
     return handleProposeTaskSpecMessage();
+  }
+  if (msg && msg.type === 'validate') {
+    return handleValidateMessage(msg);
+  }
+  if (msg && msg.type === 'build') {
+    return handleBuildMessage(msg);
+  }
+  if (msg && msg.type === 'export') {
+    return handleExportMessage(msg);
   }
   if (typeof _originalUiOnMessage === 'function') {
     return _originalUiOnMessage(msg);
