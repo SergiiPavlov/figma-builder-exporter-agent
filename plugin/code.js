@@ -3810,7 +3810,7 @@ function ensureSectionFrame(rootFrame, spec, section, log, index, context) {
   var gridResult = ensureGridStructure(frame, section, spec, log, context, "".concat(basePath, "/grid")) || null;
   var contentResult = syncSectionContent(frame, spec, section, index, context, gridResult);
   return { frame: frame, grid: gridResult, content: contentResult };
-}function
+}
 
 function runBuild(spec) {
   var logs = [];
@@ -4362,7 +4362,7 @@ function computeDeviationSummary(spec, rootFrame, logs) {var _spec$acceptance, _
   return { deviations: deviations, warnings: warnings };
 }
 
-}function
+function
 
 runExport(_x2) {return _runExport.apply(this, arguments);}function _runExport() {_runExport = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3(spec) {var logs, log, page, frame, nodes, _visit, deviationSummary;return _regenerator().w(function (_context3) {while (1) switch (_context3.n) {case 0:
           logs = [];
