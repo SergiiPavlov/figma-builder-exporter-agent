@@ -532,7 +532,7 @@ function extractApiKeyFromRequest(req) {
       if (searchKey && searchKey.trim()) {
         return searchKey.trim();
       }
-    } catch (_) {
+    } catch {
       // ignore URL parse issues
     }
   }
