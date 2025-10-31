@@ -11,6 +11,7 @@ const {
   createPersistentState,
   normalizeSchemaErrors,
   computeBasicDeviations,
+  normalizeTaskSpecInput,
   validateTaskSpecSchema,
   proposeTaskSpecFromExport,
 } = require("../utils.js");
@@ -150,6 +151,93 @@ describe("computeBasicDeviations", () => {
     assert.deepEqual(deviations, [
       { property: "layoutMode", expected: "VERTICAL", actual: "HORIZONTAL", delta: null },
     ]);
+  });
+});
+
+describe("normalizeTaskSpecInput", () => {
+  test("promotes legacy content fields and normalizes padding", () => {
+    const spec = {
+      sections: [
+        {
+          type: "hero",
+          name: "Hero",
+          content: {
+            headline: "Добро пожаловать",
+            subheading: "Описание",
+            primaryAction: "Начать",
+          },
+          padding: [64, 24],
+        },
+        {
+          type: "features",
+          name: "Преимущества",
+          content: {
+            items: [{ title: "Скорость" }, { title: "Стоимость" }],
+          },
+          padding: [32, 24, 40, 24],
+        },
+        {
+          type: "cta",
+          name: "CTA",
+          content: {
+            ctaText: "Попробовать",
+            secondaryAction: "Демо",
+          },
+          padding: 20,
+        },
+        {
+          type: "footer",
+          name: "Footer",
+          content: {
+            links: [{ label: "Docs", href: "https://example.com" }],
+          },
+          padding: { top: 24, left: 16 },
+        },
+      ],
+    };
+
+    const normalized = normalizeTaskSpecInput(spec);
+
+    assert.equal(normalized, spec);
+    assert.equal(normalized.sections[0].headline, "Добро пожаловать");
+    assert.equal(normalized.sections[0].subheading, "Описание");
+    assert.equal(normalized.sections[0].primaryAction, "Начать");
+    assert.deepEqual(normalized.sections[0].padding, {
+      top: 64,
+      right: 24,
+      bottom: 64,
+      left: 24,
+    });
+
+    assert.deepEqual(normalized.sections[1].items, [
+      { title: "Скорость" },
+      { title: "Стоимость" },
+    ]);
+    assert.deepEqual(normalized.sections[1].padding, {
+      top: 32,
+      right: 24,
+      bottom: 40,
+      left: 24,
+    });
+
+    assert.equal(normalized.sections[2].ctaText, "Попробовать");
+    assert.equal(normalized.sections[2].secondaryAction, "Демо");
+    assert.deepEqual(normalized.sections[2].padding, {
+      top: 20,
+      right: 20,
+      bottom: 20,
+      left: 20,
+    });
+
+    assert.deepEqual(normalized.sections[3].links, [
+      { label: "Docs", href: "https://example.com" },
+    ]);
+    assert.deepEqual(normalized.sections[3].padding, {
+      top: 24,
+      right: 0,
+      bottom: 0,
+      left: 16,
+    });
   });
 });
 
