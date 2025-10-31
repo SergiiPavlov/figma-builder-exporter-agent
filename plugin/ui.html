@@ -8849,23 +8849,57 @@ if (typeof exports === "object" && exports) {
       renderExportState();
       updateActionButtons();
 
+      const ensureTaskSpecString = (value, contextLabel = "taskSpec") => {
+        if (typeof value === "string") {
+          if (!value.trim()) {
+            console.warn(`[UI] ${contextLabel}: taskSpec строка пуста`);
+          }
+          return value;
+        }
+        if (value == null) {
+          console.warn(`[UI] ${contextLabel}: taskSpec отсутствует`);
+          return "";
+        }
+        try {
+          console.warn(
+            `[UI] ${contextLabel}: taskSpec был объектом, выполняем JSON.stringify`,
+          );
+          return JSON.stringify(value);
+        } catch (err) {
+          console.warn(`[UI] ${contextLabel}: не удалось сериализовать taskSpec`, err);
+          return "";
+        }
+      };
+
       const post = (type, payload) => {
-        const textarea = document.getElementById("spec");
         const message = { type };
+        let specString = "";
+        let hasExplicitSpec = false;
+
         if (typeof payload === "string") {
-          message.taskSpec = payload;
+          specString = ensureTaskSpecString(payload, `post(${type})`);
+          hasExplicitSpec = true;
         } else if (payload && typeof payload === "object") {
           Object.assign(message, payload);
-          if (!("taskSpec" in message)) {
-            const val =
-              textarea && typeof textarea.value === "string" ? textarea.value : "";
-            message.taskSpec = val;
+          if ("taskSpec" in message) {
+            specString = ensureTaskSpecString(message.taskSpec, `post(${type})`);
+            hasExplicitSpec = true;
           }
-        } else {
-          const val =
-            textarea && typeof textarea.value === "string" ? textarea.value : "";
-          message.taskSpec = val;
         }
+
+        if (!hasExplicitSpec || !specString) {
+          const fallback = getCurrentSpecString();
+          specString = ensureTaskSpecString(fallback, `post(${type}) fallback`);
+          hasExplicitSpec = !!specString;
+        }
+
+        if (!specString) {
+          console.warn(
+            `[UI] post(${type}): taskSpec payload пустой, сообщение может быть отклонено.`,
+          );
+        }
+
+        message.taskSpec = specString;
         parent.postMessage({ pluginMessage: message }, "*");
       };
 
