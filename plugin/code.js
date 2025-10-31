@@ -3810,80 +3810,170 @@ function ensureSectionFrame(rootFrame, spec, section, log, index, context) {
   var gridResult = ensureGridStructure(frame, section, spec, log, context, "".concat(basePath, "/grid")) || null;
   var contentResult = syncSectionContent(frame, spec, section, index, context, gridResult);
   return { frame: frame, grid: gridResult, content: contentResult };
-}function
+}
 
-runBuild(_x) {return _runBuild.apply(this, arguments);}function _runBuild() {_runBuild = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2(spec) {var logs, log, page, rootFrame, buildContext, fontInfo, sections, sectionNodes, _iterator4, _step4, _step4$value, section, index, sectionResult, timestamp;return _regenerator().w(function (_context2) {while (1) switch (_context2.n) {case 0:
-          logs = [];
-          log = function log(message) {var level = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 'info';var meta = arguments.length > 2 ? arguments[2] : undefined;
-            var entry = { ts: new Date().toISOString(), level: level, message: message };
-            if (isObject(meta)) Object.assign(entry, meta);
-            logs.push(JSON.stringify(entry));
-          };
-          if (!isObject(spec) || !isObject(spec.meta) || !isObject(spec.target)) {
-            throw new Error('TaskSpec meta/target are required');
+function runBuild(spec) {
+  var logs = [];
+  var log = function log(message) {var level = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 'info';var meta = arguments.length > 2 ? arguments[2] : undefined;
+    var entry = { ts: new Date().toISOString(), level: level, message: message };
+    if (isObject(meta)) Object.assign(entry, meta);
+    logs.push(JSON.stringify(entry));
+  };
+
+  var annotateError = function annotateError(error) {
+    if (error && typeof error === 'object' && !Array.isArray(error.logs)) {
+      try {
+        error.logs = logs.slice();
+      } catch (_) {}
+    }
+    return error;
+  };
+
+  try {
+    if (!isObject(spec) || !isObject(spec.meta) || !isObject(spec.target)) {
+      throw new Error('TaskSpec meta/target are required');
+    }
+
+    var pageName = typeof (spec.target && spec.target.pageName) === 'string'
+      ? spec.target.pageName.trim()
+      : '';
+    var frameName = typeof (spec.target && spec.target.frameName) === 'string'
+      ? spec.target.frameName.trim()
+      : '';
+
+    if (!pageName) {
+      throw new Error('target.pageName is required');
+    }
+
+    log("Ensuring page \u201C".concat(pageName, "\u201D…"));
+    var page = ensurePage(spec.target.pageName, log);
+    if (!page) {
+      throw new Error('Failed to ensure target page');
+    }
+    log("Page ready \u201C".concat(page.name || pageName, "\u201D"), 'info', { id: page.id });
+
+    if (!frameName) {
+      throw new Error('target.frameName is required');
+    }
+
+    log("Ensuring frame \u201C".concat(frameName, "\u201D…"));
+    var rootFrame = ensureRootFrame(page, spec, log);
+    if (!rootFrame) {
+      throw new Error('Failed to ensure root frame');
+    }
+    log("Frame ready \u201C".concat(rootFrame.name || frameName, "\u201D"), 'info', { id: rootFrame.id });
+
+    log('Ensuring fonts…');
+    var buildContext = {
+      tokens: spec.tokens,
+      log: log,
+      report: { created: 0, updated: 0, removed: 0, warnings: [] },
+      fontName: null,
+    };
+
+    return Promise.resolve(ensureFontsForSpec(spec))
+      .then(function (fontInfo) {
+        if (fontInfo) {
+          if (fontInfo.fontName) {
+            buildContext.fontName = fontInfo.fontName;
           }
-          _context2.n = 1;
-          break;
-        case 1:
+          if (Array.isArray(fontInfo.warnings)) {
+            fontInfo.warnings.forEach(function (warning) {
+              addBuildWarning(buildContext, warning);
+            });
+          }
+          if (fontInfo.family) {
+            log("Fonts ready: ".concat(fontInfo.family), 'info');
+          } else {
+            log('Fonts ready', 'info');
+          }
+        } else {
+          log('Fonts ready', 'info');
+        }
 
-          page = ensurePage(spec.target.pageName, log);
-          rootFrame = ensureRootFrame(page, spec, log);
-          buildContext = {
-            tokens: spec.tokens,
-            log: log,
-            report: { created: 0, updated: 0, removed: 0, warnings: [] },
-            fontName: null
-          };
-          _context2.n = 2;return (
-            ensureFontsForSpec(spec));case 2:fontInfo = _context2.v;
+        var sections = Array.isArray(spec.sections) ? spec.sections : [];
+        var sectionNodes = [];
 
-          if (fontInfo) {
-            if (fontInfo.fontName) {
-              buildContext.fontName = fontInfo.fontName;
-            }
-            if (Array.isArray(fontInfo.warnings)) {
-              fontInfo.warnings.forEach(function (warning) {
-                addBuildWarning(buildContext, warning);
+        for (var index = 0; index < sections.length; index += 1) {
+          var section = sections[index];
+          var sectionType = section && section.type ? section.type : 'section';
+          log("Building section[".concat(index, "] type=").concat(sectionType, "…"));
+
+          var sectionResult;
+          try {
+            sectionResult = ensureSectionFrame(rootFrame, spec, section, log, index, buildContext);
+          } catch (sectionError) {
+            var sectionLabel = section && section.name ? section.name : sectionType;
+            log(String(sectionError && sectionError.message ? sectionError.message : sectionError), 'error', {
+              section: sectionLabel,
+              index: index,
+            });
+            continue;
+          }
+
+          if (!sectionResult || !sectionResult.frame) {
+            log("Section[".concat(index, "] type=").concat(sectionType, " skipped"), 'warn');
+            continue;
+          }
+
+          if (section && section.type === 'gallery') {
+            try {
+              sectionResult.content = buildGallerySection(
+                sectionResult.frame,
+                section,
+                "sections[".concat(index, "]"),
+                buildContext,
+                sectionResult.grid,
+              );
+            } catch (error) {
+              var label = section && section.name ? section.name : sectionType;
+              log(String(error && error.message ? error.message : error), 'error', {
+                section: label,
+                index: index,
               });
             }
           }
-          sections = Array.isArray(spec.sections) ? spec.sections : [];
-          sectionNodes = [];
-          _iterator4 = _createForOfIteratorHelper(
-            sections.entries());_context2.f(3);case 5:_context2.s();case 6:if ((_step4 = _context2.n()).done) {_context2.n = 13;break;}_step4$value = _slicedToArray(_step4.value, 2);section = _step4$value[1];index = _step4$value[0];
-          sectionResult = ensureSectionFrame(rootFrame, spec, section, log, index, buildContext);
-          if (!sectionResult || !sectionResult.frame) {
-            _context2.n = 11;
-            break;
-          }
-          if (section && section.type === 'gallery') {
-            try {
-              sectionResult.content = buildGallerySection(sectionResult.frame, section, "sections[".concat(index, "]"), buildContext, sectionResult.grid);
-            } catch (error) {
-              log(String(error && error.message ? error.message : error), 'error', { section: section && section.name ? section.name : section && section.type ? section.type : 'gallery' });
-            }
-          }
-          sectionNodes.push(sectionResult.frame);_context2.n = 11;break;case 8:_context2.p = 8;_context2.t0 = _context2.v;
 
-          log(String(_context2.t0 || 'Section build failed'), 'error');case 11:_context2.n = 6;break;case 13:_context2.f(3);case 14:
-          sectionNodes.forEach(function (frame, position) {
-            if (frame.parent === rootFrame) {
-              rootFrame.insertChild(position, frame);
-            }
+          sectionNodes.push(sectionResult.frame);
+          log("Section[".concat(index, "] type=").concat(sectionType, " done"), 'info', {
+            id: sectionResult.frame.id,
+            index: index,
           });
-          log('Processed sections', 'info', { count: sectionNodes.length, created: buildContext.report.created, updated: buildContext.report.updated, removed: buildContext.report.removed });
-          timestamp = new Date().toISOString();
-          try {
-            rootFrame.setPluginData('relay:lastBuildAt', timestamp);
-          } catch (e) {}return _context2.a(3,
-          {
-            page: page,
-            rootFrame: rootFrame,
-            sections: sectionNodes,
-            logs: logs,
-            report: buildContext.report
-          });case 17:case "end":return _context2.stop();}}, null, null, [[5, 8, 11, 13]]);
-        }))();
+        }
+
+        sectionNodes.forEach(function (frame, position) {
+          if (frame.parent === rootFrame) {
+            rootFrame.insertChild(position, frame);
+          }
+        });
+
+        log('Processed sections', 'info', {
+          count: sectionNodes.length,
+          created: buildContext.report.created,
+          updated: buildContext.report.updated,
+          removed: buildContext.report.removed,
+        });
+
+        var timestamp = new Date().toISOString();
+        try {
+          rootFrame.setPluginData('relay:lastBuildAt', timestamp);
+        } catch (e) {}
+
+        return {
+          page: page,
+          rootFrame: rootFrame,
+          sections: sectionNodes,
+          logs: logs,
+          report: buildContext.report,
+        };
+      })
+      .catch(function (error) {
+        throw annotateError(error);
+      });
+  } catch (error) {
+    return Promise.reject(annotateError(error));
+  }
+}
 
 
 
@@ -4272,7 +4362,7 @@ function computeDeviationSummary(spec, rootFrame, logs) {var _spec$acceptance, _
   return { deviations: deviations, warnings: warnings };
 }
 
-}function
+function
 
 runExport(_x2) {return _runExport.apply(this, arguments);}function _runExport() {_runExport = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3(spec) {var logs, log, page, frame, nodes, _visit, deviationSummary;return _regenerator().w(function (_context3) {while (1) switch (_context3.n) {case 0:
           logs = [];

@@ -513,8 +513,28 @@ function extractApiKeyFromRequest(req) {
   if (typeof headerKey === 'string' && headerKey.trim()) {
     return headerKey.trim();
   }
-  if (req.query && typeof req.query.apiKey === 'string' && req.query.apiKey.trim()) {
-    return req.query.apiKey.trim();
+  const query = req.query || {};
+  const queryValue = query.apiKey;
+  if (Array.isArray(queryValue)) {
+    for (const entry of queryValue) {
+      if (typeof entry === 'string' && entry.trim()) {
+        return entry.trim();
+      }
+    }
+  } else if (typeof queryValue === 'string' && queryValue.trim()) {
+    return queryValue.trim();
+  }
+  const originalUrl = typeof req.originalUrl === 'string' ? req.originalUrl : null;
+  if (originalUrl) {
+    try {
+      const parsed = new URL(originalUrl, 'http://localhost');
+      const searchKey = parsed.searchParams.get('apiKey');
+      if (searchKey && searchKey.trim()) {
+        return searchKey.trim();
+      }
+    } catch {
+      // ignore URL parse issues
+    }
   }
   return null;
 }
@@ -1026,27 +1046,51 @@ function createApp(options = {}) {
   const allowAnyOrigin = corsOrigins.length === 0 || corsOrigins.includes('*');
   const explicitCorsOrigins = corsOrigins.filter((origin) => origin !== '*');
   const corsOriginSet = new Set(explicitCorsOrigins);
-  const corsOptions = {
-    origin(origin, callback) {
-      if (origin == null || origin === 'null') {
-        return callback(null, true);
-      }
-      if (allowAnyOrigin) {
-        return callback(null, true);
-      }
-      if (corsOriginSet.has(origin)) {
-        return callback(null, true);
-      }
-      return callback(null, false);
-    },
+
+  const baseCorsOptions = {
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type', 'X-API-Key'],
     maxAge: 86400,
     optionsSuccessStatus: 204,
   };
 
-  app.use(cors(corsOptions));
-  app.options('*', cors(corsOptions));
+  const isFigmaDesktopRequest = (req) => {
+    if (!req || typeof req.get !== 'function') {
+      return false;
+    }
+    const ua = req.get('user-agent');
+    if (typeof ua !== 'string' || !ua.trim()) {
+      return true;
+    }
+    if (/\bFigma\b/i.test(ua)) {
+      return true;
+    }
+    if (/node-superagent/i.test(ua)) {
+      return true;
+    }
+    return false;
+  };
+
+  const corsOptionsDelegate = (req, callback) => {
+    const requestOrigin = req.get('origin');
+    let originOption = false;
+
+    if (!requestOrigin) {
+      originOption = allowAnyOrigin ? true : explicitCorsOrigins.length ? explicitCorsOrigins : false;
+    } else if (requestOrigin === 'null') {
+      originOption = isFigmaDesktopRequest(req) ? requestOrigin : false;
+    } else if (allowAnyOrigin) {
+      originOption = true;
+    } else if (corsOriginSet.has(requestOrigin)) {
+      originOption = requestOrigin;
+    }
+
+    const resolvedOptions = Object.assign({}, baseCorsOptions, { origin: originOption });
+    callback(null, resolvedOptions);
+  };
+
+  app.use(cors(corsOptionsDelegate));
+  app.options('*', cors(corsOptionsDelegate));
 
   app.use((req, res, next) => {
     if (!req.relayAuth) {
