@@ -3719,11 +3719,56 @@ function ensureGridStructure(sectionNode, section, spec, log, context, basePath)
   return { container: container, columns: desiredColumns };
 }
 
-function ensureSectionFrame(rootFrame, spec, section, log, index, context) {
-  if (!section || typeof section.name !== 'string') {
-    throw new Error('Every section requires a name');
+function formatSectionTypeLabel(type) {
+  if (typeof type !== 'string') return null;
+  var cleaned = type.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return null;
+  return cleaned.split(' ').map(function (word) {
+    if (!word) return word;
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }).join(' ');
+}
+
+function deriveSectionFallbackName(section, index) {
+  var base = null;
+  if (section && typeof section.type === 'string') {
+    base = formatSectionTypeLabel(section.type);
   }
-  var sectionName = section.name.trim();
+  if (!base) {
+    base = 'Section';
+  }
+  if (Number.isFinite(index)) {
+    return "".concat(base, " #").concat(index + 1);
+  }
+  return base;
+}
+
+function ensureSectionFrame(rootFrame, spec, section, log, index, context) {
+  if (!isObject(section)) {
+    var invalidLabel = Number.isFinite(index) ? "Section #".concat(index + 1) : 'Section';
+    addBuildWarning(context, "".concat(invalidLabel, " is invalid and was skipped"));
+    if (typeof log === 'function') {
+      log('Skipped invalid section entry', 'warn', { index: index });
+    }
+    return null;
+  }
+  var hasName = typeof section.name === 'string';
+  var sectionName = hasName ? section.name.trim() : '';
+  var ordinal = Number.isFinite(index) ? index + 1 : null;
+  var sectionLabel = ordinal ? "Section #".concat(ordinal) : 'Section';
+  if (!sectionName) {
+    sectionName = deriveSectionFallbackName(section, index);
+    addBuildWarning(context, "".concat(sectionLabel, " is missing name; using \u201C").concat(sectionName, "\u201D"));
+    if (typeof log === 'function') {
+      log('Applied fallback section name', 'warn', { index: index, name: sectionName });
+    }
+  }
+  if (!sectionName) {
+    return null;
+  }
+  if (!hasName || section.name !== sectionName) {
+    section.name = sectionName;
+  }
   var frame = rootFrame.children.find(function (child) {return child.type === 'FRAME' && child.name === sectionName;});
   if (!frame) {
     frame = figma.createFrame();
@@ -3807,6 +3852,10 @@ runBuild(_x) {return _runBuild.apply(this, arguments);}function _runBuild() {_ru
           _iterator4 = _createForOfIteratorHelper(
             sections.entries());_context2.f(3);case 5:_context2.s();case 6:if ((_step4 = _context2.n()).done) {_context2.n = 13;break;}_step4$value = _slicedToArray(_step4.value, 2);section = _step4$value[1];index = _step4$value[0];
           sectionResult = ensureSectionFrame(rootFrame, spec, section, log, index, buildContext);
+          if (!sectionResult || !sectionResult.frame) {
+            _context2.n = 11;
+            break;
+          }
           if (section && section.type === 'gallery') {
             try {
               sectionResult.content = buildGallerySection(sectionResult.frame, section, "sections[".concat(index, "]"), buildContext, sectionResult.grid);
