@@ -4416,6 +4416,27 @@ function normalizeValidateOpId(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function coerceTaskSpecPayload(raw, context) {
+  var label = context || 'taskSpec';
+  if (typeof raw === 'string') {
+    if (!raw.trim()) {
+      console.warn(label + ': taskSpec payload is an empty string');
+    }
+    return raw;
+  }
+  if (raw == null) {
+    console.warn(label + ': taskSpec payload is missing');
+    return null;
+  }
+  try {
+    console.warn(label + ': received non-string taskSpec payload, stringifying automatically');
+    return JSON.stringify(raw);
+  } catch (error) {
+    console.warn(label + ': failed to stringify taskSpec payload', error);
+    return null;
+  }
+}
+
 function attachValidateOpId(payload, opId) {
   if (opId != null) {
     payload.opId = opId;
@@ -4425,9 +4446,16 @@ function attachValidateOpId(payload, opId) {
 
 function handleValidateMessage(msg) {
   var opId = normalizeValidateOpId(msg && msg.opId);
+  var rawTaskSpec = coerceTaskSpecPayload(msg && msg.taskSpec, 'validate');
+  if (!rawTaskSpec || !rawTaskSpec.trim()) {
+    figma.ui.postMessage(
+      attachValidateOpId({ type: 'validate:error', error: 'TaskSpec отсутствует' }, opId)
+    );
+    return;
+  }
   var spec;
   try {
-    spec = parseTaskSpec(msg && msg.taskSpec);
+    spec = parseTaskSpec(rawTaskSpec);
   } catch (error) {
     var parseMessage = error && error.message ? error.message : 'Invalid JSON';
     figma.ui.postMessage(attachValidateOpId({ type: 'validate:error', error: parseMessage }, opId));
@@ -4453,7 +4481,12 @@ function handleValidateMessage(msg) {
 function handleBuildMessage(msg) {
   var spec;
   try {
-    spec = parseTaskSpec(msg && msg.taskSpec);
+    var rawTaskSpec = coerceTaskSpecPayload(msg && msg.taskSpec, 'build');
+    if (!rawTaskSpec || !rawTaskSpec.trim()) {
+      figma.ui.postMessage({ type: 'build:error', message: 'TaskSpec отсутствует' });
+      return;
+    }
+    spec = parseTaskSpec(rawTaskSpec);
   } catch (error) {
     var parseErrorMessage = error && error.message ? error.message : String(error);
     figma.ui.postMessage({ type: 'build:error', message: parseErrorMessage });
@@ -4487,7 +4520,12 @@ function handleBuildMessage(msg) {
 function handleExportMessage(msg) {
   var spec;
   try {
-    spec = parseTaskSpec(msg && msg.taskSpec);
+    var rawTaskSpec = coerceTaskSpecPayload(msg && msg.taskSpec, 'export');
+    if (!rawTaskSpec || !rawTaskSpec.trim()) {
+      figma.ui.postMessage({ type: 'error', error: 'TaskSpec отсутствует' });
+      return;
+    }
+    spec = parseTaskSpec(rawTaskSpec);
   } catch (error) {
     var parseErrorMessage = error && error.message ? error.message : String(error);
     figma.ui.postMessage({ type: 'error', error: parseErrorMessage });
